@@ -128,7 +128,10 @@ export class CustomersController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.write}:${SubjectEnum.Customers}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -214,7 +217,10 @@ export class CustomersController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.read}:${SubjectEnum.Customers}`,
+    ],
   })
   @Get()
   @ApiBearerAuth('access_token')
@@ -259,7 +265,10 @@ export class CustomersController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.read}:${SubjectEnum.Customers}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -281,7 +290,10 @@ export class CustomersController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.delete}:${SubjectEnum.Customers}`,
+    ],
   })
   @ApiParam({
     name: 'id',

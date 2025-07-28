@@ -66,7 +66,10 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -116,7 +119,10 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -306,7 +312,10 @@ export class AgentsController {
   @Post(':id/assign-products')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -341,7 +350,10 @@ export class AgentsController {
   @Post(':id/unassign-products')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -374,7 +386,10 @@ export class AgentsController {
   @Post(':id/assign-agent-installer')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -409,7 +424,10 @@ export class AgentsController {
   @Post(':id/unassign-agent-installer')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -442,7 +460,10 @@ export class AgentsController {
   @Post(':id/assign-customers')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -477,7 +498,10 @@ export class AgentsController {
   @Post(':id/unassign-customers')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -662,7 +686,10 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -699,7 +726,10 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -825,7 +855,10 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({

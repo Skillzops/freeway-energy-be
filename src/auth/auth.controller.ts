@@ -49,7 +49,10 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.write}:${SubjectEnum.Customers}`,
+    ],
   })
   @Post('add-user')
   @ApiBearerAuth('access_token')

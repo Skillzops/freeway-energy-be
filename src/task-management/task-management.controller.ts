@@ -28,7 +28,10 @@ export class TaskManagementController {
     description: 'Sale id to fetch details.',
   })
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   async createTask(
     @Body() createTaskDto: CreateTaskDto,
@@ -50,7 +53,10 @@ export class TaskManagementController {
 
   @Get('installer-agents')
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   async getInstallerAgents() {
     return this.agentService.getAgentsByCategory(AgentCategory.INSTALLER);
@@ -59,7 +65,10 @@ export class TaskManagementController {
   @ApiOperation({ description: 'Assign task to installer agent' })
   @Post(':id/assign-installer-task')
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   async assignInstaller(
     @Param('id') taskId: string,

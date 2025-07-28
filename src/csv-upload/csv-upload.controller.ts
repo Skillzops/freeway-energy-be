@@ -45,7 +45,10 @@ export class CsvUploadController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @Post('validate')
   @UseInterceptors(FileInterceptor('file'))
@@ -97,7 +100,10 @@ export class CsvUploadController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @Post('process')
   @UseInterceptors(FileInterceptor('file'))
@@ -182,7 +188,10 @@ export class CsvUploadController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @Post('get-upload-stats')
   @ApiOperation({

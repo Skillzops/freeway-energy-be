@@ -84,7 +84,10 @@ export class ProductsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Products}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Products}`,
+      `${ActionEnum.read}:${SubjectEnum.Products}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -114,7 +117,10 @@ export class ProductsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Products}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Products}`,
+      `${ActionEnum.read}:${SubjectEnum.Products}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({
@@ -181,7 +187,10 @@ export class ProductsController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Products}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Products}`,
+      `${ActionEnum.read}:${SubjectEnum.Products}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiHeader({

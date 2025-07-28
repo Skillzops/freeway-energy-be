@@ -12,9 +12,9 @@ import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
-import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
-import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';
-import { ActionEnum, SubjectEnum } from '@prisma/client';
+// import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
+// import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';
+// import { ActionEnum, SubjectEnum } from '@prisma/client';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
 
@@ -27,10 +27,13 @@ export class PaymentController {
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
-  })
+  // @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  // @RolesAndPermissions({
+  //   permissions: [
+  //     `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+  //     `${ActionEnum.write}:${SubjectEnum.Agents}`,
+  //   ],
+  // })
   @Post('verify')
   @ApiOperation({ summary: 'Manually verify payment status' })
   @ApiBody({

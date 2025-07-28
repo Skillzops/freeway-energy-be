@@ -36,7 +36,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.write}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Post()
@@ -76,7 +79,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.read}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Get()
@@ -93,7 +99,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.read}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Get(':id')
@@ -111,7 +120,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.write}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Put(':id')
@@ -149,7 +161,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.delete}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Delete(':id')
@@ -167,7 +182,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.write}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Post('/:id/assign')
@@ -206,7 +224,10 @@ export class RolesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.User}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.read}:${SubjectEnum.User}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @Get('/more_details/:id')

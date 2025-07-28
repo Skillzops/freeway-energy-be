@@ -56,7 +56,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBody({
     type: CreateSalesDto,
@@ -74,7 +77,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiOperation({ summary: 'Record a cash payment for a sale' })
   @ApiBody({
@@ -123,7 +129,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBody({
     type: ValidateSaleProductDto,
@@ -142,7 +151,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @ApiExtraModels(ListSalesQueryDto)
@@ -154,7 +166,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @HttpCode(HttpStatus.OK)
   @Get('financial-margins')
@@ -164,7 +179,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @HttpCode(HttpStatus.CREATED)
   @Post('financial-margins')
@@ -174,7 +192,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
@@ -189,7 +210,10 @@ export class SalesController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)

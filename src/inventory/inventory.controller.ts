@@ -55,7 +55,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiBody({
     type: CreateInventoryDto,
@@ -85,7 +88,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiBody({
     type: CreateInventoryBatchDto,
@@ -106,7 +112,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @Get('')
   @ApiOkResponse({
@@ -122,7 +131,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @Get('stats')
   @ApiOkResponse({
@@ -137,7 +149,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -158,7 +173,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -179,7 +197,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiBearerAuth('access_token')
   @ApiBody({
@@ -204,7 +225,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @Get('categories/all')
   @ApiOkResponse({
@@ -219,7 +243,10 @@ export class InventoryController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Inventory}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+    ],
   })
   @ApiParam({
     name: 'id',

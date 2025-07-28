@@ -59,6 +59,7 @@ export class UsersService {
         roleId ? { roleId } : {},
         createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
         updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
+        { agentDetails: null },
       ],
     };
 

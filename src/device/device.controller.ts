@@ -63,7 +63,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
@@ -98,7 +101,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBody({
     type: CreateBatchDeviceTokensDto,
@@ -137,7 +143,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @Get('batch/job/:jobId/status')
   async getBatchJobStatus(@Param('jobId') jobId: string) {
@@ -165,7 +174,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -205,7 +217,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiParam({
     name: 'deviceId',
@@ -244,7 +259,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiBody({
     type: CreateDeviceDto,
@@ -259,7 +277,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Fetch all devices' })
@@ -271,7 +292,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
   })
   @ApiParam({
     name: 'id',
@@ -286,7 +310,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
   })
   @HttpCode(HttpStatus.OK)
   @ApiParam({
@@ -308,7 +335,10 @@ export class DeviceController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.delete}:${SubjectEnum.Sales}`,
+    ],
   })
   @HttpCode(HttpStatus.OK)
   @ApiParam({

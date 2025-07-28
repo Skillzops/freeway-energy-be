@@ -47,7 +47,10 @@ export class ContractController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Contracts}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Contracts}`,
+      `${ActionEnum.read}:${SubjectEnum.Contracts}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @ApiExtraModels(PaginationQueryDto)
@@ -59,7 +62,10 @@ export class ContractController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Contracts}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Contracts}`,
+      `${ActionEnum.read}:${SubjectEnum.Contracts}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
@@ -74,7 +80,10 @@ export class ContractController {
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.Contracts}`],
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Contracts}`,
+      `${ActionEnum.write}:${SubjectEnum.Contracts}`,
+    ],
   })
   @ApiBadRequestResponse({})
   @ApiConsumes('multipart/form-data')

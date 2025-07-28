@@ -60,6 +60,11 @@ export class RolesService {
 
   async findAll() {
     const result = await this.prisma.role.findMany({
+      where: {
+        role: {
+          not: 'AssignedAgent',
+        }
+      },
       include: {
         permissions: {
           select: {
