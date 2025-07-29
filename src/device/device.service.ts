@@ -476,7 +476,7 @@ export class DeviceService {
       fetchFormat,
     } = query;
 
-    // console.log({ fetchFormat });
+    // console.log({ query });
 
     const filterConditions: Prisma.DeviceWhereInput = {
       AND: [
@@ -542,7 +542,7 @@ export class DeviceService {
     const result = await this.prisma.device.findMany({
       skip,
       take,
-      where: {},
+      where: filterConditions,
       include: {
         _count: {
           select: {
