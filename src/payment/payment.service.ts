@@ -332,8 +332,10 @@ export class PaymentService {
   }
 
   async verifyPaymentManually(transactionRef: string, transactionId?: number) {
-    const payment = await this.prisma.payment.findUnique({
-      where: { transactionRef },
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        transactionRef: { equals: transactionRef, mode: 'insensitive' },
+      },
       include: {
         sale: {
           include: {
@@ -553,8 +555,8 @@ export class PaymentService {
   }
 
   async verifyWalletTopUpManually(reference: string) {
-    const topUpRequest = await this.prisma.walletTransaction.findUnique({
-      where: { reference },
+    const topUpRequest = await this.prisma.walletTransaction.findFirst({
+      where: { reference: { equals: reference, mode: 'insensitive' } },
       include: {
         agent: {
           include: { user: true },

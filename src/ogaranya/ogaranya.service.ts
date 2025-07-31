@@ -8,7 +8,11 @@ import * as crypto from 'crypto';
 import ft from 'node-fetch';
 import { PaymentService } from '../payment/payment.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaymentGateway, PaymentStatus, WalletTransactionStatus } from '@prisma/client';
+import {
+  PaymentGateway,
+  PaymentStatus,
+  WalletTransactionStatus,
+} from '@prisma/client';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 
 @Injectable()
@@ -183,9 +187,12 @@ export class OgaranyaService {
 
   async getCustomerByPaymentReference(paymentReference: string) {
     // Find payment by reference
-    const payment = await this.prisma.payment.findUnique({
+    const payment = await this.prisma.payment.findFirst({
       where: {
-        transactionRef: paymentReference,
+        transactionRef: {
+          equals: paymentReference,
+          mode: 'insensitive',
+        },
         sale: { paymentGateway: PaymentGateway.OGARANYA },
       },
       include: {
@@ -239,8 +246,13 @@ export class OgaranyaService {
   }
 
   async getWalletTopUpByReference(topupReference: string) {
-    const topUpTransaction = await this.prisma.walletTransaction.findUnique({
-      where: { reference: topupReference },
+    const topUpTransaction = await this.prisma.walletTransaction.findFirst({
+      where: {
+        reference: {
+          equals: topupReference,
+          mode: 'insensitive',
+        },
+      },
       include: {
         agent: {
           include: {
@@ -273,8 +285,7 @@ export class OgaranyaService {
   }
 
   async handlePaymentWebhook(webhookData: OgaranyaWebhookDto) {
-    const { order_reference, statusCode, statusMsg, payDate } =
-      webhookData;
+    const { order_reference, statusCode, statusMsg, payDate } = webhookData;
 
     // Check if this is a duplicate request
     // const existingResponse = await this.prisma.paymentResponses.findFirst({
@@ -289,8 +300,18 @@ export class OgaranyaService {
     const payment = await this.prisma.payment.findFirst({
       where: {
         OR: [
-          { ogaranyaOrderRef: order_reference },
-          { transactionRef: order_reference },
+          {
+            ogaranyaOrderRef: {
+              equals: order_reference,
+              mode: 'insensitive',
+            },
+          },
+          {
+            transactionRef: {
+              equals: order_reference,
+              mode: 'insensitive',
+            },
+          },
         ],
       },
       include: { sale: true },
@@ -301,8 +322,13 @@ export class OgaranyaService {
       const walletTransaction = await this.prisma.walletTransaction.findFirst({
         where: {
           OR: [
-            { ogaranyaOrderRef: order_reference },
-            { reference: order_reference },
+            {
+              ogaranyaOrderRef: {
+                equals: order_reference,
+                mode: 'insensitive',
+              },
+            },
+            { reference: { equals: order_reference, mode: 'insensitive' } },
           ],
         },
       });
