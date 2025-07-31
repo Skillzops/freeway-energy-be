@@ -192,7 +192,7 @@ export class AuthService {
             permissions: true,
           },
         },
-        agentDetails: true
+        agentDetails: true,
       },
     });
 
@@ -360,7 +360,7 @@ export class AuthService {
 
     return {
       message: MESSAGES.PWD_CREATION_SUCCESS,
-      user:  plainToInstance(UserEntity, user)
+      user: plainToInstance(UserEntity, user),
     };
   }
 

@@ -20,6 +20,8 @@ model User {
 
   tempToken TempToken[]
 
+  createdApiTokens ApiAuthToken[] @relation("CreatedApiTokens")
+
   role         Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
   roleId       String @db.ObjectId
   createdRoles Role[] @relation("RoleCreator")

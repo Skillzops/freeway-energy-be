@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaymentGateway } from '@prisma/client';
 import {
   IsNumber,
   IsPositive,
   Min,
   IsString,
   IsOptional,
+  IsEnum,
 } from 'class-validator';
 
 export class WalletTopUpDto {
@@ -18,4 +20,12 @@ export class WalletTopUpDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({
+    enum: PaymentGateway,
+    description: 'Payment gateway to use for the top-up',
+  })
+  @IsEnum(PaymentGateway)
+  @IsOptional()
+  gateway?: PaymentGateway = PaymentGateway.OGARANYA;
 }

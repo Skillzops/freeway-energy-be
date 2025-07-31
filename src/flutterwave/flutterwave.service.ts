@@ -1,119 +1,124 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
-import * as Flutterwave from 'flutterwave-node-v3';
-import { PaymentStatus } from '@prisma/client';
-
-interface PaymentPayload {
-  amount: number;
-  email: string;
-  saleId: string;
-  name?: string;
-  phone?: string;
-  transactionRef?: string;
-}
 
 @Injectable()
 export class FlutterwaveService {
-  private flw: any;
+  private readonly baseUrl: string;
+  private readonly secretKey: string;
+  private readonly publicKey: string;
 
-  private flwBaseUrl: string;
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
-  ) {
-    this.flw = new Flutterwave(
-      this.configService.get<string>('FLW_PUBLIC_KEY'),
-      this.configService.get<string>('FLW_SECRET_KEY'),
-    );
-
-    this.flwBaseUrl = 'https://api.flutterwave.com/v3';
+  constructor(private readonly config: ConfigService) {
+    this.baseUrl =
+      this.config.get<string>('FLW_BASE_URL') ||
+      'https://api.flutterwave.com/v3';
+    this.secretKey = this.config.get<string>('FLW_SECRET_KEY');
+    this.publicKey = this.config.get<string>('FLW_PUBLIC_KEY');
   }
 
-  async generatePaymentLink(paymentDetails: PaymentPayload) {
-    const { amount, email, saleId, transactionRef } = paymentDetails;
-
-    const payload = {
-      amount,
-      tx_ref: transactionRef,
-      currency: 'NGN',
-      enckey: this.configService.get<string>('FLW_ENCRYPTION_KEY'),
-      customer: {
-        email,
-      },
-      payment_options: 'banktransfer',
-      customizations: {
-        title: 'Product Purchase',
-        description: `Payment for sale ${saleId}`,
-        logo: this.configService.get<string>('COMPANY_LOGO_URL'),
-      },
-      redirect_url: this.configService.get<string>('PAYMENT_REDIRECT_URL'),
-      meta: {
-        saleId,
-      },
+  private getHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${this.secretKey}`,
     };
+  }
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        saleId,
-        amount,
-        transactionRef,
-        paymentDate: new Date(),
-      },
-    });
-
-    // Currently, i cannot find a method in the flutterwave
-    // sdk to create payment links. That is the
-    // reason for the fallback axios request.
-    const url = `${this.flwBaseUrl}/payments`;
+  async generatePaymentLink(paymentData: {
+    tx_ref: string;
+    amount: number;
+    currency: string;
+    customer: {
+      email: string;
+      name: string;
+      phonenumber: string;
+    };
+    payment_options: string;
+    customizations: {
+      title: string;
+      description: string;
+      logo: string;
+    };
+    meta: any;
+  }) {
     try {
-      const { data } = await axios.post(url, payload, {
-        headers: {
-          Authorization: `Bearer ${this.configService.get<string>('FLW_SECRET_KEY')}`,
-          'Content-Type': 'application/json',
+      const response = await axios.post(
+        `${this.baseUrl}/payments`,
+        {
+          ...paymentData,
+          redirect_url: this.config.get<string>('FLW_REDIRECT_URL'),
         },
-      });
+        { headers: this.getHeaders() },
+      );
 
-      if (data.status !== 'success') {
-        await this.prisma.$transaction([
-          this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              paymentStatus: PaymentStatus.FAILED,
-            },
-          }),
-          this.prisma.paymentResponses.create({
-            data: {
-              paymentId: payment.id,
-              data,
-            },
-          }),
-        ]);
-        throw new HttpException(
-          `Payment link not generated ${data.message}`,
-          500,
-        );
-      }
-      return data.data;
+      return response.data;
     } catch (error) {
-      // console.log({ error });
-      await this.prisma.$transaction([
-        this.prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            paymentStatus: PaymentStatus.FAILED,
-          },
-        }),
-        this.prisma.paymentResponses.create({
-          data: {
-            paymentId: payment.id,
-            data: error,
-          },
-        }),
-      ]);
-      throw new Error(`Failed to generate payment link: ${error.message}`);
+      console.error(
+        'Flutterwave payment link generation failed:',
+        error.response?.data || error.message,
+      );
+      throw new Error('Failed to generate Flutterwave payment link');
+    }
+  }
+
+  async verifyTransaction(transactionId: number) {
+    try {
+      // const response = await axios.get(
+      //   `${this.baseUrl}/transactions/${transactionId}/verify`,
+      //   { headers: this.getHeaders() },
+      // );
+
+      const id =
+        typeof transactionId === 'string'
+          ? parseInt(transactionId, 10)
+          : transactionId;
+
+      const response = await axios.get(
+        `${this.baseUrl}/transactions/${id}/verify`,
+        { headers: this.getHeaders() },
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        'Flutterwave transaction verification failed:',
+        error.response?.data || error.message,
+      );
+      throw new Error('Failed to verify Flutterwave transaction');
+    }
+  }
+
+  async verifyTransactionByReference(reference: string) {
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/transactions/verify_by_reference?tx_ref=${reference}`,
+        { headers: this.getHeaders() },
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        'Flutterwave transaction verification by reference failed:',
+        error.response?.data || error.message,
+      );
+      throw new Error('Failed to verify Flutterwave transaction by reference');
+    }
+  }
+
+  async refundPayment(transactionId: number, amount: number) {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/transactions/${transactionId}/refund`,
+        { amount },
+        { headers: this.getHeaders() },
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        'Flutterwave refund failed:',
+        error.response?.data || error.message,
+      );
+      throw new Error('Failed to process Flutterwave refund');
     }
   }
 
@@ -124,66 +129,36 @@ export class FlutterwaveService {
     transactionRef: string,
   ) {
     try {
-      const payload = {
-        //   amount: monthlyPayment,
-        // frequency: installmentDuration,
-        tx_ref: transactionRef,
-        bvn,
-        is_permanent: true,
-        narration: `Please make a bank transfer for the installment payment of sale ${saleId}`,
-        email,
-      };
+      const response = await axios.post(
+        `${this.baseUrl}/virtual-account-numbers`,
+        {
+          email,
+          bvn,
+          tx_ref: transactionRef,
+          narration: `Virtual account for sale ${saleId}`,
+          is_permanent: false,
+        },
+        { headers: this.getHeaders() },
+      );
 
-      const response = await this.flw.VirtualAcct.create(payload);
-
-      if (response.status !== 'success') {
-        throw new HttpException(
-          response.message || 'Failed to generate virtual account',
-          400,
-        );
-      }
       return response.data;
     } catch (error) {
-      // console.log({ error });
-      throw new Error(`Failed to generate static account: ${error.message}`);
+      console.error(
+        'Flutterwave virtual account creation failed:',
+        error.response?.data || error.message,
+      );
+      throw new Error('Failed to create Flutterwave virtual account');
     }
   }
 
-  async verifyTransaction(transactionId: number) {
-    try {
-      const response = await this.flw.Transaction.verify({ id: transactionId });
+  async handleWebhook(payload: any, signature: string) {
+    // Verify webhook signature
+    const secretHash = this.config.get<string>('FLW_SECRET_HASH');
 
-      if (response.status !== 'success' && response.status !== 'completed') {
-        throw new HttpException(
-          response.message || 'Failed to verify transaction',
-          400,
-        );
-      }
-      return response;
-    } catch (error) {
-      // console.log({ error });
-
-      throw new Error(`Failed to verify transaction: ${error.message}`);
+    if (!signature || signature !== secretHash) {
+      throw new Error('Invalid webhook signature');
     }
-  }
 
-  async refundPayment(transactionId: number, amountToRefund: number) {
-    try {
-      const response = await this.flw.Transaction.refund({
-        id: transactionId,
-        amount: amountToRefund,
-      });
-      if (response.status !== 'success' && response.status !== 'completed') {
-        throw new HttpException(
-          response.message || 'Failed to perform refund',
-          400,
-        );
-      }
-      return response;
-    } catch (error) {
-      // console.log({ error });
-
-      throw new Error(`Failed to verify transaction: ${error.message}`);
-    }
+    return payload;
   }
 }

@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { BullModule } from '@nestjs/bullmq';
 import { WalletModule } from 'src/wallet/wallet.module';
+import { PaymentModule } from 'src/payment/payment.module';
 
 @Module({
   imports: [
@@ -25,12 +26,12 @@ import { WalletModule } from 'src/wallet/wallet.module';
       name: 'payment-queue',
     }),
     WalletModule,
+    PaymentModule
   ],
   controllers: [SalesController],
   providers: [
     SalesService,
     PrismaService,
-    PaymentService,
     OpenPayGoService,
     ContractService,
     EmailService,
@@ -40,7 +41,6 @@ import { WalletModule } from 'src/wallet/wallet.module';
   ],
   exports: [
     SalesService,
-    PaymentService,
     OpenPayGoService,
     ContractService,
     EmailService,

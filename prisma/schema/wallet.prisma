@@ -25,6 +25,7 @@ model WalletTransaction {
     agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
     type            WalletTransactionType
+    paymentGateway PaymentGateway @default(OGARANYA)
     amount          Float
     previousBalance Float
     newBalance      Float

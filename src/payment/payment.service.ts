@@ -8,6 +8,7 @@ import {
   PaymentMethod,
   PaymentMode,
   PaymentStatus,
+  PaymentGateway,
   SalesStatus,
   WalletTransactionStatus,
   WalletTransactionType,
@@ -15,10 +16,11 @@ import {
 import { EmailService } from '../mailer/email.service';
 import { ConfigService } from '@nestjs/config';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
-// import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { TermiiService } from '../termii/termii.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
+import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { WalletService } from '../wallet/wallet.service';
+import { ReferenceGeneratorService } from './reference-generator.service';
 
 @Injectable()
 export class PaymentService {
@@ -28,28 +30,103 @@ export class PaymentService {
     private readonly config: ConfigService,
     private readonly openPayGo: OpenPayGoService,
     private readonly ogaranyaService: OgaranyaService,
+    private readonly flutterwaveService: FlutterwaveService,
     private readonly walletService: WalletService,
     private readonly termiiService: TermiiService,
+    private readonly referenceGenerator: ReferenceGeneratorService,
   ) {}
 
-  // async generatePaymentLink(
-  //   saleId: string,
-  //   amount: number,
-  //   email: string,
-  //   transactionRef: string,
-  // ) {
-  //   return this.flutterwaveService.generatePaymentLink({
-  //     saleId,
-  //     amount,
-  //     email,
-  //     transactionRef,
-  //   });
-  // }
+  async generatePaymentPayload(
+    saleId: string,
+    amount: number,
+    email: string,
+    gateway: PaymentGateway = PaymentGateway.OGARANYA,
+    paymentMethod: PaymentMethod = PaymentMethod.ONLINE,
+  ) {
+    const sale = await this.prisma.sales.findFirst({
+      where: { id: saleId },
+      include: {
+        saleItems: {
+          include: {
+            product: true,
+            devices: true,
+          },
+        },
+        customer: true,
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Sale not found');
+    }
+
+    const financialMargins = await this.prisma.financialSettings.findFirst();
+
+    // Generate appropriate reference based on gateway
+    const transactionRef =
+      await this.referenceGenerator.generatePaymentReference();
+
+    let paymentResponse;
+    let payment;
+
+    if (paymentMethod === PaymentMethod.ONLINE) {
+      if (gateway === PaymentGateway.OGARANYA) {
+        paymentResponse = await this.createOgaranyaPayment(
+          sale,
+          amount,
+          transactionRef,
+        );
+      } else if (gateway === PaymentGateway.FLUTTERWAVE) {
+        paymentResponse = await this.createFlutterwavePayment(
+          sale,
+          amount,
+          email,
+          transactionRef,
+        );
+      }
+
+      // Store payment record
+      payment = await this.prisma.payment.create({
+        data: {
+          saleId,
+          amount,
+          transactionRef,
+          paymentDate: new Date(),
+          paymentStatus: PaymentStatus.PENDING,
+          paymentMethod,
+          ...(gateway === PaymentGateway.OGARANYA && {
+            ogaranyaOrderId: paymentResponse?.data?.order_id,
+            ogaranyaOrderRef: paymentResponse?.data?.order_reference,
+            ogaranyaSmsNumber: paymentResponse?.data?.msisdn_to_send_to,
+            ogaranyaSmsMessage: paymentResponse?.data?.message,
+          }),
+        },
+      });
+
+      // Update sale with selected gateway
+      await this.prisma.sales.update({
+        where: { id: saleId },
+        data: { paymentGateway: gateway },
+      });
+    }
+
+    return {
+      sale,
+      financialMargins,
+      payment,
+      paymentData: {
+        amount,
+        tx_ref: transactionRef,
+        gateway,
+        ...paymentResponse,
+      },
+    };
+  }
 
   async generateWalletTopUpPayment(
     agentId: string,
     amount: number,
-    reference: string,
+    gateway: PaymentGateway = PaymentGateway.OGARANYA,
   ) {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
@@ -60,6 +137,83 @@ export class PaymentService {
       throw new NotFoundException('Agent not found');
     }
 
+    const reference = await this.referenceGenerator.generateTopUpReference();
+
+    if (gateway === PaymentGateway.OGARANYA) {
+      return this.createOgaranyaWalletTopUp(agent, amount, reference);
+    } else if (gateway === PaymentGateway.FLUTTERWAVE) {
+      return this.createFlutterwaveWalletTopUp(agent, amount, reference);
+    }
+  }
+
+  private async createOgaranyaPayment(
+    sale: any,
+    amount: number,
+    reference: string,
+  ) {
+    const paymentData = {
+      amount: amount.toString(),
+      msisdn: sale.customer.phone || '2348000000000',
+      desc: `Payment for sale ${sale.id}`,
+      reference,
+    };
+
+    try {
+      const response = await this.ogaranyaService.createOrder(paymentData);
+      if (response.status !== 'success') {
+        throw new BadRequestException(
+          'Failed to create payment order with Ogaranya',
+        );
+      }
+      return response;
+    } catch (error) {
+      throw new BadRequestException(
+        `Ogaranya payment initiation failed: ${error.message}`,
+      );
+    }
+  }
+
+  private async createFlutterwavePayment(
+    sale: any,
+    amount: number,
+    email: string,
+    reference: string,
+  ) {
+    const paymentData = {
+      tx_ref: reference,
+      amount,
+      currency: 'NGN',
+      customer: {
+        email: email || `${sale.customer.phone}@example.com`,
+        name: `${sale.customer.firstname} ${sale.customer.lastname}`,
+        phonenumber: sale.customer.phone,
+      },
+      payment_options: 'banktransfer,card,ussd',
+      customizations: {
+        title: 'Product Purchase',
+        description: `Payment for sale ${sale.id}`,
+        logo: this.config.get<string>('COMPANY_LOGO_URL'),
+      },
+      meta: {
+        saleId: sale.id,
+      },
+    };
+
+    try {
+      // return await this.flutterwaveService.generatePaymentLink(paymentData);
+      return paymentData;
+    } catch (error) {
+      throw new BadRequestException(
+        `Flutterwave payment initiation failed: ${error.message}`,
+      );
+    }
+  }
+
+  private async createOgaranyaWalletTopUp(
+    agent: any,
+    amount: number,
+    reference: string,
+  ) {
     const paymentData = {
       amount: amount.toString(),
       msisdn: agent.user.phone || '2348000000000',
@@ -70,11 +224,11 @@ export class PaymentService {
     try {
       const orderResponse = await this.ogaranyaService.createOrder(paymentData);
 
-      const wallet = await this.prisma.wallet.findUnique({
-        where: { agentId },
-      });
-
       if (orderResponse.status === 'success') {
+        const wallet = await this.prisma.wallet.findUnique({
+          where: { agentId: agent.id },
+        });
+
         const topUpRequest = await this.prisma.walletTransaction.create({
           data: {
             ogaranyaOrderId: orderResponse.data.order_id,
@@ -82,7 +236,7 @@ export class PaymentService {
             ogaranyaSmsNumber: orderResponse.data.msisdn_to_send_to,
             ogaranyaSmsMessage: orderResponse.data.message,
             walletId: wallet.id,
-            agentId,
+            agentId: agent.id,
             type: WalletTransactionType.CREDIT,
             amount,
             previousBalance: wallet.balance,
@@ -94,6 +248,7 @@ export class PaymentService {
         });
 
         return {
+          gateway: PaymentGateway.OGARANYA,
           topUpId: topUpRequest.id,
           orderId: orderResponse.data.order_id,
           orderReference: orderResponse.data.order_reference,
@@ -112,10 +267,80 @@ export class PaymentService {
     }
   }
 
-  async verifyPaymentManually(transactionRef: string) {
+  private async createFlutterwaveWalletTopUp(
+    agent: any,
+    amount: number,
+    reference: string,
+  ) {
+    const paymentData = {
+      tx_ref: reference,
+      amount,
+      currency: 'NGN',
+      customer: {
+        email: agent.user.email || `${agent.user.phone}@example.com`,
+        name: `${agent.user.firstname} ${agent.user.lastname}`,
+        phonenumber: agent.user.phone,
+      },
+      payment_options: 'banktransfer,card,ussd',
+      customizations: {
+        title: 'Wallet Top-up',
+        description: `Wallet top-up for agent ${agent.agentId}`,
+        logo: this.config.get<string>('COMPANY_LOGO_URL'),
+      },
+      meta: {
+        agentId: agent.id,
+        type: 'wallet_topup',
+      },
+    };
+
+    try {
+      // const paymentLink =
+      //   await this.flutterwaveService.generatePaymentLink(paymentData);
+
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { agentId: agent.id },
+      });
+
+      const topUpRequest = await this.prisma.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          agentId: agent.id,
+          type: WalletTransactionType.CREDIT,
+          paymentGateway: PaymentGateway.FLUTTERWAVE,
+          amount,
+          previousBalance: wallet.balance,
+          newBalance: wallet.balance + amount,
+          reference,
+          description: 'Wallet Topup via Flutterwave',
+          status: WalletTransactionStatus.PENDING,
+        },
+      });
+
+      return {
+        gateway: PaymentGateway.FLUTTERWAVE,
+        topUpId: topUpRequest.id,
+        // paymentLink: paymentLink.data.link,
+        paymentData,
+        amount,
+        reference,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Flutterwave top-up initiation failed: ${error.message}`,
+      );
+    }
+  }
+
+  async verifyPaymentManually(transactionRef: string, transactionId?: number) {
     const payment = await this.prisma.payment.findUnique({
       where: { transactionRef },
-      include: { sale: true },
+      include: {
+        sale: {
+          include: {
+            payment: true,
+          },
+        },
+      },
     });
 
     if (!payment) {
@@ -133,46 +358,19 @@ export class PaymentService {
     }
 
     try {
-      const verificationRef = payment.ogaranyaOrderRef || transactionRef;
-      const paymentStatus =
-        await this.ogaranyaService.checkPaymentStatus(verificationRef);
+      // Determine which gateway to verify with
+      const gateway = payment.sale.paymentGateway || PaymentGateway.OGARANYA;
 
-      if (paymentStatus.status === 'success') {
-        if (paymentStatus.data.status === 'SUCCESSFUL') {
-          // Update payment status
-          const updatedPayment = await this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              paymentStatus: PaymentStatus.COMPLETED,
-              updatedAt: new Date(),
-            },
-          });
-
-          // Store verification response
-          await this.prisma.paymentResponses.create({
-            data: {
-              paymentId: payment.id,
-              data: paymentStatus,
-            },
-          });
-
-          // Process post-payment actions
-          await this.handlePostPayment(updatedPayment);
-
-          return {
-            status: 'verified',
-            message: 'Payment verified successfully',
-            payment: updatedPayment,
-          };
+      if (gateway === PaymentGateway.OGARANYA) {
+        return this.verifyOgaranyaPayment(payment);
+      } else if (gateway === PaymentGateway.FLUTTERWAVE) {
+        // Only use transaction ID if it's provided and valid
+        if (transactionId && transactionId > 0) {
+          return this.verifyFlutterwavePayment(payment, transactionId);
         } else {
-          return {
-            status: 'pending',
-            message: 'Payment not yet completed. Please try again later.',
-            paymentStatus: paymentStatus.data.status,
-          };
+          // Use reference-based verification for Flutterwave
+          return this.verifyFlutterwavePaymentByReference(payment);
         }
-      } else {
-        throw new BadRequestException('Failed to verify payment with Ogaranya');
       }
     } catch (error) {
       console.error('Payment verification error:', error);
@@ -182,10 +380,186 @@ export class PaymentService {
     }
   }
 
+  private async verifyOgaranyaPayment(payment: any) {
+    const verificationRef = payment.ogaranyaOrderRef || payment.transactionRef;
+    const paymentStatus =
+      await this.ogaranyaService.checkPaymentStatus(verificationRef);
+
+    if (paymentStatus.status === 'success') {
+      if (paymentStatus.data.status === 'SUCCESSFUL') {
+        const updatedPayment = await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            paymentStatus: PaymentStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        await this.prisma.paymentResponses.create({
+          data: {
+            paymentId: payment.id,
+            data: paymentStatus,
+          },
+        });
+
+        await this.handlePostPayment(updatedPayment);
+
+        return {
+          status: 'verified',
+          message: 'Payment verified successfully via Ogaranya',
+          payment: updatedPayment,
+        };
+      } else {
+        return {
+          status: 'pending',
+          message: 'Payment not yet completed. Please try again later.',
+          paymentStatus: paymentStatus.data.status,
+        };
+      }
+    } else {
+      throw new BadRequestException('Failed to verify payment with Ogaranya');
+    }
+  }
+
+  private async verifyFlutterwavePaymentByReference(payment: any) {
+    try {
+      console.log(
+        '[PAYMENT] Verifying Flutterwave payment by reference:',
+        payment.transactionRef,
+      );
+
+      const verificationResponse =
+        await this.flutterwaveService.verifyTransactionByReference(
+          payment.transactionRef,
+        );
+
+      if (
+        verificationResponse.status === 'success' &&
+        verificationResponse.data.status === 'successful'
+      ) {
+        const updatedPayment = await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            paymentStatus: PaymentStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        await this.prisma.paymentResponses.create({
+          data: {
+            paymentId: payment.id,
+            data: verificationResponse,
+          },
+        });
+
+        await this.handlePostPayment(updatedPayment);
+
+        return {
+          status: 'verified',
+          message:
+            'Payment verified successfully via Flutterwave (by reference)',
+          payment: updatedPayment,
+        };
+      } else {
+        return {
+          status: 'pending',
+          message: 'Payment not yet completed. Please try again later.',
+          paymentStatus: verificationResponse.data?.status,
+        };
+      }
+    } catch (error) {
+      console.error(
+        '[PAYMENT] Flutterwave reference verification failed:',
+        error,
+      );
+      throw new BadRequestException(
+        `Failed to verify payment with Flutterwave: ${error.message}`,
+      );
+    }
+  }
+
+  private async verifyFlutterwavePayment(payment: any, transactionId: number) {
+    try {
+      // Get transaction ID from payment responses or use reference
+      // const transactionId = await this.getFlutterwaveTransactionId(payment);
+      const verificationResponse =
+        await this.flutterwaveService.verifyTransaction(transactionId);
+
+      if (
+        verificationResponse.status === 'success' &&
+        verificationResponse.data.status === 'successful'
+      ) {
+        const updatedPayment = await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            paymentStatus: PaymentStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        await this.prisma.paymentResponses.create({
+          data: {
+            paymentId: payment.id,
+            data: verificationResponse,
+          },
+        });
+
+        await this.handlePostPayment(updatedPayment);
+
+        return {
+          status: 'verified',
+          message: 'Payment verified successfully via Flutterwave',
+          payment: updatedPayment,
+        };
+      } else {
+        return {
+          status: 'pending',
+          message: 'Payment not yet completed. Please try again later.',
+          paymentStatus: verificationResponse.data?.status,
+        };
+      }
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to verify payment with Flutterwave: ${error.message}`,
+      );
+    }
+  }
+
+  private async getFlutterwaveTransactionId(
+    payment: any,
+    transaction_id,
+  ): Promise<number> {
+    // Try to get transaction ID from payment responses
+    const paymentResponse = await this.prisma.paymentResponses.findFirst({
+      where: { paymentId: payment.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (
+      paymentResponse?.data &&
+      typeof paymentResponse.data === 'object' &&
+      !Array.isArray(paymentResponse.data) &&
+      'transaction_id' in paymentResponse.data
+    ) {
+      const transactionId = (paymentResponse.data as any).transaction_id;
+      return transactionId;
+    }
+
+    // If not found, we might need to search by reference
+    // This would require calling Flutterwave's transaction lookup endpoint
+    throw new BadRequestException(
+      'Transaction ID not found for Flutterwave payment verification',
+    );
+  }
+
   async verifyWalletTopUpManually(reference: string) {
     const topUpRequest = await this.prisma.walletTransaction.findUnique({
       where: { reference },
-      include: { agent: { include: { user: true } } },
+      include: {
+        agent: {
+          include: { user: true },
+        },
+      },
     });
 
     if (!topUpRequest) {
@@ -203,139 +577,111 @@ export class PaymentService {
     }
 
     try {
-      // Use order reference for verification
-      const verificationRef = topUpRequest.ogaranyaOrderRef || reference;
-      const paymentStatus =
-        await this.ogaranyaService.checkPaymentStatus(verificationRef);
-
-      if (paymentStatus.status === 'success') {
-        if (paymentStatus.data.status === 'SUCCESSFUL') {
-          // Credit wallet
-          const walletTransaction = await this.walletService.creditWallet(
-            topUpRequest.agentId,
-            topUpRequest.amount,
-            reference,
-            `Wallet top-up verified via Ogaranya`,
-          );
-
-          // Update top-up status
-          const updatedTopUp = await this.prisma.walletTransaction.update({
-            where: { id: topUpRequest.id },
-            data: {
-              status: WalletTransactionStatus.COMPLETED,
-              updatedAt: new Date(),
-            },
-          });
-
-          return {
-            status: 'verified',
-            message: 'Wallet top-up verified successfully',
-            amount: topUpRequest.amount,
-            newBalance: walletTransaction.newBalance,
-            topUpRequest: updatedTopUp,
-          };
-        } else {
-          return {
-            status: 'pending',
-            message: 'Payment not yet completed. Please try again later.',
-            paymentStatus: paymentStatus.data.status,
-          };
-        }
+      // Determine gateway based on reference format or stored data
+      if (topUpRequest.ogaranyaOrderRef) {
+        return this.verifyOgaranyaTopUp(topUpRequest);
       } else {
-        throw new BadRequestException('Failed to verify top-up with Ogaranya');
+        return this.verifyFlutterwaveTopUp(topUpRequest);
       }
     } catch (error) {
-      // Log error and update status
       console.error('Top-up verification error:', error);
-
       await this.prisma.walletTransaction.update({
         where: { id: topUpRequest.id },
         data: { status: WalletTransactionStatus.FAILED },
       });
-
       throw new BadRequestException(
         'Top-up verification failed. Please try again.',
       );
     }
   }
 
-  async generatePaymentPayload(
-    saleId: string,
-    amount: number,
-    email: string,
-    transactionRef: string,
-    type: PaymentMethod = PaymentMethod.ONLINE,
-  ) {
-    const sale = await this.prisma.sales.findFirst({
-      where: { id: saleId },
-      include: {
-        saleItems: {
-          include: {
-            product: true,
-            devices: true,
-          },
-        },
-        customer: true,
-      },
-    });
+  private async verifyOgaranyaTopUp(topUpRequest: any) {
+    const verificationRef =
+      topUpRequest.ogaranyaOrderRef || topUpRequest.reference;
+    const paymentStatus =
+      await this.ogaranyaService.checkPaymentStatus(verificationRef);
 
-    const financialMargins = await this.prisma.financialSettings.findFirst();
-
-    let paymentResponse;
-    let payment;
-
-    if (type === PaymentMethod.ONLINE) {
-      const paymentData = {
-        amount: amount.toString(),
-        msisdn: sale.customer.phone || '2348000000000',
-        desc: `Payment for sale ${saleId}`,
-        reference: transactionRef,
-      };
-
-      console.log({ paymentData });
-
-      try {
-        paymentResponse = await this.ogaranyaService.createOrder(paymentData);
-
-        if (paymentResponse.status === 'success') {
-          // Store payment with Ogaranya data
-          payment = await this.prisma.payment.create({
-            data: {
-              saleId,
-              amount,
-              transactionRef,
-              paymentDate: new Date(),
-              ogaranyaOrderId: paymentResponse.data.order_id,
-              ogaranyaOrderRef: paymentResponse.data.order_reference,
-              ogaranyaSmsNumber: paymentResponse.data.msisdn_to_send_to,
-              ogaranyaSmsMessage: paymentResponse.data.message,
-              paymentStatus: PaymentStatus.PENDING,
-            },
-          });
-        } else {
-          throw new BadRequestException(
-            'Failed to create payment order with Ogaranya',
-          );
-        }
-      } catch (error) {
-        throw new BadRequestException(
-          `Payment initiation failed: ${error.message}`,
+    if (paymentStatus.status === 'success') {
+      if (paymentStatus.data.status === 'SUCCESSFUL') {
+        const walletTransaction = await this.walletService.creditWallet(
+          topUpRequest.agentId,
+          topUpRequest.amount,
+          topUpRequest.reference,
+          `Wallet top-up verified via Ogaranya`,
         );
-      }
-    }
 
-    return {
-      sale,
-      financialMargins,
-      payment,
-      paymentData: {
-        amount,
-        tx_ref: transactionRef,
-        ogaranyaResponse: paymentResponse,
-        smsInstructions: paymentResponse?.data?.message,
-        smsNumber: paymentResponse?.data?.msisdn_to_send_to,
-      },
-    };
+        const updatedTopUp = await this.prisma.walletTransaction.update({
+          where: { id: topUpRequest.id },
+          data: {
+            status: WalletTransactionStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        return {
+          status: 'verified',
+          message: 'Wallet top-up verified successfully via Ogaranya',
+          amount: topUpRequest.amount,
+          newBalance: walletTransaction.newBalance,
+          topUpRequest: updatedTopUp,
+        };
+      } else {
+        return {
+          status: 'pending',
+          message: 'Payment not yet completed. Please try again later.',
+          paymentStatus: paymentStatus.data.status,
+        };
+      }
+    } else {
+      throw new BadRequestException('Failed to verify top-up with Ogaranya');
+    }
+  }
+
+  private async verifyFlutterwaveTopUp(topUpRequest: any) {
+    try {
+      const verificationResponse =
+        await this.flutterwaveService.verifyTransactionByReference(
+          topUpRequest.reference,
+        );
+
+      if (
+        verificationResponse.status === 'success' &&
+        verificationResponse.data.status === 'successful'
+      ) {
+        const walletTransaction = await this.walletService.creditWallet(
+          topUpRequest.agentId,
+          topUpRequest.amount,
+          topUpRequest.reference,
+          `Wallet top-up verified via Flutterwave`,
+        );
+
+        const updatedTopUp = await this.prisma.walletTransaction.update({
+          where: { id: topUpRequest.id },
+          data: {
+            status: WalletTransactionStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        return {
+          status: 'verified',
+          message: 'Wallet top-up verified successfully via Flutterwave',
+          amount: topUpRequest.amount,
+          newBalance: walletTransaction.newBalance,
+          topUpRequest: updatedTopUp,
+        };
+      } else {
+        return {
+          status: 'pending',
+          message: 'Payment not yet completed. Please try again later.',
+          paymentStatus: verificationResponse.data?.status,
+        };
+      }
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to verify top-up with Flutterwave, ${error.message}`,
+      );
+    }
   }
 
   async getPendingPayments(agentId?: string) {
@@ -465,46 +811,6 @@ export class PaymentService {
   //   return 'success';
   // }
 
-  async verifyOgaranyaPayment(orderReference: string) {
-    const paymentStatus =
-      await this.ogaranyaService.checkPaymentStatus(orderReference);
-
-    if (
-      paymentStatus.status === 'success' &&
-      paymentStatus.data.status === 'SUCCESSFUL'
-    ) {
-      const payment = await this.prisma.payment.findFirst({
-        where: { transactionRef: orderReference },
-        include: { sale: true },
-      });
-
-      if (!payment) {
-        throw new BadRequestException(
-          `Payment with ref: ${orderReference} does not exist.`,
-        );
-      }
-
-      if (payment.paymentStatus !== PaymentStatus.COMPLETED) {
-        const [paymentData] = await this.prisma.$transaction([
-          this.prisma.payment.update({
-            where: { id: payment.id },
-            data: { paymentStatus: PaymentStatus.COMPLETED },
-          }),
-          this.prisma.paymentResponses.create({
-            data: {
-              paymentId: payment.id,
-              data: paymentStatus,
-            },
-          }),
-        ]);
-
-        await this.handlePostPayment(paymentData);
-      }
-    }
-
-    return paymentStatus;
-  }
-
   async handlePostPayment(paymentData: any) {
     const sale = await this.prisma.sales.findUnique({
       where: { id: paymentData.saleId },
@@ -532,17 +838,12 @@ export class PaymentService {
 
     console.log({ installmentInfo });
 
-   await this.prisma.sales.update({
+    await this.prisma.sales.update({
       where: { id: sale.id },
       data: {
         totalPaid: {
           increment: paymentData.amount,
         },
-        // status:
-        //   sale.totalPaid + paymentData.amount >= sale.totalPrice
-        //     ? SalesStatus.COMPLETED
-        //     : SalesStatus.IN_INSTALLMENT,
-
         remainingInstallments: installmentInfo.newRemainingDuration,
         status: installmentInfo.newStatus,
       },
@@ -558,16 +859,8 @@ export class PaymentService {
       if (tokenableDevices.length) {
         let tokenDuration: number;
         if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
-          // Generate forever token
           tokenDuration = -1; // Represents forever
         } else {
-          // Calculate token duration based on payment
-          // const monthlyPayment =
-          //   (saleItem.totalPrice - saleItem.installmentStartingPrice) /
-          //   saleItem.installmentDuration;
-          // const monthsCovered = Math.floor(paymentData.amount / monthlyPayment);
-          // tokenDuration = monthsCovered * 30; // Convert months to days
-
           tokenDuration =
             installmentInfo.monthsCovered == -1
               ? installmentInfo.monthsCovered
@@ -588,12 +881,8 @@ export class PaymentService {
           });
 
           await this.prisma.device.update({
-            where: {
-              id: device.id,
-            },
-            data: {
-              count: String(token.newCount),
-            },
+            where: { id: device.id },
+            data: { count: String(token.newCount) },
           });
 
           await this.prisma.tokens.create({
@@ -607,8 +896,7 @@ export class PaymentService {
       }
     }
 
-    console.log({ deviceTokens });
-
+    // Send device tokens via email and SMS
     if (deviceTokens.length) {
       if (sale.customer.email) {
         await this.Email.sendMail({
@@ -629,15 +917,13 @@ export class PaymentService {
             deviceTokens,
             sale.customer.firstname || sale.customer.lastname,
           );
-          console.log('Device tokens SMS sent successfully');
         } catch (error) {
           console.error('Failed to send device tokens SMS:', error);
         }
-      } else {
-        console.warn('Customer phone number not available for SMS');
       }
     }
 
+    // Handle installment account details if applicable
     if (
       sale.paymentMethod === PaymentMethod.ONLINE &&
       sale.installmentAccountDetailsId &&
@@ -670,7 +956,6 @@ export class PaymentService {
             to: sale.customer.phone,
             message: accountMessage,
           });
-          console.log('Installment account details SMS sent successfully');
         } catch (error) {
           console.error(
             'Failed to send installment account details SMS:',
@@ -680,12 +965,8 @@ export class PaymentService {
       }
 
       await this.prisma.sales.update({
-        where: {
-          id: sale.id,
-        },
-        data: {
-          deliveredAccountDetails: true,
-        },
+        where: { id: sale.id },
+        data: { deliveredAccountDetails: true },
       });
     }
   }
@@ -698,7 +979,14 @@ export class PaymentService {
     const currentRemainingDuration = sale.remainingInstallments || 0;
     const originalDuration = sale.totalInstallmentDuration || 0;
 
-    // Check if sale is fully paid
+    if (sale.totalMonthlyPayment === 0 && paymentAmount >= totalPrice) {
+      return {
+        newStatus: SalesStatus.COMPLETED,
+        newRemainingDuration: 0,
+        monthsCovered: -1,
+      };
+    }
+
     if (newTotalPaid >= totalPrice) {
       return {
         newStatus: SalesStatus.COMPLETED,
@@ -707,7 +995,14 @@ export class PaymentService {
       };
     }
 
-    // For non-installment sales, don't change duration
+    if (newTotalPaid >= totalPrice) {
+      return {
+        newStatus: SalesStatus.COMPLETED,
+        newRemainingDuration: 0,
+        monthsCovered: -1, // Forever token
+      };
+    }
+
     if (monthlyPayment <= 0) {
       return {
         newStatus:
@@ -724,7 +1019,6 @@ export class PaymentService {
     );
     const previousMonthsCovered = Math.floor(currentTotalPaid / monthlyPayment);
 
-    // Months covered by this specific payment
     const monthsCoveredByThisPayment =
       totalMonthsCoveredByAllPayments - previousMonthsCovered;
 
@@ -763,36 +1057,5 @@ export class PaymentService {
     message += `Use these details for monthly payments.\n\nThank you!`;
 
     return message;
-  }
-
-  async verifyWebhookSignature(payload: any) {
-    const txRef = payload?.data?.tx_ref;
-    const status = payload?.data?.status;
-
-    if (!txRef || status !== 'successful') {
-      console.error('Invalid webhook payload:', payload);
-      return;
-    }
-
-    const paymentExist = await this.prisma.payment.findUnique({
-      where: { transactionRef: txRef },
-    });
-
-    if (!paymentExist) {
-      console.warn(`Payment not found for txRef: ${txRef}`);
-      return;
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.paymentResponses.create({
-        data: {
-          paymentId: paymentExist.id,
-          data: payload,
-        },
-      }),
-    ]);
-
-    console.log(`Payment updated successfully for txRef: ${txRef}`);
-    console.log({ payload });
   }
 }

@@ -5,5 +5,6 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Module({
   providers: [FlutterwaveService, ConfigService, PrismaService],
+  exports: [FlutterwaveService],
 })
 export class FlutterwaveModule {}

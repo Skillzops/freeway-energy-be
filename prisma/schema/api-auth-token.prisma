@@ -1,0 +1,16 @@
+model ApiAuthToken {
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+
+    token      String  @unique
+    clientName String
+    isActive   Boolean @default(true)
+
+    createdAt  DateTime  @default(now())
+    expiresAt  DateTime
+    lastUsedAt DateTime?
+
+    createdById String? @db.ObjectId
+    createdBy   User?   @relation("CreatedApiTokens", fields: [createdById], references: [id])
+
+    @@map("api_auth_tokens")
+}

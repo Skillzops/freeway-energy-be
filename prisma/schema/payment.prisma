@@ -12,6 +12,10 @@ model Payment {
   ogaranyaSmsNumber  String?
   ogaranyaSmsMessage String?
 
+  flutterwaveTransactionId String?
+  flutterwavePaymentId     String?
+  flutterwavePaymentLink   String?
+
   recordedById String? @db.ObjectId
   recordedBy   User?   @relation("RecordedPayments", fields: [recordedById], references: [id])
 
@@ -57,4 +61,9 @@ enum PaymentMethod {
   BANK_TRANSFER
   POS
   WALLET
+}
+
+enum PaymentGateway {
+  OGARANYA
+  FLUTTERWAVE
 }

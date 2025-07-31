@@ -25,6 +25,8 @@ model Sales {
 
   payment Payment[]
 
+  paymentGateway PaymentGateway @default(OGARANYA)
+
   walletTransactions WalletTransaction[]
   installerTasks     InstallerTask[]
 

@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CategoryTypes, PaymentMethod, PaymentMode } from '@prisma/client';
+import {
+  CategoryTypes,
+  PaymentGateway,
+  PaymentMethod,
+  PaymentMode,
+} from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   IsNotEmpty,
@@ -190,6 +195,14 @@ export class CreateSalesDto {
   @IsNotEmpty()
   @IsEnum(PaymentMethod)
   paymentMethod: PaymentMethod;
+
+  @ApiPropertyOptional({
+    enum: PaymentGateway,
+    description: 'Payment gateway to use for the sale',
+  })
+  @IsEnum(PaymentGateway)
+  @IsOptional()
+  paymentGateway?: PaymentGateway = PaymentGateway.OGARANYA;
 
   @ApiPropertyOptional({
     description:

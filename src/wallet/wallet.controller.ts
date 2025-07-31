@@ -6,6 +6,8 @@ import { PaymentService } from '../payment/payment.service';
 import { GetSessionUser } from '../auth/decorators/getUser';
 import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreateAgentWalletDto } from './dto/create-agent-wallet.dto';
+import { PaymentGateway } from '@prisma/client';
+import { WalletTopUpDto } from './dto/wallet-topup.dto';
 
 @Controller('wallet')
 @ApiTags('Wallet')
@@ -43,22 +45,23 @@ export class WalletController {
   }
 
   @Post('topup')
+  @ApiOperation({ summary: 'Top up wallet using selected payment gateway' })
+  @ApiBody({ type: WalletTopUpDto })
   async topUpWallet(
-    @Body() topUpDto: { amount: number },
+    @Body() topUpDto: WalletTopUpDto,
     @GetSessionUser('agent') agent: any,
   ) {
-    const reference = `topup-${agent.id}-${Date.now()}`;
+    const gateway = topUpDto.gateway || PaymentGateway.OGARANYA;
 
-    // Generate payment link through Flutterwave
-    const paymentLink = await this.paymentService.generateWalletTopUpPayment(
+    const paymentData = await this.paymentService.generateWalletTopUpPayment(
       agent.id,
       topUpDto.amount,
-      reference,
+      gateway,
     );
 
     return {
-      paymentLink,
-      reference,
+      ...paymentData,
+      gateway,
       amount: topUpDto.amount,
     };
   }
@@ -72,7 +75,7 @@ export class WalletController {
         reference: {
           type: 'string',
           description: 'Top-up reference',
-          example: 'topup-agent123-1234567890',
+          example: 'TOP-ABC123',
         },
       },
       required: ['reference'],

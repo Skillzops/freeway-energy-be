@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalesDto, SaleItemDto } from './dto/create-sales.dto';
 import {
+  PaymentGateway,
   PaymentMethod,
   PaymentMode,
   PaymentStatus,
@@ -312,8 +313,8 @@ export class SalesService {
       sale.id,
       totalAmountToPay,
       sale.customer.email || `${sale.customer.phone}@gmail.com`,
-      transactionRef,
-      dto.paymentMethod,
+      dto.paymentGateway || PaymentGateway.OGARANYA,
+      dto.paymentMethod || PaymentMethod.ONLINE,
     );
   }
 
@@ -572,13 +573,12 @@ export class SalesService {
       },
     });
 
-    const transactionRef = `sale-${sale.id}-${Date.now()}`;
-
     return await this.paymentService.generatePaymentPayload(
       sale.id,
       sale.installmentStartingPrice || sale.totalPrice,
       sale.customer.email || `${sale.customer.phone}@gmail.com`,
-      transactionRef,
+      sale.paymentGateway || PaymentGateway.OGARANYA,
+      sale.paymentMethod || PaymentMethod.ONLINE,
     );
   }
 

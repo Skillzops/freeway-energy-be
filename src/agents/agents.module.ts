@@ -3,23 +3,22 @@ import { AgentsService } from './agents.service';
 import { AgentsController } from './agents.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailModule } from '../mailer/email.module';
-import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { WalletService } from '../wallet/wallet.service';
-import { ProductsModule } from 'src/products/products.module';
-import { SalesModule } from 'src/sales/sales.module';
-import { CustomersModule } from 'src/customers/customers.module';
-import { InstallerService } from 'src/installer/installer.service';
+import { ProductsModule } from '../products/products.module';
+import { SalesModule } from '../sales/sales.module';
+import { CustomersModule } from '../customers/customers.module';
+import { InstallerService } from '../installer/installer.service';
+import { OgaranyaModule } from '../ogaranya/ogaranya.module';
 
 @Module({
-  imports: [EmailModule, ProductsModule, SalesModule, CustomersModule],
+  imports: [EmailModule, ProductsModule, SalesModule, CustomersModule, OgaranyaModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,
     PrismaService,
-    OgaranyaService,
     WalletService,
     InstallerService,
   ],
-  exports: [AgentsService, OgaranyaService, WalletService, InstallerService],
+  exports: [AgentsService, WalletService, InstallerService],
 })
 export class AgentsModule {}

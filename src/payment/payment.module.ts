@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { PaymentController } from './payment.controller';
 import { ConfigService } from '@nestjs/config';
@@ -11,8 +11,10 @@ import { BullModule } from '@nestjs/bullmq';
 import { PaymentProcessor } from './payment.processor';
 import { TermiiService } from '../termii/termii.service';
 import { HttpModule } from '@nestjs/axios';
-import { OgaranyaService } from 'src/ogaranya/ogaranya.service';
 import { WalletService } from 'src/wallet/wallet.service';
+import { ReferenceGeneratorService } from './reference-generator.service';
+import { OgaranyaModule } from 'src/ogaranya/ogaranya.module';
+import { FlutterwaveModule } from 'src/flutterwave/flutterwave.module';
 
 @Module({
   imports: [
@@ -21,9 +23,11 @@ import { WalletService } from 'src/wallet/wallet.service';
       maxRedirects: 5,
     }),
     EmailModule,
+    forwardRef(() => OgaranyaModule),
     BullModule.registerQueue({
       name: 'payment-queue',
     }),
+    FlutterwaveModule,
   ],
   controllers: [PaymentController],
   providers: [
@@ -35,8 +39,8 @@ import { WalletService } from 'src/wallet/wallet.service';
     EmailService,
     PaymentProcessor,
     TermiiService,
-    OgaranyaService,
     WalletService,
+    ReferenceGeneratorService,
   ],
   exports: [
     PaymentService,
@@ -47,8 +51,8 @@ import { WalletService } from 'src/wallet/wallet.service';
     EmailService,
     PaymentProcessor,
     TermiiService,
-    OgaranyaService,
     WalletService,
+    ReferenceGeneratorService,
   ],
 })
 export class PaymentModule {}
