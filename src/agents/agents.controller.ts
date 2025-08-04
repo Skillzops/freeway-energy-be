@@ -52,7 +52,9 @@ import { SalesService } from 'src/sales/sales.service';
 import { InstallerService } from 'src/installer/installer.service';
 import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
 import { CreateAgentSalesDto } from 'src/sales/dto/create-sales.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 
+@SkipThrottle()
 @ApiTags('Agents')
 @Controller('agents')
 export class AgentsController {
