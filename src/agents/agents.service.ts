@@ -198,6 +198,27 @@ export class AgentsService {
       where: whereConditions,
       include: {
         user: true,
+        installerTask: true,
+        assignedTasks: true,
+        assignedProducts: true,
+        assignedInstallers: {
+          select: {
+            agent: {
+              select: {
+                user: {
+                  select: {
+                    firstname: true,
+                    lastname: true,
+                    email: true,
+                    location: true,
+                    longitude: true,
+                    latitude: true,
+                  }
+                }
+              }
+            }
+          }
+        },
       },
       skip,
       take,
