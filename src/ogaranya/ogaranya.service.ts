@@ -6,7 +6,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import ft from 'node-fetch';
-import { PaymentService } from '../payment/payment.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentGateway,
@@ -14,6 +13,7 @@ import {
   WalletTransactionStatus,
 } from '@prisma/client';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
+import { formatPhoneNumber } from 'src/utils/helpers.util';
 
 @Injectable()
 export class OgaranyaService {
@@ -21,16 +21,22 @@ export class OgaranyaService {
   private readonly merchantId: string;
   private readonly token: string;
   private readonly privateKey: string;
+  private readonly countryCode: string = 'NG';
+  private readonly paymentGatewayCode: string;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    // private readonly paymentService: PaymentService,
   ) {
-    this.baseUrl = this.config.get<string>('OGARANYA_BASE_URL');
+    // Updated configuration based on new documentation
+    this.baseUrl =
+      this.config.get<string>('OGARANYA_BASE_URL') ||
+      'https://api.staging.ogaranya.com/v1';
     this.merchantId = this.config.get<string>('OGARANYA_MERCHANT_ID');
     this.token = this.config.get<string>('OGARANYA_TOKEN');
     this.privateKey = this.config.get<string>('OGARANYA_PRIVATE_KEY');
+    this.paymentGatewayCode =
+      this.config.get<string>('OGARANYA_PAYMENT_GATEWAY_CODE') || '11';
   }
 
   private generatePublicKey(): string {
@@ -43,8 +49,8 @@ export class OgaranyaService {
   private getHeaders() {
     return {
       'Content-Type': 'application/json',
-      Token: this.token,
-      Public_key: this.generatePublicKey(),
+      token: this.token,
+      publickey: this.generatePublicKey(),
     };
   }
 
@@ -127,45 +133,96 @@ export class OgaranyaService {
     return response.json();
   }
 
+  // OLD METHOD
   async createOrder(data: {
     amount: string;
     msisdn: string;
     desc: string;
     reference: string;
+    send_as_sms?: number;
+    child_merchant_id?: string;
   }) {
-    const url = `${this.baseUrl}/${this.merchantId}/pay/NG`;
+    const url = `${this.baseUrl}/${this.merchantId}/pay/${this.countryCode}`;
     const response = await ft(url, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...data,
+        send_as_sms: data.send_as_sms || 1,
+      }),
     });
     return response.json();
   }
 
-  async initiatePayment(
-    data: {
-      amount: string;
-      msisdn: string;
-      desc: string;
-      reference: string;
-      child_merchant_id?: string;
-    },
-    paymentGatewayCode: string,
-  ) {
-    const response = await ft(
-      `${this.baseUrl}/${this.merchantId}/pay/NG/${paymentGatewayCode}`,
-      {
+  // NEW METHOD
+  async initiatePayment(data: {
+    amount: string;
+    msisdn: string;
+    desc: string;
+    reference: string;
+    send_as_sms?: number;
+    child_merchant_id?: string;
+    payment_gateway_code?: string;
+  }) {
+    const gatewayCode = data.payment_gateway_code || this.paymentGatewayCode;
+    const url = `${this.baseUrl}/${this.merchantId}/pay/${this.countryCode}/${gatewayCode}`;
+
+    const payload = {
+      amount: data.amount,
+      msisdn: formatPhoneNumber(data.msisdn),
+      desc: data.desc,
+      reference: data.reference,
+      send_as_sms: data.send_as_sms || 1, // Default to sending SMS
+      ...(data.child_merchant_id && {
+        child_merchant_id: data.child_merchant_id,
+      }),
+    };
+
+    try {
+      const response = await ft(url, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      },
-    );
-    return response.json();
+        body: JSON.stringify(payload),
+      });
+           
+      const result = await response.json();
+
+      return result;
+    } catch (error) {
+      console.error('[OGARANYA] Payment initiation failed:', error);
+      throw error;
+    }
+  }
+
+  // Method to simulate payment for testing
+  async simulatePayment(orderReference: string, amount: number) {
+    console.log('[OGARANYA] Simulating payment:', { orderReference, amount });
+
+    const url = `${this.baseUrl}/payment/simulation`;
+    const payload = {
+      order_reference: orderReference,
+      amount: amount,
+    };
+
+    try {
+      const response = await ft(url, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      console.log('[OGARANYA] Simulation response:', result);
+      return result;
+    } catch (error) {
+      console.error('[OGARANYA] Payment simulation failed:', error);
+      throw error;
+    }
   }
 
   async checkPaymentStatus(orderReference: string) {
     const response = await ft(
-      `${this.baseUrl}/${this.merchantId}/payment/${orderReference}/status/NG`,
+      `${this.baseUrl}/${this.merchantId}/payment/${orderReference}/status/${this.countryCode}`,
       {
         method: 'GET',
         headers: this.getHeaders(),
@@ -227,9 +284,7 @@ export class OgaranyaService {
 
     const { sale } = payment;
     const customer = sale.customer;
-
     const address = this.formatCustomerAddress(customer);
-
     const amount = payment.amount;
 
     return {
@@ -285,17 +340,40 @@ export class OgaranyaService {
   }
 
   async handlePaymentWebhook(webhookData: OgaranyaWebhookDto) {
-    const { order_reference, statusCode, statusMsg, payDate } = webhookData;
+    const { order_reference, statusCode, statusMsg, payDate, amount } =
+      webhookData;
 
-    // Check if this is a duplicate request
-    // const existingResponse = await this.prisma.paymentResponses.findFirst({
-    //   where: {
-    //     data: {
-    //       path: ['order_reference'],
-    //       equals: order_reference,
-    //     },
-    //   },
+    const paidAmount = parseFloat(amount);
+    if (isNaN(paidAmount) || paidAmount <= 0) {
+      throw new BadRequestException('Invalid amount in webhook data');
+    }
+
+    const paymentDate = new Date(payDate);
+    if (isNaN(paymentDate.getTime())) {
+      throw new BadRequestException('Invalid payment date format');
+    }
+
+    // const allResponses = await this.prisma.paymentResponses.findMany({
+    //   where: { data: { not: null } },
     // });
+
+    // const existingResponse = allResponses.find((response) => {
+    //   const data = response.data;
+    //   return (
+    //     data &&
+    //     typeof data === 'object' &&
+    //     !Array.isArray(data) &&
+    //     'order_reference' in data &&
+    //     (data as any).order_reference === order_reference
+    //   );
+    // });
+
+    // if (existingResponse) {
+    //   return {
+    //     message: 'Payment already processed',
+    //     duplicate: true,
+    //   };
+    // }
 
     const payment = await this.prisma.payment.findFirst({
       where: {
@@ -317,7 +395,6 @@ export class OgaranyaService {
       include: { sale: true },
     });
 
-    // If not found in payments, check wallet transactions
     if (!payment) {
       const walletTransaction = await this.prisma.walletTransaction.findFirst({
         where: {
@@ -342,83 +419,83 @@ export class OgaranyaService {
       );
     }
 
-    const allResponses = await this.prisma.paymentResponses.findMany({
-      where: {
+    const expectedAmount = payment.amount;
+    const amountTolerance = 0.01;
+
+    if (Math.abs(paidAmount - expectedAmount) > amountTolerance) {
+      await this.prisma.paymentResponses.create({
         data: {
-          not: null,
+          paymentId: payment.id,
+          data: {
+            ...webhookData,
+            validation_error: `Amount mismatch: expected ${expectedAmount}, received ${paidAmount}`,
+            validation_status: 'AMOUNT_MISMATCH',
+          } as any,
         },
-      },
-    });
+      });
 
-    const existingResponse = allResponses.find((response) => {
-      const data = response.data;
-
-      return (
-        data &&
-        typeof data === 'object' &&
-        !Array.isArray(data) &&
-        'order_reference' in data &&
-        (data as any).order_reference === order_reference
+      throw new BadRequestException(
+        `Payment amount mismatch: expected ₦${expectedAmount}, but received ₦${paidAmount}. Payment rejected.`,
       );
-    });
+    }
 
-    // if (existingResponse) {
-    //   return {
-    //     message: 'Payment already processed',
-    //     duplicate: true,
-    //   };
-    // }
-
-    // Check if payment is successful
     if (statusCode === '00' && statusMsg.toLowerCase().includes('successful')) {
-      // Update payment status if not already completed
-      if (payment.paymentStatus !== PaymentStatus.COMPLETED) {
-        const updatedPayment = await this.prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            paymentStatus: PaymentStatus.COMPLETED,
-            updatedAt: new Date(),
-            paymentDate: new Date(payDate),
-          },
-        });
-
-        // Store webhook response
-        await this.prisma.paymentResponses.create({
-          data: {
-            paymentId: payment.id,
-            data: webhookData as any,
-          },
-        });
-
-        // Process post-payment actions (generate tokens, update sale status, etc.)
-        // await this.paymentService.handlePostPayment(updatedPayment);
-
-        return {
-          message: 'Payment verified and processed successfully',
-          saleId: payment.sale.id,
-          paymentData: updatedPayment,
-        };
-      } else {
+      if (payment.paymentStatus === PaymentStatus.COMPLETED) {
         return {
           message: 'Payment already completed',
           saleId: payment.sale.id,
+          amountPaid: paidAmount,
+          paymentDate: paymentDate.toISOString(),
         };
       }
-    } else {
-      // Handle failed payment
-      await this.prisma.payment.update({
+
+      const updatedPayment = await this.prisma.payment.update({
         where: { id: payment.id },
         data: {
-          paymentStatus: PaymentStatus.FAILED,
+          paymentStatus: PaymentStatus.COMPLETED,
+          paymentDate: paymentDate,
           updatedAt: new Date(),
         },
       });
 
-      // Store webhook response
       await this.prisma.paymentResponses.create({
         data: {
           paymentId: payment.id,
-          data: webhookData as any,
+          data: {
+            ...webhookData,
+            validation_status: 'VALIDATED',
+            amount_validated: true,
+            expected_amount: expectedAmount,
+            received_amount: paidAmount,
+          } as any,
+        },
+      });
+
+      return {
+        message: 'Payment verified and processed successfully',
+        saleId: payment.sale.id,
+        amountPaid: paidAmount,
+        paymentDate: paymentDate.toISOString(),
+        paymentData: updatedPayment, // Return for post-payment processing
+      };
+    } else {
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          paymentStatus: PaymentStatus.FAILED,
+          paymentDate: paymentDate,
+          updatedAt: new Date(),
+        },
+      });
+
+      await this.prisma.paymentResponses.create({
+        data: {
+          paymentId: payment.id,
+          data: {
+            ...webhookData,
+            validation_status: 'PAYMENT_FAILED',
+            failure_reason: statusMsg,
+          } as any,
         },
       });
 
@@ -433,24 +510,15 @@ export class OgaranyaService {
     const { statusCode, statusMsg, amount, payDate } = webhookData;
 
     const paidAmount = parseFloat(amount);
-    if (isNaN(paidAmount) || paidAmount <= 0) {
-      throw new BadRequestException(
-        'Invalid amount in wallet top-up webhook data',
-      );
-    }
-
     const paymentDate = new Date(payDate);
-    if (isNaN(paymentDate.getTime())) {
-      throw new BadRequestException('Invalid payment date format');
-    }
-
     const expectedAmount = walletTransaction.amount;
 
-    if (paidAmount < expectedAmount) {
+    // Validate amount
+    if (Math.abs(paidAmount - expectedAmount) > 0.01) {
       await this.prisma.walletTransaction.update({
         where: { id: walletTransaction.id },
         data: {
-          status: 'FAILED',
+          status: WalletTransactionStatus.FAILED,
           errorMessage: `Amount mismatch: expected ${expectedAmount}, received ${paidAmount}`,
           updatedAt: new Date(),
         },
@@ -462,11 +530,11 @@ export class OgaranyaService {
     }
 
     if (statusCode === '00' && statusMsg.toLowerCase().includes('successful')) {
-      if (walletTransaction.status !== 'COMPLETED') {
+      if (walletTransaction.status !== WalletTransactionStatus.COMPLETED) {
         await this.prisma.walletTransaction.update({
           where: { id: walletTransaction.id },
           data: {
-            status: 'COMPLETED',
+            status: WalletTransactionStatus.COMPLETED,
             updatedAt: paymentDate,
           },
         });
@@ -474,9 +542,7 @@ export class OgaranyaService {
         await this.prisma.wallet.update({
           where: { agentId: walletTransaction.agentId },
           data: {
-            balance: {
-              increment: paidAmount,
-            },
+            balance: { increment: paidAmount },
             lastSyncAt: paymentDate,
           },
         });
@@ -496,7 +562,6 @@ export class OgaranyaService {
         };
       }
     } else {
-      // Handle failed top-up
       await this.prisma.walletTransaction.update({
         where: { id: walletTransaction.id },
         data: {

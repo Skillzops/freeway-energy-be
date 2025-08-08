@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { formatPhoneNumber } from 'src/utils/helpers.util';
 
 export interface DeviceTokenSmsData {
   deviceSerialNumber: string;
@@ -48,7 +49,7 @@ export class TermiiService {
 
     try {
       const payload = {
-        to: this.formatPhoneNumber(options.to),
+        to: formatPhoneNumber(options.to),
         from: options.from || this.senderId,
         sms: options.message,
         type: options.type || 'plain',
@@ -123,18 +124,6 @@ export class TermiiService {
     }
 
     return message;
-  }
-
-  private formatPhoneNumber(phoneNumber: string): string {
-    let cleaned = phoneNumber.replace(/\D/g, '');
-
-    if (cleaned.startsWith('0')) {
-      cleaned = '234' + cleaned.substring(1);
-    } else if (!cleaned.startsWith('234')) {
-      cleaned = '234' + cleaned;
-    }
-
-    return cleaned;
   }
 
   async getAccountBalance(): Promise<any> {

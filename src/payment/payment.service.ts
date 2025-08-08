@@ -159,7 +159,8 @@ export class PaymentService {
     };
 
     try {
-      const response = await this.ogaranyaService.createOrder(paymentData);
+      const response = await this.ogaranyaService.initiatePayment(paymentData);
+    
       if (response.status !== 'success') {
         throw new BadRequestException(
           'Failed to create payment order with Ogaranya',
@@ -222,7 +223,8 @@ export class PaymentService {
     };
 
     try {
-      const orderResponse = await this.ogaranyaService.createOrder(paymentData);
+      const orderResponse =
+        await this.ogaranyaService.initiatePayment(paymentData);
 
       if (orderResponse.status === 'success') {
         const wallet = await this.prisma.wallet.findUnique({

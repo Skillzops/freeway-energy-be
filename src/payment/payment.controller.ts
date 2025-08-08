@@ -18,6 +18,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
+import { OgaranyaService } from '../ogaranya/ogaranya.service';
 
 @ApiTags('Payment')
 @Controller('payment')
@@ -25,6 +26,7 @@ export class PaymentController {
   constructor(
     private readonly paymentService: PaymentService,
     private readonly flutterwaveService: FlutterwaveService,
+    private readonly ogaranyaService: OgaranyaService,
     private readonly config: ConfigService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
@@ -77,6 +79,28 @@ export class PaymentController {
   @ApiOperation({ summary: 'Get pending payments for agent' })
   async getPendingPayments(@GetSessionUser('agent') agent: any) {
     return this.paymentService.getPendingPayments(agent.id);
+  }
+
+  @Post('test/simulate-ogaranya-payment')
+  async simulateOgaranyaPayment(
+    @Body() body: { orderReference: string; amount: number },
+  ) {
+    try {
+      const result = await this.ogaranyaService.simulatePayment(
+        body.orderReference,
+        body.amount,
+      );
+      return {
+        success: true,
+        message: 'Payment simulated successfully',
+        result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
   }
 
   @Post('webhook/flutterwave')

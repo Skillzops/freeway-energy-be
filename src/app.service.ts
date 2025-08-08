@@ -4,7 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 export class AppService {
   private readonly logger = new Logger(AppService.name);
   getHello(): string {
-    return 'Welcom to Energy apidd1';
+    return 'Welcom to Energy apixxx';
   }
 
   //   @Cron(CronExpression.EVERY_30_SECONDS)
