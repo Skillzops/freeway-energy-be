@@ -186,12 +186,12 @@ export class ProductsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Products}`,
-      `${ActionEnum.read}:${SubjectEnum.Products}`,
-    ],
-  })
+  // @RolesAndPermissions({
+  //   permissions: [
+  //     `${ActionEnum.manage}:${SubjectEnum.Products}`,
+  //     `${ActionEnum.read}:${SubjectEnum.Products}`,
+  //   ],
+  // })
   @ApiBearerAuth('access_token')
   @ApiHeader({
     name: 'Authorization',
@@ -206,7 +206,7 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Fetch all product categories',
     description:
-      'This endpoint allows a permitted user fetch  all product categories.',
+      'This endpoint allows an authenticated user fetch  all product categories.',
   })
   async getAllCategories() {
     return this.productsService.getAllCategories();

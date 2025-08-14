@@ -224,12 +224,12 @@ export class InventoryController {
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  // @RolesAndPermissions({
+  //   permissions: [
+  //     `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
+  //     `${ActionEnum.read}:${SubjectEnum.Inventory}`,
+  //   ],
+  // })
   @Get('categories/all')
   @ApiOkResponse({
     description: 'Fetch all inventory categories',
