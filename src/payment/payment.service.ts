@@ -21,6 +21,7 @@ import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
+import { DeviceService } from 'src/device/device.service';
 
 @Injectable()
 export class PaymentService {
@@ -34,6 +35,7 @@ export class PaymentService {
     private readonly walletService: WalletService,
     private readonly termiiService: TermiiService,
     private readonly referenceGenerator: ReferenceGeneratorService,
+    private readonly deviceService: DeviceService,
   ) {}
 
   async generatePaymentPayload(
@@ -160,7 +162,7 @@ export class PaymentService {
 
     try {
       const response = await this.ogaranyaService.initiatePayment(paymentData);
-    
+
       if (response.status !== 'success') {
         throw new BadRequestException(
           'Failed to create payment order with Ogaranya',
@@ -853,6 +855,8 @@ export class PaymentService {
       },
     });
 
+    await this.updateDeviceStatusAfterPayment(sale);
+
     // Process tokenable devices
     const deviceTokens = [];
     for (const saleItem of sale.saleItems) {
@@ -972,6 +976,53 @@ export class PaymentService {
         where: { id: sale.id },
         data: { deliveredAccountDetails: true },
       });
+    }
+  }
+
+  private async updateDeviceStatusAfterPayment(sale: any) {
+    try {
+      // // Calculate total paid for this sale
+      // const totalPaid = await this.prisma.payment.aggregate({
+      //   where: {
+      //     saleId: sale.id,
+      //     paymentStatus: PaymentStatus.COMPLETED,
+      //   },
+      //   _sum: {
+      //     amount: true,
+      //   },
+      // });
+
+      // const amountPaid = totalPaid._sum.amount || 0;
+
+      // // Determine if devices should be marked as ready for installation
+      // const isFullyPaid = amountPaid >= sale.totalPrice;
+      // const isInstallmentSale = sale.totalInstallmentDuration > 0;
+      // const hasInitialPayment =
+      //   amountPaid >= (sale.installmentStartingPrice || 0);
+
+      // // Mark devices as ready if:
+      // // 1. Full payment is made, OR
+      // // 2. Initial installment payment is made (for installment sales)
+      // const shouldMarkReady =
+      //   isFullyPaid || (isInstallmentSale && hasInitialPayment);
+
+      // if (shouldMarkReady) {
+      //   await this.deviceService.markDevicesReadyForInstallation(sale.id);
+
+      //   console.log(
+      //     `[PAYMENT] Marked devices as ready for installation for sale ${sale.id}`,
+      //   );
+      // } else {
+      //   console.log(
+      //     `[PAYMENT] Payment received but devices not yet ready for installation. Amount paid: ${amountPaid}, Required: ${sale.installmentStartingPrice || sale.totalPrice}`,
+      //   );
+      // }
+      await this.deviceService.markDevicesReadyForInstallation(sale.id);
+    } catch (error) {
+      console.error(
+        '[PAYMENT] Error updating device status after payment:',
+        error,
+      );
     }
   }
 

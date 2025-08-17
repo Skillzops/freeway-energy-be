@@ -21,6 +21,12 @@ import { DeviceProcessor } from './device.processor';
     JobStatusService,
     PrismaService,
   ],
-  exports: [BullModule],
+  exports: [
+    BullModule,
+    OpenPayGoService,
+    DeviceProcessor,
+    DeviceService,
+    JobStatusService,
+  ],
 })
 export class DeviceModule {}

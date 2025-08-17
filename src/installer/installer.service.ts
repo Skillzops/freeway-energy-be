@@ -2,10 +2,15 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AgentCategory, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
+import { DeviceService } from 'src/device/device.service';
+import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
 
 @Injectable()
 export class InstallerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly deviceService: DeviceService,
+  ) {}
 
   async createTask(
     data: CreateTaskDto & {
@@ -285,6 +290,42 @@ export class InstallerService {
       },
       newTasks: newTasks.slice(0, 5),
       recentActivity: recentInstallations.slice(0, 10),
+    };
+  }
+
+  async updateInstallationLocation(
+    agentId: string,
+    taskId: string,
+    locationData: UpdateDeviceLocationDto,
+  ) {
+    const task = await this.getInstallerTask(agentId, taskId);
+
+    const deviceIds = task.sale.saleItems.flatMap((item) =>
+      item.devices.map((device) => device.id),
+    );
+
+    if (deviceIds.length === 0) {
+      throw new BadRequestException(
+        'No devices found for this installation task',
+      );
+    }
+
+    const results = [];
+    for (const deviceId of deviceIds) {
+      const updatedDevice = await this.deviceService.updateDeviceLocation(
+        deviceId,
+        locationData,
+        agentId,
+      );
+      results.push(updatedDevice);
+    }
+
+    await this.completeTask(taskId, agentId);
+
+    return {
+      message: 'Installation location updated and task completed',
+      updatedDevices: results,
+      completedTask: taskId,
     };
   }
 

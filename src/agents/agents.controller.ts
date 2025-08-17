@@ -53,6 +53,8 @@ import { InstallerService } from 'src/installer/installer.service';
 import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
 import { CreateAgentSalesDto } from 'src/sales/dto/create-sales.dto';
 import { SkipThrottle } from '@nestjs/throttler';
+import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
+import { DeviceService } from 'src/device/device.service';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -63,6 +65,7 @@ export class AgentsController {
     private readonly productsService: ProductsService,
     private readonly customersService: CustomersService,
     private readonly salesService: SalesService,
+    private readonly deviceService: DeviceService,
     private readonly installerService: InstallerService,
   ) {}
 
@@ -264,6 +267,41 @@ export class AgentsController {
     @GetSessionUser('agent') agent: Agent,
   ) {
     return this.productsService.getProduct(id, agent.id);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiOperation({ summary: 'Fetch all agent sale devices' })
+  @ApiExtraModels(ListDevicesQueryDto)
+  @Get('devices')
+  async fetchDevices(
+    @Query() query: ListDevicesQueryDto,
+    @GetSessionUser('agent') agent: Agent,
+  ) {
+    return await this.deviceService.fetchDevices(query, agent.id);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiParam({
+    name: 'id',
+    description: 'Device id to fetch details for agent sale devices',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Fetch a single device by ID' })
+  @Get('device/:id')
+  async fetchDevice(
+    @Param('id') id: string,
+    @GetSessionUser('agent') agent: Agent,
+  ) {
+    return await this.deviceService.validateDeviceExistsAndReturn({
+      id,
+      saleItems: {
+        some: {
+          sale: {
+            creatorId: agent.id,
+          },
+        },
+      },
+    });
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)

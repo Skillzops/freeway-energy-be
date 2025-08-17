@@ -31,6 +31,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { OgaranyaModule } from './ogaranya/ogaranya.module';
 import { InstallerModule } from './installer/installer.module';
 import { TaskManagementModule } from './task-management/task-management.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { TaskManagementModule } from './task-management/task-management.module';
     OgaranyaModule,
     InstallerModule,
     TaskManagementModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [

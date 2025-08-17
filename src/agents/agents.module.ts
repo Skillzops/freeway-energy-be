@@ -9,9 +9,17 @@ import { SalesModule } from '../sales/sales.module';
 import { CustomersModule } from '../customers/customers.module';
 import { InstallerService } from '../installer/installer.service';
 import { OgaranyaModule } from '../ogaranya/ogaranya.module';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
-  imports: [EmailModule, ProductsModule, SalesModule, CustomersModule, OgaranyaModule],
+  imports: [
+    EmailModule,
+    ProductsModule,
+    SalesModule,
+    CustomersModule,
+    OgaranyaModule,
+    DeviceModule,
+  ],
   controllers: [AgentsController],
   providers: [
     AgentsService,

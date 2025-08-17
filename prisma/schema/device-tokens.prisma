@@ -16,6 +16,11 @@ model Device {
 
   isUsed Boolean @default(false)
 
+  installationStatus      InstallationStatus @default(not_installed)
+  installationLocation            String?
+  installationLongitude           String?
+  installationLatitude            String?
+
   saleItemIDs String[]   @db.ObjectId
   saleItems   SaleItem[] @relation(fields: [saleItemIDs], references: [id])
 
@@ -37,4 +42,10 @@ model Tokens {
   deviceId String? @db.ObjectId
 
   @@map("token")
+}
+
+enum InstallationStatus {
+  not_installed
+  ready_for_installation
+  installed
 }

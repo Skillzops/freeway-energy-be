@@ -1,16 +1,27 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { UpdateDeviceDto } from './dto/update-device.dto';
+import {
+  UpdateDeviceDto,
+  UpdateDeviceLocationDto,
+  UpdateDeviceStatusDto,
+} from './dto/update-device.dto';
 import { createReadStream, readFileSync } from 'fs';
 import * as csvParser from 'csv-parser';
 import { parse } from 'papaparse';
 import { MESSAGES } from '../constants';
-import { Prisma } from '@prisma/client';
+import {
+  ActionEnum,
+  InstallationStatus,
+  Prisma,
+  SubjectEnum,
+  TaskStatus,
+} from '@prisma/client';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -44,6 +55,252 @@ export class DeviceService {
 
     return await this.prisma.device.create({
       data: createDeviceDto,
+    });
+  }
+
+  private validateStatusTransition(
+    currentStatus: InstallationStatus,
+    newStatus: InstallationStatus,
+  ) {
+    const allowedTransitions = {
+      [InstallationStatus.not_installed]: [
+        InstallationStatus.ready_for_installation,
+      ],
+      [InstallationStatus.ready_for_installation]: [
+        InstallationStatus.installed,
+      ],
+      [InstallationStatus.installed]: [],
+    };
+
+    if (!allowedTransitions[currentStatus].includes(newStatus)) {
+      throw new BadRequestException(
+        `Invalid status transition from ${currentStatus} to ${newStatus}`,
+      );
+    }
+  }
+
+  private async validateInstallerAssignment(
+    deviceId: string,
+    installerAgentId: string,
+  ) {
+    const installerTask = await this.prisma.installerTask.findFirst({
+      where: {
+        installerAgentId,
+        sale: {
+          saleItems: {
+            some: {
+              devices: {
+                some: {
+                  id: deviceId,
+                },
+              },
+            },
+          },
+        },
+        status: {
+          in: [TaskStatus.PENDING, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+        },
+      },
+    });
+
+    if (!installerTask) {
+      throw new ForbiddenException(
+        'Device not assigned to this installer or task not active',
+      );
+    }
+
+    return installerTask;
+  }
+
+  private async validateUpdatePermissions(deviceId: string, userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+        agentDetails: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const hasManagePermission = user.role.permissions.some(
+      (permission) =>
+        permission.action === ActionEnum.manage &&
+        permission.subject === SubjectEnum.all,
+    );
+
+    if (hasManagePermission) {
+      return;
+    }
+
+    // Check if user is assigned installer for this device
+    if (user.agentDetails) {
+      await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
+    } else {
+      throw new ForbiddenException(
+        'Insufficient permissions to update device status',
+      );
+    }
+  }
+
+  async updateDeviceStatus(
+    deviceId: string,
+    updateData: UpdateDeviceStatusDto,
+    userId: string,
+  ) {
+    await this.validateUpdatePermissions(deviceId, userId);
+
+    const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
+
+    this.validateStatusTransition(
+      device.installationStatus,
+      updateData.installationStatus,
+    );
+
+    return this.prisma.device.update({
+      where: { id: deviceId },
+      data: {
+        installationStatus: updateData.installationStatus,
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async updateDeviceLocation(
+    deviceId: string,
+    locationData: UpdateDeviceLocationDto,
+    installerAgentId: string,
+  ) {
+    const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
+
+    // Validate that installer is assigned to this device
+    await this.validateInstallerAssignment(deviceId, installerAgentId);
+
+    // Validate current status
+    if (
+      device.installationStatus !== InstallationStatus.ready_for_installation
+    ) {
+      throw new BadRequestException(
+        'Device must be in ready_for_installation status to update location',
+      );
+    }
+
+    return this.prisma.device.update({
+      where: { id: deviceId },
+      data: {
+        installationStatus: InstallationStatus.installed,
+        installationLocation: locationData.location,
+        installationLongitude: locationData.latitude,
+        installationLatitude: locationData.longitude,
+      },
+    });
+  }
+
+  async markDevicesReadyForInstallation(saleId: string) {
+    const sale = await this.prisma.sales.findUnique({
+      where: { id: saleId },
+      include: {
+        saleItems: {
+          include: {
+            devices: true,
+          },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Sale not found');
+    }
+
+    // Get all devices from this sale
+    const deviceIds = sale.saleItems.flatMap((item) =>
+      item.devices.map((device) => device.id),
+    );
+
+    if (deviceIds.length === 0) {
+      return { message: 'No devices found for this sale' };
+    }
+
+    await this.prisma.device.updateMany({
+      where: {
+        id: { in: deviceIds },
+        installationStatus: InstallationStatus.not_installed,
+      },
+      data: {
+        installationStatus: InstallationStatus.ready_for_installation,
+      },
+    });
+
+    return {
+      message: `${deviceIds.length} devices marked as ready for installation`,
+      deviceIds,
+    };
+  }
+
+  async getDevicesForInstaller(installerAgentId: string) {
+    return this.prisma.device.findMany({
+      where: {
+        saleItems: {
+          some: {
+            sale: {
+              installerTasks: {
+                some: {
+                  installerAgentId,
+                },
+              },
+            },
+          },
+        },
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: {
+                  select: {
+                    firstname: true,
+                    lastname: true,
+                    phone: true,
+                    installationAddress: true,
+                  },
+                },
+                installerTasks: {
+                  where: {
+                    installerAgentId,
+                  },
+                  select: {
+                    id: true,
+                    status: true,
+                    scheduledDate: true,
+                  },
+                },
+              },
+            },
+            product: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     });
   }
 
@@ -474,6 +731,8 @@ export class DeviceService {
       createdAt,
       updatedAt,
       fetchFormat,
+      agentId,
+      installationStatus,
     } = query;
 
     // console.log({ query });
@@ -497,6 +756,18 @@ export class DeviceService {
           ? { startingCode: { contains: startingCode, mode: 'insensitive' } }
           : {},
         key ? { key: { contains: key, mode: 'insensitive' } } : {},
+        installationStatus ? { installationStatus } : {},
+        agentId
+          ? {
+              saleItems: {
+                some: {
+                  sale: {
+                    creatorId: agentId,
+                  },
+                },
+              },
+            }
+          : {},
 
         // fetchFormat === 'used'
         //   ? { isUsed: true }
@@ -520,10 +791,13 @@ export class DeviceService {
     return filterConditions;
   }
 
-  async fetchDevices(query: ListDevicesQueryDto) {
+  async fetchDevices(query: ListDevicesQueryDto, agent?: string) {
     const { page = 1, limit = 100, sortField, sortOrder } = query;
 
-    const filterConditions = await this.devicesFilter(query);
+    const filterConditions = await this.devicesFilter({
+      ...query,
+      ...(agent ? { agentId: agent } : {}),
+    });
 
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);

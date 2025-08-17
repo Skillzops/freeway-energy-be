@@ -13,13 +13,18 @@ import { GetSessionUser } from '../auth/decorators/getUser';
 import { AgentAccessGuard } from '../auth/guards/agent-access.guard';
 import { Agent, AgentCategory, TaskStatus } from '@prisma/client';
 import { InstallerService } from './installer.service';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
+import { DeviceService } from 'src/device/device.service';
 
 @Controller('installer')
 @ApiTags('Installer')
 @UseGuards(JwtAuthGuard, AgentAccessGuard)
 export class InstallerController {
-  constructor(private readonly installerTaskService: InstallerService) {}
+  constructor(
+    private readonly installerTaskService: InstallerService,
+    private readonly deviceService: DeviceService,
+  ) {}
 
   @Get('dashboard')
   async getDashboard(@GetSessionUser('agent') agent: Agent) {
@@ -103,5 +108,41 @@ export class InstallerController {
     }
 
     return this.installerTaskService.getTaskHistory(agent.id);
+  }
+
+  @Get('devices')
+  @ApiOperation({
+    summary: 'Get devices assigned to installer',
+    description: 'Get all devices assigned to the current installer agent',
+  })
+  async getInstallerDevices(@GetSessionUser('agent') agent: Agent) {
+    if (agent.category !== AgentCategory.INSTALLER) {
+      throw new ForbiddenException('Access denied - Installer only');
+    }
+
+    return this.deviceService.getDevicesForInstaller(agent.id);
+  }
+
+  @Post('tasks/:id/location')
+  @ApiOperation({
+    summary: 'Update device installation location',
+    description: 'Update device location after installation completion',
+  })
+  @ApiParam({ name: 'id', description: 'Installation Task ID' })
+  @ApiBody({ type: UpdateDeviceLocationDto })
+  async updateInstallationLocation(
+    @Param('id') taskId: string,
+    @Body() locationData: UpdateDeviceLocationDto,
+    @GetSessionUser('agent') agent: Agent,
+  ) {
+    if (agent.category !== AgentCategory.INSTALLER) {
+      throw new ForbiddenException('Access denied - Installer only');
+    }
+
+    return this.installerTaskService.updateInstallationLocation(
+      agent.id,
+      taskId,
+      locationData,
+    );
   }
 }

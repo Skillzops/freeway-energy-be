@@ -213,11 +213,11 @@ export class AgentsService {
                     location: true,
                     longitude: true,
                     latitude: true,
-                  }
-                }
-              }
-            }
-          }
+                  },
+                },
+              },
+            },
+          },
         },
       },
       skip,
@@ -260,6 +260,65 @@ export class AgentsService {
     }
 
     return agent;
+  }
+
+  async getAgentDevices(agentId: string, status?: string) {
+    const agent = await this.findOne(agentId);
+
+    if (!agent) {
+      throw new BadRequestException('Agent not found');
+    }
+
+    // Get devices from sales created by the agent's user
+    const devices = await this.prisma.device.findMany({
+      where: {
+        saleItems: {
+          some: {
+            sale: {
+              creatorId: agent.userId,
+            },
+          },
+        },
+        ...(status && { installation_status: status }),
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: {
+                  select: {
+                    id: true,
+                    firstname: true,
+                    lastname: true,
+                    phone: true,
+                    installationAddress: true,
+                  },
+                },
+                payment: {
+                  select: {
+                    paymentStatus: true,
+                    paymentDate: true,
+                  },
+                },
+              },
+            },
+            product: {
+              select: {
+                name: true,
+                category: true,
+              },
+            },
+          },
+        },
+        tokens: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return devices;
   }
 
   async getAgentsStatistics() {

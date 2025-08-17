@@ -20,7 +20,10 @@ import {
   CreateBatchDeviceTokensDto,
   CreateDeviceDto,
 } from './dto/create-device.dto';
-import { UpdateDeviceDto } from './dto/update-device.dto';
+import {
+  UpdateDeviceDto,
+  UpdateDeviceStatusDto,
+} from './dto/update-device.dto';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -41,6 +44,7 @@ import { diskStorage } from 'multer';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JobStatusService } from 'src/jobstatus/jobstatus.service';
+import { GetSessionUser } from 'src/auth/decorators/getUser';
 
 @SkipThrottle()
 @ApiTags('Devices')
@@ -349,5 +353,23 @@ export class DeviceController {
   @Delete(':id')
   async deleteDevice(@Param('id') id: string) {
     return await this.deviceService.deleteDevice(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/status')
+  @ApiOperation({
+    summary: 'Update device installation status',
+    description:
+      'Update the installation status of a device (Admin or assigned installer only)',
+  })
+  @ApiParam({ name: 'id', description: 'Device ID' })
+  @ApiBody({ type: UpdateDeviceStatusDto })
+  @HttpCode(HttpStatus.OK)
+  async updateDeviceStatus(
+    @Param('id') id: string,
+    @Body() updateData: UpdateDeviceStatusDto,
+    @GetSessionUser('id') userId: string,
+  ) {
+    return this.deviceService.updateDeviceStatus(id, updateData, userId);
   }
 }

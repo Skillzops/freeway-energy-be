@@ -1,5 +1,12 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsBoolean } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { InstallationStatus } from '@prisma/client';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+} from 'class-validator';
 
 export class UpdateDeviceDto {
   @ApiProperty({ description: 'Serial number of the device', required: false })
@@ -53,4 +60,39 @@ export class UpdateDeviceDto {
   @IsBoolean()
   @IsOptional()
   isTokenable?: boolean;
+}
+
+export class UpdateDeviceStatusDto {
+  @ApiProperty({ description: 'installation status', enum: InstallationStatus })
+  @IsEnum(InstallationStatus)
+  @IsNotEmpty()
+  installationStatus: InstallationStatus;
+}
+
+export class UpdateDeviceLocationDto {
+  @ApiProperty({
+    description: 'The location of the device installation',
+    example: 'New York, USA',
+  })
+  @IsNotEmpty()
+  @IsString()
+  location: string;
+
+  @ApiPropertyOptional({
+    description: 'The longitude of the installation',
+    type: String,
+    example: '',
+  })
+  @IsOptional()
+  @IsString()
+  longitude?: string;
+
+  @ApiPropertyOptional({
+    description: 'The latitude of the installation',
+    type: String,
+    example: '',
+  })
+  @IsOptional()
+  @IsString()
+  latitude?: string;
 }

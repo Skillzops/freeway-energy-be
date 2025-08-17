@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { InstallationStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   IsOptional,
@@ -6,6 +7,7 @@ import {
   IsIn,
   IsBoolean,
   IsDateString,
+  IsEnum,
 } from 'class-validator';
 
 export class ListDevicesQueryDto {
@@ -128,4 +130,19 @@ export class ListDevicesQueryDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === '1')
   isTokenable?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter by agent ID',
+  })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
+
+  @ApiPropertyOptional({
+    description: 'installation status',
+    enum: InstallationStatus,
+  })
+  @IsEnum(InstallationStatus)
+  @IsOptional()
+  installationStatus: InstallationStatus;
 }

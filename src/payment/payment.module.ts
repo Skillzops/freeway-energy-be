@@ -15,6 +15,7 @@ import { WalletService } from 'src/wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
 import { OgaranyaModule } from 'src/ogaranya/ogaranya.module';
 import { FlutterwaveModule } from 'src/flutterwave/flutterwave.module';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { FlutterwaveModule } from 'src/flutterwave/flutterwave.module';
       name: 'payment-queue',
     }),
     FlutterwaveModule,
+    DeviceModule
   ],
   controllers: [PaymentController],
   providers: [
