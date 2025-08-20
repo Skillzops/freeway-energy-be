@@ -55,6 +55,7 @@ import { CreateAgentSalesDto } from 'src/sales/dto/create-sales.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
 import { DeviceService } from 'src/device/device.service';
+import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -653,7 +654,33 @@ export class AgentsController {
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
-  @ApiOperation({ description: 'Create installation task by agent for a sale' })
+  @ApiOperation({
+    description: 'Get tasks by agent user (installer or sales agent)',
+  })
+  @Get('tasks')
+  async getTasks(
+    @Query() getTasksQuery?: GetAgentTaskQueryDto,
+    @GetSessionUser('agent') agent?: Agent,
+  ) {
+    return this.agentsService.getAgentTasks(agent, getTasksQuery);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiOperation({
+    description: 'Get single task by agent user (installer or sales agent)',
+  })
+  @Get('tasks/:id')
+  async getTask(
+    @Param('id') taskId: string,
+    @GetSessionUser('agent') agent?: Agent,
+  ) {
+    return this.agentsService.getAgentTask(agent, taskId);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiOperation({
+    description: 'Create installation task by sales agent for a sale',
+  })
   @ApiBearerAuth('access_token')
   @ApiHeader({
     name: 'Authorization',
@@ -678,6 +705,10 @@ export class AgentsController {
       sale: Sales;
     };
     const agentUserId = await this.agentsService.getAgentUserId(agent.id);
+
+    if (agent.category !== AgentCategory.SALES) {
+      throw new ForbiddenException('Access denied - Sales agent only');
+    }
 
     if (sale.sale.creatorId !== agentUserId) {
       throw new ForbiddenException('You do not have access to this sale');

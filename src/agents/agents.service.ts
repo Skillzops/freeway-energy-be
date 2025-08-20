@@ -13,6 +13,7 @@ import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
 import {
   ActionEnum,
+  Agent,
   AgentCategory,
   Prisma,
   SalesStatus,
@@ -25,6 +26,7 @@ import { UserEntity } from '../users/entity/user.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
+import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 
 @Injectable()
 export class AgentsService {
@@ -736,6 +738,151 @@ export class AgentsService {
         transactionGraph: transactionLineData,
       },
     };
+  }
+
+  async getAgentTasks(agent: Agent, getTasksQuery?: GetAgentTaskQueryDto) {
+    const {
+      page = 1,
+      limit = 10,
+      agentId,
+      sortField,
+      sortOrder,
+      search,
+      status,
+      customerId,
+    } = getTasksQuery;
+
+    const whereConditions: Prisma.InstallerTaskWhereInput = {
+      AND: [
+        search
+          ? {
+              OR: [
+                {
+                  installationAddress: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                { description: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {},
+        agentId
+          ? {
+              requestingAgentId: agentId,
+            }
+          : {},
+        customerId
+          ? {
+              customerId: customerId,
+            }
+          : {},
+        agent.category === AgentCategory.INSTALLER
+          ? {
+              installerAgentId: agent.id,
+            }
+          : agent.category === AgentCategory.SALES
+            ? {
+                requestingAgentId: agent.id,
+              }
+            : {},
+      ],
+    };
+
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const orderBy = {
+      [sortField || 'createdAt']: sortOrder || 'asc',
+    };
+
+    return this.prisma.installerTask.findMany({
+      where: {
+        ...whereConditions,
+        ...(status ? { status } : {}),
+      },
+      skip,
+      take,
+      orderBy,
+      include: {
+        sale: {
+          include: {
+            saleItems: {
+              include: {
+                product: true,
+                devices: true,
+              },
+            },
+          },
+        },
+        customer: true,
+        requestingAgent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async getAgentTask(agent: Agent, taskId?: string) {
+    const task = await this.prisma.installerTask.findFirst({
+      where: {
+        id: taskId,
+        AND: [
+          agent.category === AgentCategory.INSTALLER
+            ? {
+                installerAgentId: agent.id,
+              }
+            : agent.category === AgentCategory.SALES
+              ? {
+                  requestingAgentId: agent.id,
+                }
+              : {},
+        ],
+      },
+      include: {
+        sale: {
+          include: {
+            saleItems: {
+              include: {
+                product: true,
+                devices: true,
+              },
+            },
+          },
+        },
+        customer: true,
+        requestingAgent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    return task;
   }
 
   private async getSalesStatistics(userId: string) {

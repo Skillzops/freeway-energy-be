@@ -1,15 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AgentCategory, TaskStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Agent, AgentCategory, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
 import { DeviceService } from 'src/device/device.service';
 import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
+import { AgentsService } from 'src/agents/agents.service';
 
 @Injectable()
 export class InstallerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deviceService: DeviceService,
+    private readonly agentService: AgentsService,
   ) {}
 
   async createTask(
@@ -62,81 +68,6 @@ export class InstallerService {
         }),
       },
     });
-  }
-
-  async getInstallerTasks(installerAgentId: string, status?: TaskStatus) {
-    return this.prisma.installerTask.findMany({
-      where: {
-        installerAgentId,
-        ...(status && { status }),
-      },
-      include: {
-        sale: {
-          include: {
-            saleItems: {
-              include: {
-                product: true,
-                devices: true,
-              },
-            },
-          },
-        },
-        customer: true,
-        requestingAgent: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async getInstallerTask(agentId: string, taskId?: string) {
-    const task = await this.prisma.installerTask.findFirst({
-      where: {
-        id: taskId,
-        installerAgentId: agentId,
-      },
-      include: {
-        sale: {
-          include: {
-            saleItems: {
-              include: {
-                product: true,
-                devices: true,
-              },
-            },
-          },
-        },
-        customer: true,
-        requestingAgent: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
-
-    return task;
   }
 
   async acceptTask(taskId: string, installerAgentId: string) {
@@ -294,11 +225,11 @@ export class InstallerService {
   }
 
   async updateInstallationLocation(
-    agentId: string,
+    agent: Agent,
     taskId: string,
     locationData: UpdateDeviceLocationDto,
   ) {
-    const task = await this.getInstallerTask(agentId, taskId);
+    const task = await this.agentService.getAgentTask(agent, taskId);
 
     const deviceIds = task.sale.saleItems.flatMap((item) =>
       item.devices.map((device) => device.id),
@@ -315,12 +246,12 @@ export class InstallerService {
       const updatedDevice = await this.deviceService.updateDeviceLocation(
         deviceId,
         locationData,
-        agentId,
+        agent.id,
       );
       results.push(updatedDevice);
     }
 
-    await this.completeTask(taskId, agentId);
+    await this.completeTask(taskId, agent.id);
 
     return {
       message: 'Installation location updated and task completed',

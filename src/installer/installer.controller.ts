@@ -11,11 +11,12 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { GetSessionUser } from '../auth/decorators/getUser';
 import { AgentAccessGuard } from '../auth/guards/agent-access.guard';
-import { Agent, AgentCategory, TaskStatus } from '@prisma/client';
+import { Agent, AgentCategory } from '@prisma/client';
 import { InstallerService } from './installer.service';
 import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
 import { DeviceService } from 'src/device/device.service';
+import { AgentsService } from 'src/agents/agents.service';
 
 @Controller('installer')
 @ApiTags('Installer')
@@ -24,35 +25,18 @@ export class InstallerController {
   constructor(
     private readonly installerTaskService: InstallerService,
     private readonly deviceService: DeviceService,
+    private readonly agentService: AgentsService,
   ) {}
+
+  @Get('')
+  @ApiOperation({ description: 'Get installer agents by sales agents' })
+  async getInstallerAgents() {
+    return this.agentService.getAgentsByCategory(AgentCategory.INSTALLER);
+  }
 
   @Get('dashboard')
   async getDashboard(@GetSessionUser('agent') agent: Agent) {
     return await this.installerTaskService.getInstallerDashboard(agent.id);
-  }
-
-  @Get('tasks')
-  async getTasks(
-    @GetSessionUser('agent') agent: Agent,
-    @Query('status') status?: TaskStatus,
-  ) {
-    if (agent.category !== AgentCategory.INSTALLER) {
-      throw new ForbiddenException('Access denied - Installer only');
-    }
-
-    return this.installerTaskService.getInstallerTasks(agent.id, status);
-  }
-
-  @Get('tasks/:id')
-  async getTask(
-    @Param('id') taskId: string,
-    @GetSessionUser('agent') agent: Agent,
-  ) {
-    if (agent.category !== AgentCategory.INSTALLER) {
-      throw new ForbiddenException('Access denied - Installer only');
-    }
-
-    return this.installerTaskService.getInstallerTask(agent.id, taskId);
   }
 
   @Post('tasks/:id/accept')
@@ -140,7 +124,7 @@ export class InstallerController {
     }
 
     return this.installerTaskService.updateInstallationLocation(
-      agent.id,
+      agent,
       taskId,
       locationData,
     );

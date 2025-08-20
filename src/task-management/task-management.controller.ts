@@ -1,15 +1,29 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
 import { InstallerService } from 'src/installer/installer.service';
-import { AgentsService } from 'src/agents/agents.service';
 import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';
-import { ActionEnum, AgentCategory, SaleItem, Sales, SubjectEnum } from '@prisma/client';
+import {
+  ActionEnum,
+  SaleItem,
+  Sales,
+  SubjectEnum,
+  TaskStatus,
+} from '@prisma/client';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { SalesService } from 'src/sales/sales.service';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { TaskManagementService } from './task-management.service';
+import { GetTaskQueryDto } from './dto/get-task-query.dto';
 
 @Controller('tasks')
 @ApiTags('Task Management')
@@ -18,11 +32,10 @@ export class TaskManagementController {
   constructor(
     private readonly installerService: InstallerService,
     private readonly taskManagementService: TaskManagementService,
-    private readonly agentService: AgentsService,
     private readonly salesService: SalesService,
   ) {}
 
-  @Post('create:saleId')
+  @Post('create/:saleId')
   @ApiParam({
     name: 'id',
     description: 'Sale id to fetch details.',
@@ -35,7 +48,7 @@ export class TaskManagementController {
   })
   async createTask(
     @Body() createTaskDto: CreateTaskDto,
-    @Param('id') saleId: string,
+    @Param('saleId') saleId: string,
     @GetSessionUser('id') userId: string,
   ) {
     const sale = (await this.salesService.getSale(saleId)) as SaleItem & {
@@ -51,15 +64,15 @@ export class TaskManagementController {
     });
   }
 
-  @Get('installer-agents')
+  @Get('')
   @RolesAndPermissions({
     permissions: [
       `${ActionEnum.manage}:${SubjectEnum.Agents}`,
-      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
     ],
   })
-  async getInstallerAgents() {
-    return this.agentService.getAgentsByCategory(AgentCategory.INSTALLER);
+  async getTasks(@Query() getTasksQuery?: GetTaskQueryDto) {
+    return this.taskManagementService.getTasks(getTasksQuery);
   }
 
   @ApiOperation({ description: 'Assign task to installer agent' })

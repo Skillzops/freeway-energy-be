@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { GetTaskQueryDto } from './dto/get-task-query.dto';
 
 @Injectable()
 export class TaskManagementService {
@@ -15,6 +17,98 @@ export class TaskManagementService {
       data: {
         installerAgentId: installerAgentId,
         assignedBy: adminId,
+      },
+    });
+  }
+
+  async getTasks(getTasksQuery: GetTaskQueryDto) {
+    const {
+      page = 1,
+      limit = 10,
+      agentId,
+      sortField,
+      sortOrder,
+      search,
+      status,
+      customerId,
+      installerId,
+    } = getTasksQuery;
+
+    const whereConditions: Prisma.InstallerTaskWhereInput = {
+      AND: [
+        search
+          ? {
+              OR: [
+                {
+                  installationAddress: {
+                    contains: search,
+                    mode: 'insensitive',
+                  },
+                },
+                { description: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {},
+        agentId
+          ? {
+              requestingAgentId: agentId,
+            }
+          : {},
+        installerId
+          ? {
+              installerAgentId: installerId,
+            }
+          : {},
+        customerId
+          ? {
+              customerId: customerId,
+            }
+          : {},
+      ],
+    };
+
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const orderBy = {
+      [sortField || 'createdAt']: sortOrder || 'asc',
+    };
+
+    return this.prisma.installerTask.findMany({
+      where: {
+        ...whereConditions,
+        ...(status ? { status } : {}),
+      },
+      skip,
+      take,
+      orderBy,
+      include: {
+        sale: {
+          include: {
+            saleItems: {
+              include: {
+                product: true,
+                devices: true,
+              },
+            },
+          },
+        },
+        customer: true,
+        requestingAgent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+              },
+            },
+          },
+        },
       },
     });
   }
