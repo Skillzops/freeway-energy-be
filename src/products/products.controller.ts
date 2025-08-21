@@ -185,7 +185,7 @@ export class ProductsController {
     return this.productsService.createProductCategory(createCategoryDto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @UseGuards(JwtAuthGuard)
   // @RolesAndPermissions({
   //   permissions: [
   //     `${ActionEnum.manage}:${SubjectEnum.Products}`,
