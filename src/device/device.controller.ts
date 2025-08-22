@@ -279,28 +279,23 @@ export class DeviceController {
     return await this.deviceService.createDevice(createDeviceDto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
-      `${ActionEnum.read}:${SubjectEnum.Sales}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Fetch all devices' })
   @ApiExtraModels(ListDevicesQueryDto)
   @Get()
-  async fetchDevices(@Query() query: ListDevicesQueryDto) {
+  async fetchDevices(
+    @Query() query: ListDevicesQueryDto,
+    @GetSessionUser('id') userId: string,
+  ) {
+    await this.deviceService.validateUpdatePermissions(userId, undefined, [
+      { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+      { action: ActionEnum.read, subject: SubjectEnum.Sales },
+    ]);
     return await this.deviceService.fetchDevices(query);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
-      `${ActionEnum.read}:${SubjectEnum.Sales}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiParam({
     name: 'id',
     description: 'Device id to fetch details',
@@ -308,7 +303,14 @@ export class DeviceController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Fetch a single device by ID' })
   @Get(':id')
-  async fetchDevice(@Param('id') id: string) {
+  async fetchDevice(
+    @Param('id') id: string,
+    @GetSessionUser('id') userId: string,
+  ) {
+    await this.deviceService.validateUpdatePermissions(userId, undefined, [
+      { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+      { action: ActionEnum.read, subject: SubjectEnum.Sales },
+    ]);
     return await this.deviceService.validateDeviceExistsAndReturn({ id });
   }
 

@@ -112,7 +112,11 @@ export class DeviceService {
     return installerTask;
   }
 
-  private async validateUpdatePermissions(deviceId: string, userId: string) {
+  async validateUpdatePermissions(
+    userId: string,
+    deviceId?: string,
+    extraPermissions: { action: ActionEnum; subject: SubjectEnum }[] = [],
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -129,6 +133,13 @@ export class DeviceService {
       throw new NotFoundException('User not found');
     }
 
+    const userRole = user.role.role;
+
+    // allow admin and super-admin users to access resource
+    if (userRole == 'admin' || userRole == 'super-admin') {
+      return true;
+    }
+
     const hasManagePermission = user.role.permissions.some(
       (permission) =>
         permission.action === ActionEnum.manage &&
@@ -139,8 +150,21 @@ export class DeviceService {
       return;
     }
 
+    const hasExtraPermission = extraPermissions.some((extra) =>
+      user.role.permissions.some(
+        (permission) =>
+          permission.action === extra.action &&
+          permission.subject === extra.subject,
+      ),
+    );
+
+    if (hasExtraPermission) {
+      return;
+    }
+
     // Check if user is assigned installer for this device
     if (user.agentDetails) {
+      if (!deviceId) return true;
       await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
     } else {
       throw new ForbiddenException(
@@ -154,7 +178,7 @@ export class DeviceService {
     updateData: UpdateDeviceStatusDto,
     userId: string,
   ) {
-    await this.validateUpdatePermissions(deviceId, userId);
+    await this.validateUpdatePermissions(userId, deviceId);
 
     const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
 
@@ -732,25 +756,30 @@ export class DeviceService {
       updatedAt,
       fetchFormat,
       agentId,
+      isExact,
       installationStatus,
     } = query;
 
-    // console.log({ query });
+    console.log({ isExact });
 
     const filterConditions: Prisma.DeviceWhereInput = {
       AND: [
         search
-          ? {
-              OR: [
-                { serialNumber: { contains: search, mode: 'insensitive' } },
-                { startingCode: { contains: search, mode: 'insensitive' } },
-                { key: { contains: search, mode: 'insensitive' } },
-                { hardwareModel: { contains: search, mode: 'insensitive' } },
-              ],
-            }
+          ? isExact
+            ? { serialNumber: { equals: search } }
+            : {
+                OR: [
+                  { serialNumber: { contains: search, mode: 'insensitive' } },
+                  { startingCode: { contains: search, mode: 'insensitive' } },
+                  { key: { contains: search, mode: 'insensitive' } },
+                  { hardwareModel: { contains: search, mode: 'insensitive' } },
+                ],
+              }
           : {},
         serialNumber
-          ? { serialNumber: { contains: serialNumber, mode: 'insensitive' } }
+          ? isExact
+            ? { serialNumber: { equals: serialNumber } }
+            : { serialNumber: { contains: serialNumber, mode: 'insensitive' } }
           : {},
         startingCode
           ? { startingCode: { contains: startingCode, mode: 'insensitive' } }
