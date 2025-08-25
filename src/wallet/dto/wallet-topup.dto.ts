@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentGateway } from '@prisma/client';
 import {
-  IsNumber,
   IsString,
   IsOptional,
   IsEnum,
@@ -9,7 +8,7 @@ import {
 
 export class WalletTopUpDto {
   @ApiProperty({ description: 'Amount to top up', minimum: 100, example: 500 })
-  @IsNumber()
+  // @IsNumber()
   // @IsPositive()
   // @Min(100)
   amount: number;
