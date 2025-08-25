@@ -229,9 +229,18 @@ export class PaymentService {
         await this.ogaranyaService.initiatePayment(paymentData);
 
       if (orderResponse.status === 'success') {
-        const wallet = await this.prisma.wallet.findUnique({
+        let wallet = await this.prisma.wallet.findUnique({
           where: { agentId: agent.id },
         });
+
+        if (!wallet) {
+          wallet = await this.prisma.wallet.create({
+            data: {
+              agentId: agent.id,
+              balance: 0,
+            },
+          });
+        }
 
         const topUpRequest = await this.prisma.walletTransaction.create({
           data: {
@@ -301,9 +310,18 @@ export class PaymentService {
       // const paymentLink =
       //   await this.flutterwaveService.generatePaymentLink(paymentData);
 
-      const wallet = await this.prisma.wallet.findUnique({
+      let wallet = await this.prisma.wallet.findUnique({
         where: { agentId: agent.id },
       });
+
+      if (!wallet) {
+        wallet = await this.prisma.wallet.create({
+          data: {
+            agentId: agent.id,
+            balance: 0,
+          },
+        });
+      }
 
       const topUpRequest = await this.prisma.walletTransaction.create({
         data: {
