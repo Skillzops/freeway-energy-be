@@ -203,6 +203,7 @@ export class AgentsService {
         installerTask: true,
         assignedTasks: true,
         assignedProducts: true,
+        assignedCustomers: true,
         assignedInstallers: {
           select: {
             agent: {
