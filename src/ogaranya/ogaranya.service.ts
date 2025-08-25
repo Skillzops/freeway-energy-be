@@ -184,7 +184,7 @@ export class OgaranyaService {
         headers: this.getHeaders(),
         body: JSON.stringify(payload),
       });
-           
+
       const result = await response.json();
 
       return result;
