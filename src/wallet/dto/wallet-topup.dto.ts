@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentGateway } from '@prisma/client';
 import { Transform } from 'class-transformer';
-import { IsString, IsOptional, IsEnum, IsNotEmpty, IsPositive, Min } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
 
 export class WalletTopUpDto {
   @ApiProperty({ description: 'Amount to top up', minimum: 100, example: 500 })
@@ -14,8 +14,8 @@ export class WalletTopUpDto {
     }
     return parsedValue;
   })
-  @IsPositive()
-  @Min(100)
+  // @IsPositive()
+  // @Min(100)
   amount: number;
 
   @ApiPropertyOptional({ description: 'Optional description for the top-up' })
