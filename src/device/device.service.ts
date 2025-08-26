@@ -46,7 +46,7 @@ export class DeviceService {
     return { message: MESSAGES.CREATED };
   }
 
-  async createDevice(createDeviceDto: CreateDeviceDto) {
+  async createDevice(createDeviceDto: CreateDeviceDto, userId: string) {
     const device = await this.fetchDevice({
       serialNumber: createDeviceDto.serialNumber,
     });
@@ -54,7 +54,7 @@ export class DeviceService {
     if (device) throw new BadRequestException(MESSAGES.DEVICE_EXISTS);
 
     return await this.prisma.device.create({
-      data: createDeviceDto,
+      data: { ...createDeviceDto, creatorId: userId },
     });
   }
 
@@ -116,6 +116,7 @@ export class DeviceService {
     userId: string,
     deviceId?: string,
     extraPermissions: { action: ActionEnum; subject: SubjectEnum }[] = [],
+    allowAgents = true,
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -162,14 +163,15 @@ export class DeviceService {
       return;
     }
 
-    // Check if user is assigned installer for this device
-    if (user.agentDetails) {
-      if (!deviceId) return true;
-      await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
-    } else {
-      throw new ForbiddenException(
-        'Insufficient permissions to update device status',
-      );
+    if (allowAgents) {
+      if (user.agentDetails) {
+        if (!deviceId) return true;
+        await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
+      } else {
+        throw new ForbiddenException(
+          'Insufficient permissions to update device status',
+        );
+      }
     }
   }
 
@@ -328,7 +330,7 @@ export class DeviceService {
     });
   }
 
-  async createBatchDeviceTokens(filePath: string) {
+  async createBatchDeviceTokens(filePath: string, userId: string) {
     const rows = await this.parseCsv(filePath);
     console.log({ filePath, rows });
 
@@ -398,6 +400,7 @@ export class DeviceService {
             deviceId: device.id,
             token: String(token.finalToken),
             duration,
+            creatorId: userId,
           },
         });
 
@@ -455,6 +458,7 @@ export class DeviceService {
 
   async createBatchDeviceTokensWithProgress(
     filePath: string,
+    userId: string,
     progressCallback?: (progress: number) => Promise<void>,
   ) {
     try {
@@ -606,6 +610,7 @@ export class DeviceService {
               deviceId: device.id,
               token: String(tokenResult.finalToken),
               duration: tokenDuration,
+              creatorId: userId,
             },
           });
 
@@ -688,7 +693,11 @@ export class DeviceService {
     return null;
   }
 
-  async generateSingleDeviceToken(deviceId: string, tokenDuration: number) {
+  async generateSingleDeviceToken(
+    deviceId: string,
+    tokenDuration: number,
+    userId: string,
+  ) {
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
     });
@@ -723,6 +732,7 @@ export class DeviceService {
           deviceId: device.id,
           token: String(token.finalToken),
           duration: tokenDuration,
+          creatorId: userId,
         },
       });
 
@@ -740,6 +750,20 @@ export class DeviceService {
         `Failed to generate token: ${error.message}`,
       );
     }
+  }
+
+  async deleteDeviceToken(deviceId: string, tokenId: string) {
+    const token = await this.prisma.tokens.findUnique({
+      where: { id: tokenId, deviceId },
+    });
+
+    if (!token) {
+      throw new NotFoundException(`Token not found for device`);
+    }
+
+    return await this.prisma.tokens.delete({
+      where: { id: tokenId, deviceId },
+    });
   }
 
   async devicesFilter(
@@ -760,7 +784,7 @@ export class DeviceService {
       installationStatus,
     } = query;
 
-    console.log({ isExact });
+    // console.log({ isExact });
 
     const filterConditions: Prisma.DeviceWhereInput = {
       AND: [
@@ -869,7 +893,20 @@ export class DeviceService {
     return await this.prisma.device.findUnique({
       where: { ...fieldAndValue },
       include: {
-        tokens: true,
+        tokens: {
+          include: {
+            creator: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                role: {
+                  select: { role: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
   }

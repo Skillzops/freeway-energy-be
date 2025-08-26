@@ -30,6 +30,8 @@ model User {
 
   createdProducts         Product[]
   createdCustomers        Customer[]
+  createdTokens           Tokens[]
+  createdDevices          Device[]
   createdSales            Sales[]
   createdInventoryBatches InventoryBatch[]
 

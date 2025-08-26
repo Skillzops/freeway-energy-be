@@ -124,12 +124,12 @@ export class CsvUploadService {
 
     // Guarantor Info
     ["guarantor's name", 'guarantorName'],
-    ["guarantor s name", 'guarantorName'],
+    ['guarantor s name', 'guarantorName'],
     ['guarantors name', 'guarantorName'],
     ['guarantor_name', 'guarantorName'],
     ['guarantor name', 'guarantorName'],
     ["guarantor's number", 'guarantorNumber'],
-    ["guarantor s number", 'guarantorNumber'],
+    ['guarantor s number', 'guarantorNumber'],
     ['guarantors number', 'guarantorNumber'],
     ['guarantor_number', 'guarantorNumber'],
     ['guarantor number', 'guarantorNumber'],
@@ -890,7 +890,10 @@ export class CsvUploadService {
 
         if (!device) {
           device = await this.prisma.device.create({
-            data: deviceData,
+            data: {
+              ...deviceData,
+              creatorId: generatedDefaults.defaultUser.id as string,
+            },
           });
 
           this.logger.debug(`Created new device: ${device.serialNumber}`);

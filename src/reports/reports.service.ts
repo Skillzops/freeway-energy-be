@@ -208,13 +208,15 @@ export class ReportsService {
     //   };
     // }
 
+    const tokensWhereClause: Prisma.TokensWhereInput = {};
+
     if (filters?.startDate || filters?.endDate) {
-      whereClause.createdAt = {};
+      tokensWhereClause.createdAt = {};
       if (filters.startDate) {
-        whereClause.createdAt.gte = new Date(filters.startDate);
+        tokensWhereClause.createdAt.gte = new Date(filters.startDate);
       }
       if (filters.endDate) {
-        whereClause.createdAt.lte = new Date(filters.endDate);
+        tokensWhereClause.createdAt.lte = new Date(filters.endDate);
       }
     }
 
@@ -222,7 +224,9 @@ export class ReportsService {
       where: {
         ...whereClause,
         tokens: {
-          some: {},
+          some: {
+            ...tokensWhereClause,
+          },
         },
       },
       select: {
@@ -252,59 +256,10 @@ export class ReportsService {
 
     // Fetch full device data in parallel
     const [multipleTokenDevices] = await Promise.all([
-      // singleTokenDeviceIds.length > 0
-      //   ? this.prisma.device.findMany({
-      //       where: {
-      //         id: { in: singleTokenDeviceIds },
-      //       },
-      //       include: {
-      //         tokens: {
-      //           orderBy: {
-      //             createdAt: 'desc',
-      //           },
-      //         },
-      //         saleItems: {
-      //           take: 1, // Only get first sale item per device
-      //           include: {
-      //             sale: {
-      //               select: {
-      //                 id: true,
-      //                 status: true,
-      //                 totalPrice: true,
-      //                 createdAt: true,
-      //                 customer: {
-      //                   select: {
-      //                     firstname: true,
-      //                     lastname: true,
-      //                     phone: true,
-      //                     email: true,
-      //                     installationAddress: true,
-      //                     state: true,
-      //                     lga: true,
-      //                     type: true,
-      //                   },
-      //                 },
-      //               },
-      //             },
-      //             product: {
-      //               select: {
-      //                 name: true,
-      //                 category: true,
-      //               },
-      //             },
-      //           },
-      //         },
-      //       },
-      //       orderBy: {
-      //         createdAt: 'desc',
-      //       },
-      //     })
-      //   : [],
-
-      multipleTokenDeviceIds.length > 0
+      singleTokenDeviceIds.length > 0
         ? this.prisma.device.findMany({
             where: {
-              id: { in: multipleTokenDeviceIds },
+              id: { in: singleTokenDeviceIds },
             },
             include: {
               tokens: {
@@ -349,6 +304,55 @@ export class ReportsService {
             },
           })
         : [],
+
+      // multipleTokenDeviceIds.length > 0
+      //   ? this.prisma.device.findMany({
+      //       where: {
+      //         id: { in: multipleTokenDeviceIds },
+      //       },
+      //       include: {
+      //         tokens: {
+      //           orderBy: {
+      //             createdAt: 'desc',
+      //           },
+      //         },
+      //         saleItems: {
+      //           take: 1, // Only get first sale item per device
+      //           include: {
+      //             sale: {
+      //               select: {
+      //                 id: true,
+      //                 status: true,
+      //                 totalPrice: true,
+      //                 createdAt: true,
+      //                 customer: {
+      //                   select: {
+      //                     firstname: true,
+      //                     lastname: true,
+      //                     phone: true,
+      //                     email: true,
+      //                     installationAddress: true,
+      //                     state: true,
+      //                     lga: true,
+      //                     type: true,
+      //                   },
+      //                 },
+      //               },
+      //             },
+      //             product: {
+      //               select: {
+      //                 name: true,
+      //                 category: true,
+      //               },
+      //             },
+      //           },
+      //         },
+      //       },
+      //       orderBy: {
+      //         createdAt: 'desc',
+      //       },
+      //     })
+      //   : [],
     ]);
   
 

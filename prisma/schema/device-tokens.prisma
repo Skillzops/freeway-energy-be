@@ -16,13 +16,16 @@ model Device {
 
   isUsed Boolean @default(false)
 
-  installationStatus      InstallationStatus @default(not_installed)
-  installationLocation            String?
-  installationLongitude           String?
-  installationLatitude            String?
+  installationStatus    InstallationStatus @default(not_installed)
+  installationLocation  String?
+  installationLongitude String?
+  installationLatitude  String?
 
   saleItemIDs String[]   @db.ObjectId
   saleItems   SaleItem[] @relation(fields: [saleItemIDs], references: [id])
+
+  creatorId String? @db.ObjectId
+  creator   User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -40,6 +43,9 @@ model Tokens {
 
   device   Device? @relation(fields: [deviceId], references: [id])
   deviceId String? @db.ObjectId
+
+  creatorId String? @db.ObjectId
+  creator   User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("token")
 }

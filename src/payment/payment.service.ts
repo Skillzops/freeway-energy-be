@@ -916,6 +916,7 @@ export class PaymentService {
               deviceId: device.id,
               token: String(token.finalToken),
               duration: tokenDuration,
+              creatorId: sale.creatorId,
             },
           });
         }

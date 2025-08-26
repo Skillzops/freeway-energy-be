@@ -44,7 +44,7 @@ export class DeviceProcessor extends WorkerHost {
     console.log(`[PROCESSOR] Processing job: ${job.id}, type: ${job.name}`);
 
     if (job.name === 'batch-token-generation') {
-      const { filePath, jobId } = job.data;
+      const { filePath, jobId, uploadedBy } = job.data;
 
       try {
         await job.updateProgress(10);
@@ -57,6 +57,7 @@ export class DeviceProcessor extends WorkerHost {
         const result =
           await this.deviceService.createBatchDeviceTokensWithProgress(
             filePath,
+            uploadedBy,
             async (progress: number) => {
               await job.updateProgress(Math.min(progress, 90));
             },

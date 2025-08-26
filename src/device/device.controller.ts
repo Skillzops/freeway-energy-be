@@ -123,7 +123,10 @@ export class DeviceController {
     }),
   )
   @Post('batch/generate-tokens')
-  async createBatchDeviceTokens(@UploadedFile() file: Express.Multer.File) {
+  async createBatchDeviceTokens(
+    @UploadedFile() file: Express.Multer.File,
+    @GetSessionUser('id') userId: string,
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -140,6 +143,7 @@ export class DeviceController {
     // Queue the job instead of processing immediately
     const result = await this.deviceService.queueBatchTokenGeneration(
       file.path,
+      userId,
     );
 
     return result;
@@ -248,6 +252,7 @@ export class DeviceController {
   async generateSingleDeviceToken(
     @Param('deviceId') deviceId: string,
     @Body() body: { tokenDuration: number },
+    @GetSessionUser('id') userId: string,
   ) {
     const { tokenDuration } = body;
 
@@ -258,6 +263,37 @@ export class DeviceController {
     return await this.deviceService.generateSingleDeviceToken(
       deviceId,
       tokenDuration,
+      userId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiParam({
+    name: 'deviceId',
+    type: String,
+    description: 'Device ID',
+  })
+  @ApiParam({
+    name: 'tokenId',
+    type: String,
+    description: 'TokenID',
+  })
+  @Post(':deviceId/token/:tokenId')
+  async deleteDeviceToken(
+    @Param('deviceId') deviceId: string,
+    @Param('tokenId') tokenId: string,
+    @GetSessionUser('id') userId: string,
+  ) {
+    await this.deviceService.validateUpdatePermissions(
+      userId,
+      undefined,
+      [],
+      false,
+    );
+
+    return await this.deviceService.deleteDeviceToken(
+      deviceId,
+      tokenId,
     );
   }
 
@@ -275,8 +311,11 @@ export class DeviceController {
   @ApiOperation({ summary: 'Create a single device' })
   @HttpCode(HttpStatus.CREATED)
   @Post()
-  async createDevice(@Body() createDeviceDto: CreateDeviceDto) {
-    return await this.deviceService.createDevice(createDeviceDto);
+  async createDevice(
+    @Body() createDeviceDto: CreateDeviceDto,
+    @GetSessionUser('id') userId: string,
+  ) {
+    return await this.deviceService.createDevice(createDeviceDto, userId);
   }
 
   @UseGuards(JwtAuthGuard)
