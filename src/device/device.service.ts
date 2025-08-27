@@ -169,10 +169,11 @@ export class DeviceService {
         await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
       } else {
         throw new ForbiddenException(
-          'Insufficient permissions to update device status',
         );
       }
     }
+
+    throw new ForbiddenException();
   }
 
   async updateDeviceStatus(
