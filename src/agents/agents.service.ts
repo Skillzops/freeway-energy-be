@@ -590,6 +590,7 @@ export class AgentsService {
                 phone: true,
               },
             },
+            installerTask: true
           },
         },
       },
