@@ -28,6 +28,12 @@ export class WalletController {
     return this.walletService.createAgentWallet(agent.id, walletData);
   }
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Get wallet statistics for the agent' })
+  async getWalletStats(@GetSessionUser('agent') agent: any) {
+    return this.walletService.getWalletStats(agent.id);
+  }
+
   @Get('balance')
   async getBalance(@GetSessionUser('agent') agent: any) {
     return {

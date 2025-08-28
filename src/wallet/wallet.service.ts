@@ -243,7 +243,7 @@ export class WalletService {
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
-    const transactions = this.prisma.walletTransaction.findMany({
+    const transactions = await this.prisma.walletTransaction.findMany({
       where: { agentId },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -260,6 +260,50 @@ export class WalletService {
       page,
       limit,
       totalPages: limitNumber === 0 ? 0 : Math.ceil(total / limitNumber),
+    };
+  }
+
+  async getWalletStats(agentId: string) {
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { agentId },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+
+    // Aggregate stats
+    const [creditSum, debitSum, transactionCount, pendingTopUps] =
+      await this.prisma.$transaction([
+        this.prisma.walletTransaction.aggregate({
+          where: { agentId, type: WalletTransactionType.CREDIT, status: WalletTransactionStatus.COMPLETED },
+          _sum: { amount: true },
+        }),
+        this.prisma.walletTransaction.aggregate({
+          where: { agentId, type: WalletTransactionType.DEBIT, status: WalletTransactionStatus.COMPLETED },
+          _sum: { amount: true },
+        }),
+        this.prisma.walletTransaction.count({
+          where: { agentId },
+        }),
+        this.prisma.walletTransaction.count({
+          where: { agentId, status: WalletTransactionStatus.PENDING },
+        }),
+      ]);
+
+    const lastTransaction = await this.prisma.walletTransaction.findFirst({
+      where: { agentId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
+    return {
+      balance: wallet.balance,
+      totalCredits: creditSum._sum.amount || 0,
+      totalDebits: debitSum._sum.amount || 0,
+      transactionCount,
+      pendingTopUps,
+      lastTransactionDate: lastTransaction?.createdAt || null,
     };
   }
 
