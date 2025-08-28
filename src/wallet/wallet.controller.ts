@@ -4,10 +4,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { WalletService } from './wallet.service';
 import { PaymentService } from '../payment/payment.service';
 import { GetSessionUser } from '../auth/decorators/getUser';
-import { ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiExtraModels, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreateAgentWalletDto } from './dto/create-agent-wallet.dto';
 import { PaymentGateway } from '@prisma/client';
 import { WalletTopUpDto } from './dto/wallet-topup.dto';
+import { PaginationQueryDto } from 'src/utils/dto/pagination.dto';
 
 @Controller('wallet')
 @ApiTags('Wallet')
@@ -36,12 +37,12 @@ export class WalletController {
   }
 
   @Get('transactions')
+  @ApiExtraModels(PaginationQueryDto)
   async getTransactions(
     @GetSessionUser('agent') agent: any,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query() query: PaginationQueryDto,
   ) {
-    return this.walletService.getWalletTransactions(agent.id, page, limit);
+    return this.walletService.getWalletTransactions(agent.id, query);
   }
 
   @Post('topup')

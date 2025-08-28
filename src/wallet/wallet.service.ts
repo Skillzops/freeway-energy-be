@@ -7,6 +7,7 @@ import { WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { CreateAgentWalletDto } from './dto/create-agent-wallet.dto';
+import { PaginationQueryDto } from 'src/utils/dto/pagination.dto';
 
 @Injectable()
 export class WalletService {
@@ -233,15 +234,33 @@ export class WalletService {
     });
   }
 
-  async getWalletTransactions(agentId: string, page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+  async getWalletTransactions(agentId: string, query?: PaginationQueryDto) {
+    const { page = 1, limit = 100 } = query;
 
-    return this.prisma.walletTransaction.findMany({
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const transactions = this.prisma.walletTransaction.findMany({
       where: { agentId },
       orderBy: { createdAt: 'desc' },
       skip,
-      take: limit,
+      take,
     });
+
+    const total = await this.prisma.walletTransaction.count({
+      where: { agentId },
+    });
+
+    return {
+      transactions,
+      total,
+      page,
+      limit,
+      totalPages: limitNumber === 0 ? 0 : Math.ceil(total / limitNumber),
+    };
   }
 
   private async generateTestBVN(): Promise<string> {
