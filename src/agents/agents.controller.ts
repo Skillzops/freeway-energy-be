@@ -35,7 +35,7 @@ import {
   Sales,
   SubjectEnum,
 } from '@prisma/client';
-import { GetAgentsDto } from './dto/get-agent.dto';
+import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { GetSessionUser } from '../auth/decorators/getUser';
 import { AgentAccessGuard } from '../auth/guards/agent-access.guard';
 import { ProductsService } from '../products/products.service';
@@ -584,10 +584,45 @@ export class AgentsController {
       example: 'Bearer <token>',
     },
   })
-  @ApiExtraModels(ListAgentSalesQueryDto)
+  @ApiExtraModels(GetAgentsInstallersDto)
   @Get('installers')
-  async getAgentInstallers(@GetSessionUser('agent') agent: any) {
-    return await this.agentsService.getAgentInstallers(agent.id);
+  async getAgentInstallers(
+    @GetSessionUser('agent') agent: Agent,
+    @Query() query: GetAgentsInstallersDto,
+  ) {
+    if (!agent || agent.category !== AgentCategory.SALES) {
+      throw new ForbiddenException('User is not an agent');
+    }
+    return await this.agentsService.getAgentInstallers(agent.id, query);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiOperation({
+    description: 'Fetch single installer for authenticated agent',
+  })
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Agent Installer id to fetch details.',
+  })
+  @Get('installers/:id')
+  async getAgentInstaller(
+    @GetSessionUser('agent') agent: any,
+    @Param('id') installerId: string,
+  ) {
+    if (!agent || agent.category !== AgentCategory.SALES) {
+      throw new ForbiddenException('User is not an agent');
+    }
+    return await this.agentsService.getAgentInstaller(agent.id, installerId);
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)

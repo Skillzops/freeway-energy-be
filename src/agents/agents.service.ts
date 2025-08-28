@@ -8,7 +8,7 @@ import { CreateAgentDto } from './dto/create-agent.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRandomPassword } from '../utils/generate-pwd';
 import { hashPassword } from '../utils/helpers.util';
-import { GetAgentsDto } from './dto/get-agent.dto';
+import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
 import {
@@ -27,6 +27,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
+import { ListAgentSalesQueryDto } from 'src/sales/dto/list-sales.dto';
 
 @Injectable()
 export class AgentsService {
@@ -487,15 +488,96 @@ export class AgentsService {
     return { message: 'Products unassigned successfully' };
   }
 
-  async getAgentInstallers(agentId: string) {
-    const agent = await this.findOne(agentId);
+  async getAgentInstallers(agentId: string, query?: GetAgentsInstallersDto) {
+    const {
+      page = 1,
+      limit = 100,
+      status,
+      sortField,
+      sortOrder,
+      search,
+      createdAt,
+      updatedAt,
+    } = query;
 
-    if (!agent || agent.category !== AgentCategory.SALES) {
-      throw new BadRequestException('User is not an agent');
-    }
+    const whereConditions: Prisma.AgentWhereInput = {
+      AND: [
+        search
+          ? {
+              user: {
+                OR: [
+                  { firstname: { contains: search, mode: 'insensitive' } },
+                  { lastname: { contains: search, mode: 'insensitive' } },
+                  { email: { contains: search, mode: 'insensitive' } },
+                  { username: { contains: search, mode: 'insensitive' } },
+                ],
+              },
+            }
+          : {},
+        status ? { user: { status } } : {},
+        createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
+        updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
+      ],
+    };
 
-    return await this.prisma.agentInstallerAssignment.findMany({
-      where: { agentId },
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const orderBy = {
+      [sortField || 'createdAt']: sortOrder || 'asc',
+    };
+
+    const agents = await this.prisma.agent.findMany({
+      where: { ...whereConditions, id: agentId },
+      select: {
+        id: true,
+        assignedInstallers: {
+          select: {
+            installer: {
+              select: {
+                id: true,
+                category: true,
+                user: {
+                  select: {
+                    firstname: true,
+                    lastname: true,
+                    email: true,
+                    location: true,
+                    longitude: true,
+                    latitude: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      skip,
+      take,
+      orderBy: {
+        user: orderBy,
+      },
+    });
+
+    const total = await this.prisma.agent.count({
+      where: whereConditions,
+    });
+
+    return {
+      agents,
+      total,
+      page,
+      limit,
+      totalPages: limitNumber === 0 ? 0 : Math.ceil(total / limitNumber),
+    };
+  }
+
+  async getAgentInstaller(agentId: string, installerId: string) {
+    const installers = await this.prisma.agentInstallerAssignment.findFirst({
+      where: { installerId },
       select: {
         installer: {
           select: {
@@ -512,6 +594,11 @@ export class AgentsService {
         },
       },
     });
+
+    if (!installers)
+      throw new NotFoundException(`Agent with id (${agentId}) not found`);
+
+    return installers;
   }
 
   async getAgentAssignments(agentId: string) {

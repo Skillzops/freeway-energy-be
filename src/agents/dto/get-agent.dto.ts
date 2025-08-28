@@ -1,5 +1,5 @@
 import { IsOptional, IsString, IsDateString, IsEnum } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { AgentCategory, UserStatus } from '@prisma/client';
 
 export class GetAgentsDto {
@@ -71,3 +71,7 @@ export class GetAgentsDto {
   @IsDateString()
   updatedAt?: string;
 }
+
+export class GetAgentsInstallersDto extends OmitType(GetAgentsDto, [
+  'category',
+]) {}
