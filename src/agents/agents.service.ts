@@ -563,7 +563,7 @@ export class AgentsService {
     });
 
     const total = await this.prisma.agent.count({
-      where: whereConditions,
+      where: { ...whereConditions, id: agentId },
     });
 
     return {
