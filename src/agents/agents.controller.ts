@@ -447,7 +447,7 @@ export class AgentsController {
     description: 'ID of the agent to assign installers to',
   })
   @ApiBody({
-    type: CreateAgentDto,
+    type: AssignAgentInstallerssDto,
     description: 'Json structure for request payload',
   })
   async assignInstallersToAgent(

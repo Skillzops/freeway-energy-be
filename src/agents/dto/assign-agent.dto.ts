@@ -14,7 +14,7 @@ export class AssignAgentCustomersDto {
 }
 
 export class AssignAgentInstallerssDto {
-  @ApiProperty({ description: 'An array of customer IDs to assign to agent' })
+  @ApiProperty({ description: 'An array of installer IDs to assign to agent' })
   @IsArray()
   installerIds: string[];
 }
