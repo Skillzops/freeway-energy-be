@@ -251,7 +251,10 @@ export class CustomersService {
     const customers = plainToInstance(UserEntity, result);
 
     const totalCount = await this.prisma.customer.count({
-      where: filterConditions,
+      where: {
+        ...filterConditions,
+        assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+      },
     });
 
     return {

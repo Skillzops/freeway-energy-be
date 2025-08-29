@@ -100,54 +100,61 @@ export class WalletService {
   }
 
   async getWalletBalance(agentId: string): Promise<number> {
-    const agent = await this.prisma.agent.findUnique({
-      where: { id: agentId },
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { agentId },
     });
 
-    if (!agent?.ogaranyaAccountNumber || !agent?.ogaranyaPhone) {
-      // Return 0 if wallet not set up, or throw error
-      return 0;
-      // throw new BadRequestException('Agent wallet not properly set up with Ogaranya');
-    }
+    return wallet?.balance || 0;
 
-    try {
-      // Get balance from Ogaranya
-      const walletInfo = await this.ogaranyaService.getWalletInfo({
-        phone: agent.ogaranyaPhone,
-        account_number: agent.ogaranyaAccountNumber,
-      });
+    // const agent = await this.prisma.agent.findUnique({
+    //   where: { id: agentId },
+    // });
 
-      if (walletInfo.status === 'success') {
-        const balance = parseFloat(walletInfo.data?.balance || '0');
 
-        // Update local cache
-        await this.prisma.wallet.upsert({
-          where: { agentId },
-          update: {
-            balance,
-            lastSyncAt: new Date(),
-          },
-          create: {
-            agentId,
-            balance,
-            lastSyncAt: new Date(),
-          },
-        });
+    // if (!agent?.ogaranyaAccountNumber || !agent?.ogaranyaPhone) {
+    //   // Return 0 if wallet not set up, or throw error
+    //   return 0;
+    //   // throw new BadRequestException('Agent wallet not properly set up with Ogaranya');
+    // }
 
-        return balance;
-      }
+    // try {
+    //   // Get balance from Ogaranya
+    //   const walletInfo = await this.ogaranyaService.getWalletInfo({
+    //     phone: agent.ogaranyaPhone,
+    //     account_number: agent.ogaranyaAccountNumber,
+    //   });
 
-      throw new Error('Failed to fetch balance from Ogaranya');
-    } catch (error) {
-      console.error('Ogaranya balance fetch failed:', error);
+    //   if (walletInfo.status === 'success') {
+    //     const balance = parseFloat(walletInfo.data?.balance || '0');
 
-      // Fallback to cached balance
-      const localWallet = await this.prisma.wallet.findUnique({
-        where: { agentId },
-      });
+    //     // Update local cache
+    //     await this.prisma.wallet.upsert({
+    //       where: { agentId },
+    //       update: {
+    //         balance,
+    //         lastSyncAt: new Date(),
+    //       },
+    //       create: {
+    //         agentId,
+    //         balance,
+    //         lastSyncAt: new Date(),
+    //       },
+    //     });
 
-      return localWallet?.balance || 0;
-    }
+    //     return balance;
+    //   }
+
+    //   throw new Error('Failed to fetch balance from Ogaranya');
+    // } catch (error) {
+    //   console.error('Ogaranya balance fetch failed:', error);
+
+    //   // Fallback to cached balance
+    //   const localWallet = await this.prisma.wallet.findUnique({
+    //     where: { agentId },
+    //   });
+
+    //   return localWallet?.balance || 0;
+    // }
   }
 
   async creditWallet(
