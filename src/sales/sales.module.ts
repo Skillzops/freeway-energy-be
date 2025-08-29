@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { SalesController } from './sales.controller';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaymentService } from '../payment/payment.service';
 import { ContractService } from '../contract/contract.service';
 import { EmailService } from '../mailer/email.service';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
@@ -14,6 +13,7 @@ import { HttpModule } from '@nestjs/axios';
 import { BullModule } from '@nestjs/bullmq';
 import { WalletModule } from 'src/wallet/wallet.module';
 import { PaymentModule } from 'src/payment/payment.module';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
   imports: [
@@ -26,7 +26,8 @@ import { PaymentModule } from 'src/payment/payment.module';
       name: 'payment-queue',
     }),
     WalletModule,
-    PaymentModule
+    PaymentModule,
+    DeviceModule
   ],
   controllers: [SalesController],
   providers: [

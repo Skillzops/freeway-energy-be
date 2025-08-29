@@ -17,7 +17,7 @@ import { InventoryService } from './inventory.service';
 import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from '../auth/guards/roles.guard';
-import { ActionEnum, SubjectEnum } from '@prisma/client';
+import { ActionEnum, AgentCategory, SubjectEnum } from '@prisma/client';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -36,6 +36,7 @@ import { FetchInventoryQueryDto } from './dto/fetch-inventory.dto';
 import { CreateCategoryArrayDto } from './dto/create-category.dto';
 import { CreateInventoryBatchDto } from './dto/create-inventory-batch.dto';
 import { GetSessionUser } from '../auth/decorators/getUser';
+import { DeviceService } from 'src/device/device.service';
 
 @SkipThrottle()
 @ApiTags('Inventory')
@@ -51,7 +52,10 @@ import { GetSessionUser } from '../auth/decorators/getUser';
   },
 })
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly deviceService: DeviceService,
+  ) {}
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
@@ -223,13 +227,7 @@ export class InventoryController {
     );
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  // @RolesAndPermissions({
-  //   permissions: [
-  //     `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-  //     `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-  //   ],
-  // })
+  @UseGuards(JwtAuthGuard)
   @Get('categories/all')
   @ApiOkResponse({
     description: 'Fetch all inventory categories',
@@ -237,7 +235,20 @@ export class InventoryController {
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
-  async getInventoryCategories() {
+  async getInventoryCategories(@GetSessionUser('id') requestUserId: string) {
+    await this.deviceService.validateUpdatePermissions(
+      requestUserId,
+      undefined,
+      [
+        { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+        { action: ActionEnum.write, subject: SubjectEnum.Sales },
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      true,
+      AgentCategory.SALES,
+    );
+
     return await this.inventoryService.getInventoryCategories();
   }
 

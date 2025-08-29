@@ -17,6 +17,7 @@ import { parse } from 'papaparse';
 import { MESSAGES } from '../constants';
 import {
   ActionEnum,
+  AgentCategory,
   InstallationStatus,
   Prisma,
   SubjectEnum,
@@ -117,6 +118,7 @@ export class DeviceService {
     deviceId?: string,
     extraPermissions: { action: ActionEnum; subject: SubjectEnum }[] = [],
     allowAgents = true,
+    agentCategory?: AgentCategory
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -165,11 +167,13 @@ export class DeviceService {
 
     if (allowAgents) {
       if (user.agentDetails) {
+        if (agentCategory && user.agentDetails.category !== agentCategory) {
+          throw new ForbiddenException();
+        }
         if (!deviceId) return true;
         await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
       } else {
-        throw new ForbiddenException(
-        );
+        throw new ForbiddenException();
       }
     }
 

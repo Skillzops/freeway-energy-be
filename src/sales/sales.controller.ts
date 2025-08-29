@@ -14,7 +14,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from '../auth/guards/roles.guard';
-import { ActionEnum, SubjectEnum } from '@prisma/client';
+import { ActionEnum, AgentCategory, SubjectEnum } from '@prisma/client';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -34,6 +34,7 @@ import { RecordCashPaymentDto } from '../payment/dto/cash-payment.dto';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
+import { DeviceService } from 'src/device/device.service';
 
 @SkipThrottle()
 @ApiTags('Sales')
@@ -51,6 +52,7 @@ import { ListSalesQueryDto } from './dto/list-sales.dto';
 export class SalesController {
   constructor(
     private readonly salesService: SalesService,
+     private readonly deviceService: DeviceService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -75,13 +77,7 @@ export class SalesController {
     return await this.salesService.createSale(requestUserId, createSalesDto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
-      `${ActionEnum.write}:${SubjectEnum.Sales}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Record a cash payment for a sale' })
   @ApiBody({
     type: RecordCashPaymentDto,
@@ -94,6 +90,17 @@ export class SalesController {
     @Body() recordCashPaymentDto: RecordCashPaymentDto,
     @GetSessionUser('id') requestUserId: string,
   ) {
+    await this.deviceService.validateUpdatePermissions(
+      requestUserId,
+      undefined,
+      [
+        { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+        { action: ActionEnum.write, subject: SubjectEnum.Sales },
+      ],
+      true,
+      AgentCategory.SALES
+    );
+
     try {
       const paymentData = await this.salesService.recordCashPayment(
         requestUserId,
