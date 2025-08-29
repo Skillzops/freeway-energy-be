@@ -683,9 +683,9 @@ export class AgentsController {
   @Get('sales/:id')
   async getSale(
     @Param('id') saleId: string,
-    @GetSessionUser('agent') agent: any,
+    @GetSessionUser('id') agentUserId: any,
   ) {
-    return await this.salesService.getSale(saleId, agent.id);
+    return await this.salesService.getSale(saleId, agentUserId);
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)

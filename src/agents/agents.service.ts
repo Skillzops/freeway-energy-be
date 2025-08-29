@@ -542,6 +542,7 @@ export class AgentsService {
       select: {
         installer: {
           select: {
+            id: true,
             user: {
               select: {
                 firstname: true,
