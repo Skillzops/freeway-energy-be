@@ -263,7 +263,7 @@ export class SalesService {
     // );
 
     if (agentId) {
-      await this.prisma.$transaction(async (prisma) => {
+      return await this.prisma.$transaction(async (prisma) => {
         await this.walletService.debitWallet(
           agentId,
           totalAmountToPay,
@@ -305,6 +305,7 @@ export class SalesService {
           success: true,
           message: 'Sale created successfully',
           sale,
+          paymentData,
         };
       });
     }
