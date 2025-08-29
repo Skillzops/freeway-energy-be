@@ -658,10 +658,10 @@ export class AgentsController {
   @ApiExtraModels(ListAgentSalesQueryDto)
   @Get('sales')
   async getAgentSales(
-    @GetSessionUser('agent') agent: any,
+    @GetSessionUser('id') agentUserId: any,
     @Query() query: ListAgentSalesQueryDto,
   ) {
-    return await this.salesService.getAllSales(query, agent.id);
+    return await this.salesService.getAllSales(query, agentUserId);
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)

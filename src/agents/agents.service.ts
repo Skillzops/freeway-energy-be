@@ -530,26 +530,26 @@ export class AgentsService {
       [sortField || 'createdAt']: sortOrder || 'asc',
     };
 
-    const agents = await this.prisma.agent.findMany({
-      where: { ...whereConditions, id: agentId },
+    const installers = await this.prisma.agentInstallerAssignment.findMany({
+      where: {
+        agent: {
+          id: agentId,
+        },
+        installer: {
+          ...whereConditions,
+        },
+      },
       select: {
-        id: true,
-        assignedInstallers: {
+        installer: {
           select: {
-            installer: {
+            user: {
               select: {
-                id: true,
-                category: true,
-                user: {
-                  select: {
-                    firstname: true,
-                    lastname: true,
-                    email: true,
-                    location: true,
-                    longitude: true,
-                    latitude: true,
-                  },
-                },
+                firstname: true,
+                lastname: true,
+                email: true,
+                location: true,
+                longitude: true,
+                latitude: true,
               },
             },
           },
@@ -558,16 +558,30 @@ export class AgentsService {
       skip,
       take,
       orderBy: {
-        user: orderBy,
+        installer: {
+          user: orderBy,
+        },
       },
     });
 
-    const total = await this.prisma.agent.count({
-      where: { ...whereConditions, id: agentId },
+    const total = await this.prisma.agentInstallerAssignment.count({
+      where: {
+        agent: {
+          id: agentId,
+        },
+      },
     });
 
     return {
-      agents,
+      installers: installers.map((installer) => {
+        return {
+          ...installer,
+          ...installer.installer,
+          ...installer.installer.user,
+          installer: undefined,
+          user: undefined
+        };
+      }),
       total,
       page,
       limit,
@@ -590,7 +604,7 @@ export class AgentsService {
                 phone: true,
               },
             },
-            installerTask: true
+            installerTask: true,
           },
         },
       },
