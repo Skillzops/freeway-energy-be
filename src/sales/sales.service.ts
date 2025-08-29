@@ -129,7 +129,7 @@ export class SalesService {
       const walletBalance = await this.walletService.getWalletBalance(agentId);
       if (walletBalance < totalAmountToPay) {
         throw new BadRequestException(
-          `Insufficient wallet balance. Required: ₦${totalAmount}, Available: ₦${walletBalance}`,
+          `Insufficient wallet balance. Required: ₦${totalAmountToPay}, Available: ₦${walletBalance}`,
         );
       }
     }
