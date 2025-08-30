@@ -27,7 +27,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
-import { ListAgentSalesQueryDto } from 'src/sales/dto/list-sales.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
 @Injectable()
