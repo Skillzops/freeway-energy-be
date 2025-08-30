@@ -13,7 +13,6 @@ import { InstallerService } from 'src/installer/installer.service';
 import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';
 import {
   ActionEnum,
-  Agent,
   AgentCategory,
   SaleItem,
   Sales,
@@ -98,11 +97,10 @@ export class TaskManagementController {
   async assignInstaller(
     @Param('id') taskId: string,
     @Body() body: AssignInstallerDto,
-    @GetSessionUser('id') adminId: string,
-    @GetSessionUser('agent') agent: Agent,
+    @GetSessionUser('id') reqUserId: string,
   ) {
     await this.deviceService.validateUpdatePermissions(
-      adminId,
+      reqUserId,
       undefined,
       [
         { action: ActionEnum.manage, subject: SubjectEnum.Sales },
@@ -115,8 +113,7 @@ export class TaskManagementController {
     return this.taskManagementService.assignInstallerTask(
       taskId,
       body.installerAgentId,
-      adminId,
-      agent.id,
+      reqUserId,
     );
   }
 }

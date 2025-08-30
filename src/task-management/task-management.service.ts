@@ -10,13 +10,18 @@ export class TaskManagementService {
   async assignInstallerTask(
     taskId: string,
     installerAgentId: string,
-    adminId: string,
-    agentId?: string,
+    reqUserId: string,
   ) {
-    if (agentId) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: reqUserId },
+      include: {
+        agentDetails: true,
+      },
+    });
+    if (user.agentDetails) {
       const installers = await this.prisma.agentInstallerAssignment.findFirst({
         where: {
-          agentId,
+          agentId: user.agentDetails.id,
           installerId: installerAgentId,
         },
       });
@@ -32,7 +37,7 @@ export class TaskManagementService {
       where: { id: taskId },
       data: {
         installerAgentId: installerAgentId,
-        assignedBy: adminId,
+        assignedBy: reqUserId,
       },
     });
   }
