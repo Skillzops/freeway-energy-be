@@ -93,6 +93,7 @@ export class TaskManagementController {
       'Assign task to installer agent (allowed for admins / sales agents -> their own installers',
   })
   @Post(':id/assign-installer-task')
+  @ApiExtraModels(AssignInstallerDto)
   async assignInstaller(
     @Param('id') taskId: string,
     @Body() body: AssignInstallerDto,
@@ -114,7 +115,7 @@ export class TaskManagementController {
       taskId,
       body.installerAgentId,
       adminId,
-      agent.id
+      agent.id,
     );
   }
 }
