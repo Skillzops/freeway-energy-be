@@ -20,13 +20,14 @@ import { ContractService } from '../contract/contract.service';
 import { PaymentService } from '../payment/payment.service';
 import { BatchAllocation, ProcessedSaleItem } from './sales.interface';
 import { CreateFinancialMarginDto } from './dto/create-financial-margins.dto';
-import { RecordCashPaymentDto } from 'src/payment/dto/cash-payment.dto';
+import { CreateNextPaymentDto } from 'src/payment/dto/cash-payment.dto';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
 import { plainToInstance } from 'class-transformer';
 import { UserEntity } from '../users/entity/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 
 @Injectable()
 export class SalesService {
@@ -35,6 +36,7 @@ export class SalesService {
     private readonly contractService: ContractService,
     private readonly paymentService: PaymentService,
     private readonly walletService: WalletService,
+    private readonly referenceGenerator: ReferenceGeneratorService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -297,7 +299,7 @@ export class SalesService {
         });
 
         const job = await this.paymentQueue.add(
-          'process-cash-payment',
+          'process-next-payment',
           { paymentData },
           {
             attempts: 3,
@@ -504,7 +506,7 @@ export class SalesService {
     return saleItem;
   }
 
-  async recordCashPayment(recordedById: string, dto: RecordCashPaymentDto) {
+  async createNextPayment(requestUserId: string, dto: CreateNextPaymentDto) {
     const sale = await this.prisma.sales.findUnique({
       where: { id: dto.saleId },
       include: {
@@ -546,26 +548,63 @@ export class SalesService {
       );
     }
 
-    const transactionRef = `cash-${sale.id}-${Date.now()}`;
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: requestUserId,
+      },
+      select: {
+        agentDetails: true,
+      },
+    });
+
+    const transactionRef =
+      await this.referenceGenerator.generatePaymentReference();
+
+    if (user.agentDetails) {
+      const agentId = user.agentDetails.id;
+      const walletBalance = await this.walletService.getWalletBalance(agentId);
+
+      if (walletBalance < dto.amount) {
+        throw new BadRequestException(
+          `Insufficient wallet balance. Required: ₦${requestUserId}, Available: ₦${walletBalance}`,
+        );
+      }
+
+      const saleRef = await this.referenceGenerator.generateSaleReference(
+        sale.id,
+      );
+
+      await this.walletService.debitWallet(
+        agentId,
+        dto.amount,
+        saleRef,
+        `Payment for sale ${sale.id}`,
+        sale.id,
+      );
+    }
 
     return await this.prisma.payment.create({
       data: {
         saleId: dto.saleId,
         amount: dto.amount,
-        paymentMethod: PaymentMethod.CASH,
+        paymentMethod: user.agentDetails
+          ? PaymentMethod.WALLET
+          : PaymentMethod.CASH,
         transactionRef,
         paymentStatus: PaymentStatus.COMPLETED,
-        recordedById,
+        recordedById: requestUserId,
         notes: dto.notes,
         paymentDate: new Date(),
       },
     });
 
+    // const transactionRef = `cash-${sale.id}-${Date.now()}`;
+
     // await this.paymentService.handlePostPayment(payment);
 
     // return {
     //   payment,
-    //   message: 'Cash payment recorded successfully',
+    //   message: 'Next payment recorded successfully',
     // };
   }
 

@@ -30,7 +30,7 @@ import { SalesService } from './sales.service';
 import { CreateSalesDto } from './dto/create-sales.dto';
 import { ValidateSaleProductDto } from './dto/validate-sale-product.dto';
 import { CreateFinancialMarginDto } from './dto/create-financial-margins.dto';
-import { RecordCashPaymentDto } from '../payment/dto/cash-payment.dto';
+import { CreateNextPaymentDto } from '../payment/dto/cash-payment.dto';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
@@ -52,7 +52,7 @@ import { DeviceService } from 'src/device/device.service';
 export class SalesController {
   constructor(
     private readonly salesService: SalesService,
-     private readonly deviceService: DeviceService,
+    private readonly deviceService: DeviceService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -80,14 +80,14 @@ export class SalesController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Record a cash payment for a sale' })
   @ApiBody({
-    type: RecordCashPaymentDto,
+    type: CreateNextPaymentDto,
     description: 'Cash payment details',
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.CREATED)
-  @Post('record-cash-payment')
-  async recordCashPayment(
-    @Body() recordCashPaymentDto: RecordCashPaymentDto,
+  @Post('create-next-payment')
+  async createNextPayment(
+    @Body() recordCashPaymentDto: CreateNextPaymentDto,
     @GetSessionUser('id') requestUserId: string,
   ) {
     await this.deviceService.validateUpdatePermissions(
@@ -98,18 +98,18 @@ export class SalesController {
         { action: ActionEnum.write, subject: SubjectEnum.Sales },
       ],
       true,
-      AgentCategory.SALES
+      AgentCategory.SALES,
     );
 
     try {
-      const paymentData = await this.salesService.recordCashPayment(
+      const paymentData = await this.salesService.createNextPayment(
         requestUserId,
         recordCashPaymentDto,
       );
       await this.paymentQueue.waitUntilReady();
 
       const job = await this.paymentQueue.add(
-        'process-cash-payment',
+        'process-next-payment',
         { paymentData },
         {
           attempts: 3,
@@ -126,7 +126,7 @@ export class SalesController {
       return {
         jobId: job.id,
         status: 'processing',
-        message: 'Cash payment recorded successfully',
+        message: 'Next payment recorded successfully',
       };
     } catch (error) {
       console.log({ error });

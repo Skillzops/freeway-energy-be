@@ -10,7 +10,7 @@ import {
 import { IsObjectId } from 'class-validator-mongo-object-id';
 import { BadRequestException } from '@nestjs/common';
 
-export class RecordCashPaymentDto {
+export class CreateNextPaymentDto {
   @ApiProperty({
     description: 'Sale ID for the cash payment',
     example: '507f191e810c19729de860ea',

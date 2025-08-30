@@ -32,8 +32,8 @@ export class PaymentProcessor extends WorkerHost {
         case 'verify-payment':
           return await this.processPaymentVerification(job);
 
-        case 'process-cash-payment':
-          return await this.processCashPayment(job);
+        case 'process-next-payment':
+          return await this.processNextPayment(job);
 
         // case 'process-ogaranya-webhook':
         //   return await this.processOgaranyaWebhook(job);
@@ -72,7 +72,7 @@ export class PaymentProcessor extends WorkerHost {
     }
   }
 
-  private async processCashPayment(job: Job<PaymentJobData>) {
+  private async processNextPayment(job: Job<PaymentJobData>) {
     const { paymentData } = job.data;
     console.log(`[PROCESSOR] Processing cash payment:`, paymentData);
 
