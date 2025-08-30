@@ -56,6 +56,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
 import { DeviceService } from 'src/device/device.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
+import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -735,7 +736,9 @@ export class AgentsController {
     @Body() createTaskDto: CreateTaskDto,
     @GetSessionUser('agent') agent: Agent,
   ) {
-    const sale = (await this.salesService.getSale(createTaskDto.saleId)) as SaleItem & {
+    const sale = (await this.salesService.getSale(
+      createTaskDto.saleId,
+    )) as SaleItem & {
       sale: Sales;
     };
 
@@ -920,41 +923,13 @@ export class AgentsController {
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
   @Get('overview')
   @ApiOperation({ summary: 'Get agent dashboard overview' })
-  @ApiOkResponse({
-    description: 'Agent dashboard data',
-    schema: {
-      type: 'object',
-      properties: {
-        overview: {
-          type: 'object',
-          properties: {
-            totalSales: { type: 'number', example: 1960450.0 },
-            salesCount: { type: 'number', example: 34 },
-            totalCustomers: { type: 'number', example: 23 },
-            walletBalance: { type: 'number', example: 60500.0 },
-          },
-        },
-        salesStatistics: {
-          type: 'object',
-          properties: {
-            totalValue: { type: 'number' },
-            totalCount: { type: 'number' },
-            completedSales: { type: 'number' },
-            pendingSales: { type: 'number' },
-          },
-        },
-        walletInfo: {
-          type: 'object',
-          properties: {
-            balance: { type: 'number' },
-            recentTransactions: { type: 'array' },
-          },
-        },
-      },
-    },
-  })
-  async getDashboardOverview(@GetSessionUser('agent') agent: any) {
-    return this.agentsService.getAgentDashboardStats(agent.id);
+  @ApiOkResponse({ description: 'Agent dashboard data' })
+  @ApiExtraModels(DashboardFilterDto)
+  async getDashboardOverview(
+    @GetSessionUser('agent') agent: any,
+    @Query() filters?: DashboardFilterDto,
+  ) {
+    return this.agentsService.getAgentDashboardStats(agent.id, filters);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)

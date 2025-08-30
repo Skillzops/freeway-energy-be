@@ -28,6 +28,7 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { ListAgentSalesQueryDto } from 'src/sales/dto/list-sales.dto';
+import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 
 @Injectable()
 export class AgentsService {
@@ -580,7 +581,7 @@ export class AgentsService {
           ...installer.installer,
           ...installer.installer.user,
           installer: undefined,
-          user: undefined
+          user: undefined,
         };
       }),
       total,
@@ -798,7 +799,7 @@ export class AgentsService {
     return agent?.userId;
   }
 
-  async getAgentDashboardStats(agentId: string) {
+  async getAgentDashboardStats(agentId: string, filters: DashboardFilterDto) {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
       include: { user: true, wallet: true },
@@ -808,12 +809,47 @@ export class AgentsService {
       throw new BadRequestException('Invalid agent or category');
     }
 
-    const salesStats = await this.getSalesStatistics(agent.userId);
-    const customerStats = await this.getCustomerStatistics(agentId);
+    const where: Prisma.SalesWhereInput = {};
+
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    if (filters.startDate || filters.endDate) {
+      where.transactionDate = {};
+      if (filters.startDate) {
+        where.transactionDate.gte = filters.startDate;
+      }
+      if (filters.endDate) {
+        where.transactionDate.lte = filters.endDate;
+      }
+    }
+
+    // product filter → must go through SaleItem
+    // if (filters.productType) {
+    //   where.saleItems = {
+    //     some: {
+    //       product: {
+    //         id: filters.productType, // or product.type if you have enum
+    //       },
+    //     },
+    //   };
+    // }
+
+    // apply filters when fetching sales stats
+    const salesStats = await this.getSalesStatistics(agent.userId, where);
+    const customerStats = await this.getCustomerStatistics(agentId, where);
     const walletInfo = await this.getWalletInfo(agentId);
     const recentTransactions = await this.getRecentTransactions(agentId);
-    const monthlySalesData = await this.getMonthlySalesData(agent.userId);
-    const transactionLineData = await this.getTransactionLineData(agentId);
+    const monthlySalesData = await this.getMonthlySalesData(
+      agent.userId,
+      filters,
+      where,
+    );
+    const transactionLineData = await this.getTransactionLineData(
+      agentId,
+      filters,
+    );
 
     return {
       overview: {
@@ -989,9 +1025,9 @@ export class AgentsService {
     return task;
   }
 
-  private async getSalesStatistics(userId: string) {
+  private async getSalesStatistics(userId: string, where: any) {
     const sales = await this.prisma.sales.findMany({
-      where: { creatorId: userId },
+      where: { ...where, creatorId: userId },
       include: { saleItems: true },
     });
 
@@ -1011,14 +1047,20 @@ export class AgentsService {
     };
   }
 
-  private async getCustomerStatistics(agentId: string) {
-    const assignedCustomers = await this.prisma.agentCustomer.count({
-      where: { agentId },
+  private async getCustomerStatistics(agentId: string, where: any) {
+    const sales = await this.prisma.sales.findMany({
+      where: {
+        agentId,
+        ...where,
+      },
+      select: { customerId: true },
     });
 
+    const uniqueCustomers = new Set(sales.map((s) => s.customerId));
+
     return {
-      total: assignedCustomers,
-      assigned: assignedCustomers,
+      total: uniqueCustomers.size,
+      assigned: uniqueCustomers.size,
     };
   }
 
@@ -1048,104 +1090,91 @@ export class AgentsService {
     });
   }
 
-  private async getMonthlySalesData(userId: string) {
-    const currentYear = new Date().getFullYear();
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
+  private async getMonthlySalesData(
+    userId: string,
+    filters: DashboardFilterDto,
+    where: any,
+  ) {
+    const dateWhere: any = {};
 
-    const salesData = await this.prisma.sales.groupBy({
-      by: ['createdAt'],
+    if (filters.startDate || filters.endDate) {
+      dateWhere.gte =
+        filters.startDate ?? new Date(`${new Date().getFullYear()}-01-01`);
+      dateWhere.lte =
+        filters.endDate ?? new Date(`${new Date().getFullYear() + 1}-01-01`);
+    } else {
+      // fallback: current year
+      const currentYear = new Date().getFullYear();
+      dateWhere.gte = new Date(`${currentYear}-01-01`);
+      dateWhere.lte = new Date(`${currentYear + 1}-01-01`);
+    }
+
+    const salesData = await this.prisma.sales.findMany({
       where: {
         creatorId: userId,
-        createdAt: {
-          gte: new Date(`${currentYear}-01-01`),
-          lt: new Date(`${currentYear + 1}-01-01`),
-        },
+        createdAt: dateWhere,
+        ...where,
       },
-      _sum: {
+      select: {
+        createdAt: true,
         totalPrice: true,
-      },
-      _count: {
-        id: true,
       },
     });
 
-    const monthlyData = months.map((month) => ({
-      month,
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      month: new Date(2000, i).toLocaleString('default', { month: 'short' }),
       sales: 0,
       value: 0,
     }));
 
-    // Populate with actual data
-    salesData.forEach((data) => {
-      const monthIndex = new Date(data.createdAt).getMonth();
-      monthlyData[monthIndex].sales += data._count.id;
-      monthlyData[monthIndex].value += data._sum.totalPrice || 0;
+    salesData.forEach((s) => {
+      const idx = new Date(s.createdAt).getMonth();
+      months[idx].sales += 1;
+      months[idx].value += s.totalPrice;
     });
 
-    return monthlyData;
+    return months;
   }
 
-  private async getTransactionLineData(agentId: string) {
-    const currentYear = new Date().getFullYear();
-    const months = [
-      'JAN',
-      'FEB',
-      'MAR',
-      'APR',
-      'MAY',
-      'JUN',
-      'JUL',
-      'AUG',
-      'SEP',
-      'OCT',
-      'NOV',
-      'DEC',
-    ];
+  private async getTransactionLineData(
+    agentId: string,
+    filters: DashboardFilterDto,
+  ) {
+    const dateWhere: any = {};
 
-    const transactionData = await this.prisma.walletTransaction.groupBy({
-      by: ['createdAt'],
+    if (filters.startDate || filters.endDate) {
+      if (filters.startDate) dateWhere.gte = filters.startDate;
+      if (filters.endDate) dateWhere.lte = filters.endDate;
+    } else {
+      const currentYear = new Date().getFullYear();
+      dateWhere.gte = new Date(`${currentYear}-01-01`);
+      dateWhere.lte = new Date(`${currentYear + 1}-01-01`);
+    }
+
+    const transactions = await this.prisma.walletTransaction.findMany({
       where: {
         agentId,
-        createdAt: {
-          gte: new Date(`${currentYear}-01-01`),
-          lt: new Date(`${currentYear + 1}-01-01`),
-        },
+        createdAt: dateWhere,
       },
-      _sum: {
+      select: {
+        createdAt: true,
         amount: true,
-      },
-      _count: {
-        id: true,
       },
     });
 
-    const monthlyData = months.map((month) => ({
-      month,
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      month: new Date(2000, i).toLocaleString('default', { month: 'short' }),
       amount: 0,
       count: 0,
     }));
 
-    // Populate with actual data
-    transactionData.forEach((data) => {
-      const monthIndex = new Date(data.createdAt).getMonth();
-      monthlyData[monthIndex].amount += data._sum.amount || 0;
-      monthlyData[monthIndex].count += data._count.id;
+    transactions.forEach((t) => {
+      const idx = new Date(t.createdAt).getMonth();
+      months[idx].amount += t.amount;
+      months[idx].count += 1;
     });
 
-    return monthlyData;
+    return months;
   }
 
   async getAgentsByCategory(category: AgentCategory) {
