@@ -22,7 +22,7 @@ import {
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { SalesService } from 'src/sales/sales.service';
-import { ApiExtraModels, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiExtraModels, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { TaskManagementService } from './task-management.service';
 import { GetTaskQueryDto } from './dto/get-task-query.dto';
 import { AssignInstallerDto } from './dto/assign-task.dto';
@@ -94,6 +94,7 @@ export class TaskManagementController {
   })
   @Post(':id/assign-installer-task')
   @ApiExtraModels(AssignInstallerDto)
+  @ApiBody({ type: AssignInstallerDto })
   async assignInstaller(
     @Param('id') taskId: string,
     @Body() body: AssignInstallerDto,
