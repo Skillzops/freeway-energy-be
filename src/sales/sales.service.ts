@@ -13,6 +13,7 @@ import {
   PaymentStatus,
   Prisma,
   SalesStatus,
+  TaskStatus,
 } from '@prisma/client';
 import { ValidateSaleProductItemDto } from './dto/validate-sale-product.dto';
 import { ContractService } from '../contract/contract.service';
@@ -283,6 +284,15 @@ export class SalesService {
             transactionRef,
             paymentMethod: PaymentMethod.WALLET,
             paymentStatus: PaymentStatus.COMPLETED,
+          },
+        });
+
+        await this.prisma.installerTask.create({
+          data: {
+            status: TaskStatus.PENDING,
+            sale: { connect: { id: sale.id } },
+            customer: { connect: { id: sale.customerId } },
+            requestingAgent: { connect: { id: agentId } },
           },
         });
 

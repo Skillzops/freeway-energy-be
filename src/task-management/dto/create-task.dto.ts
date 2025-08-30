@@ -12,18 +12,18 @@ export class CreateTaskDto {
   @IsNotEmpty()
   saleId: string;
 
-  @ApiPropertyOptional({
-    description: 'ID of the customer related to the task (Optional)',
-  })
-  @IsString()
-  @IsOptional()
-  customerId?: string;
+  // @ApiPropertyOptional({
+  //   description: 'ID of the customer related to the task (Optional)',
+  // })
+  // @IsString()
+  // @IsOptional()
+  // customerId?: string;
 
-  @ApiProperty({
-    description: 'ID of the assigned installer agent',
-  })
-  @IsString()
-  installerAgentId: string;
+  // @ApiProperty({
+  //   description: 'ID of the assigned installer agent',
+  // })
+  // @IsString()
+  // installerAgentId: string;
 
   @ApiPropertyOptional({ description: 'Description of the task (optional)' })
   @IsString()

@@ -730,30 +730,28 @@ export class AgentsController {
     name: 'saleId',
     description: 'Sale id to create installation task for details.',
   })
-  @Post('create-installer-task/:saleId')
+  @Post('create-installer-task')
   async createInstallerTask(
-    @Param('saleId') saleId: string,
     @Body() createTaskDto: CreateTaskDto,
-    @GetSessionUser('agent') agent: any,
+    @GetSessionUser('agent') agent: Agent,
   ) {
-    const sale = (await this.salesService.getSale(saleId)) as SaleItem & {
+    const sale = (await this.salesService.getSale(createTaskDto.saleId)) as SaleItem & {
       sale: Sales;
     };
-    const agentUserId = await this.agentsService.getAgentUserId(agent.id);
 
     if (agent.category !== AgentCategory.SALES) {
       throw new ForbiddenException('Access denied - Sales agent only');
     }
 
-    if (sale.sale.creatorId !== agentUserId) {
+    if (sale.sale.creatorId !== agent.userId) {
       throw new ForbiddenException('You do not have access to this sale');
     }
 
     return this.installerService.createTask({
-      saleId,
-      customerId: createTaskDto.customerId || sale.sale.customerId,
-      requestingAgentId: agent.id,
       ...createTaskDto,
+      customerId: sale.sale.customerId,
+      requestingAgentId: agent.id,
+      saleId: sale.sale.id,
       scheduledDate: createTaskDto.scheduledDate,
     });
   }

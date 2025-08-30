@@ -20,51 +20,58 @@ export class InstallerService {
 
   async createTask(
     data: CreateTaskDto & {
+      customerId: string;
       assignedBy?: string;
       requestingAgentId?: string;
     },
   ) {
     const {
-      installerAgentId,
+      // installerAgentId,
+      customerId,
       requestingAgentId,
       saleId,
-      customerId,
       scheduledDate,
       assignedBy,
       ...rest
     } = data;
 
-    const agent = await this.prisma.installerTask.findFirst({
-      where: {
-        id: installerAgentId,
-      },
-    });
+    // const agent = await this.prisma.installerTask.findFirst({
+    //   where: {
+    //     id: installerAgentId,
+    //   },
+    // });
 
-    if (!agent) {
-      throw new NotFoundException('Installer agent not found');
-    }
+    // if (!agent) {
+    //   throw new NotFoundException('Installer agent not found');
+    // }
 
-    const customer = await this.prisma.customer.findFirst({
-      where: {
-        id: customerId,
-      },
-    });
+    // const customer = await this.prisma.customer.findFirst({
+    //   where: {
+    //     id: customerId,
+    //   },
+    // });
 
-    if (!customer) {
-      throw new NotFoundException('Customer agent not found');
-    }
+    // if (!customer) {
+    //   throw new NotFoundException('Customer agent not found');
+    // }
 
     return this.prisma.installerTask.create({
       data: {
         ...rest,
-        scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
         status: TaskStatus.PENDING,
         sale: { connect: { id: saleId } },
         customer: { connect: { id: customerId } },
-        assigner: { connect: { id: assignedBy } },
-        installerAgent: { connect: { id: installerAgentId } },
+        // scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
+        // assigner: { connect: { id: assignedBy } },
+        // installerAgent: { connect: { id: installerAgentId } },
+        ...(assignedBy && {
+          assigner: { connect: { id: assignedBy } },
+        }),
         ...(requestingAgentId && {
           requestingAgent: { connect: { id: requestingAgentId } },
+        }),
+        ...(scheduledDate && {
+          scheduledDate: new Date(scheduledDate),
         }),
       },
     });

@@ -1,8 +1,8 @@
 model InstallerTask {
     id String @id @default(auto()) @map("_id") @db.ObjectId
 
-    installerAgentId String @db.ObjectId
-    installerAgent   Agent  @relation("InstallerTasks", fields: [installerAgentId], references: [id])
+    installerAgentId String? @db.ObjectId
+    installerAgent   Agent?  @relation("InstallerTasks", fields: [installerAgentId], references: [id])
 
     requestingAgentId String? @db.ObjectId
     requestingAgent   Agent?  @relation("AssignedTasks", fields: [requestingAgentId], references: [id])
@@ -21,8 +21,8 @@ model InstallerTask {
     scheduledDate DateTime?
     completedDate DateTime?
 
-    assignedBy String @db.ObjectId
-    assigner   User   @relation("TaskAssigner", fields: [assignedBy], references: [id])
+    assignedBy String? @db.ObjectId
+    assigner   User?   @relation("TaskAssigner", fields: [assignedBy], references: [id])
 
     acceptedAt      DateTime?
     rejectedAt      DateTime?

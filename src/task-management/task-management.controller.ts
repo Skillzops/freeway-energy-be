@@ -16,7 +16,6 @@ import {
   SaleItem,
   Sales,
   SubjectEnum,
-  TaskStatus,
 } from '@prisma/client';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -24,6 +23,7 @@ import { SalesService } from 'src/sales/sales.service';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { TaskManagementService } from './task-management.service';
 import { GetTaskQueryDto } from './dto/get-task-query.dto';
+import { AssignInstallerDto } from './dto/assign-task.dto';
 
 @Controller('tasks')
 @ApiTags('Task Management')
@@ -56,10 +56,10 @@ export class TaskManagementController {
     };
 
     return this.installerService.createTask({
-      saleId,
-      customerId: createTaskDto.customerId || sale.sale.customerId,
-      assignedBy: userId,
       ...createTaskDto,
+      saleId: sale.sale.id,
+      customerId: sale.sale.customerId,
+      assignedBy: userId,
       scheduledDate: createTaskDto.scheduledDate,
     });
   }
@@ -85,7 +85,7 @@ export class TaskManagementController {
   })
   async assignInstaller(
     @Param('id') taskId: string,
-    @Body() body: { installerAgentId: string },
+    @Body() body: AssignInstallerDto,
     @GetSessionUser('id') adminId: string,
   ) {
     return this.taskManagementService.assignInstallerTask(
