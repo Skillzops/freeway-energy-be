@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { GetTaskQueryDto } from './dto/get-task-query.dto';
@@ -11,7 +11,23 @@ export class TaskManagementService {
     taskId: string,
     installerAgentId: string,
     adminId: string,
+    agentId?: string,
   ) {
+    if (agentId) {
+      const installers = await this.prisma.agentInstallerAssignment.findFirst({
+        where: {
+          agentId,
+          installerId: installerAgentId,
+        },
+      });
+
+      if (!installers) {
+        throw new ForbiddenException(
+          'You do not have permission to assign task to this installer',
+        );
+      }
+    }
+
     return this.prisma.installerTask.update({
       where: { id: taskId },
       data: {

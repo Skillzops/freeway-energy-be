@@ -837,7 +837,7 @@ export class AgentsService {
 
     // apply filters when fetching sales stats
     const salesStats = await this.getSalesStatistics(agent.userId, where);
-    const customerStats = await this.getCustomerStatistics(agentId, where);
+    const customerStats = await this.getCustomerStatistics(agentId);
     const walletInfo = await this.getWalletInfo(agentId);
     const recentTransactions = await this.getRecentTransactions(agentId);
     const monthlySalesData = await this.getMonthlySalesData(
@@ -863,10 +863,6 @@ export class AgentsService {
         completedSales: salesStats.completed,
         pendingSales: salesStats.pending,
         monthlySalesData,
-      },
-      customerStatistics: {
-        total: customerStats.total,
-        assigned: customerStats.assigned,
       },
       walletInfo: {
         balance: walletInfo.balance,
@@ -1046,20 +1042,15 @@ export class AgentsService {
     };
   }
 
-  private async getCustomerStatistics(agentId: string, where: any) {
-    const sales = await this.prisma.sales.findMany({
+  private async getCustomerStatistics(agentId: string) {
+    const total = await this.prisma.customer.count({
       where: {
-        agentId,
-        ...where,
+        assignedAgents: { some: { agentId: agentId } },
       },
-      select: { customerId: true },
     });
 
-    const uniqueCustomers = new Set(sales.map((s) => s.customerId));
-
     return {
-      total: uniqueCustomers.size,
-      assigned: uniqueCustomers.size,
+      total
     };
   }
 
