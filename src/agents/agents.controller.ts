@@ -57,6 +57,8 @@ import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
 import { DeviceService } from 'src/device/device.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
+import { GetWalletTransactionsQuery } from 'src/wallet/dto/wallet-transactions.dto';
+import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -691,7 +693,7 @@ export class AgentsController {
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
   @ApiOperation({
-    description: 'Get tasks by agent user (installer or sales agent)',
+    description: 'Get tasks by agent user (sales agent)',
   })
   @Get('tasks')
   async getTasks(
@@ -788,6 +790,43 @@ export class AgentsController {
       agent.userId,
       createSalesDto,
       agent.id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @Get('commissions')
+  @ApiOperation({
+    summary: 'Get agent sales commissions (sales agent)',
+  })
+  @ApiExtraModels(GetCommisionFilterDto)
+  async getCommissions(
+    @GetSessionUser('agent') agent: Agent,
+    @Query() query: GetCommisionFilterDto,
+  ) {
+    if (!agent || agent.category !== AgentCategory.SALES) {
+      throw new ForbiddenException();
+    }
+
+    return this.agentsService.getAgentCommissions(agent.id, query);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @Get(':agentId/commissions')
+  @ApiOperation({ summary: 'Get agent commissions (Admin)' })
+  @ApiExtraModels(GetCommisionFilterDto)
+  async getAgentCommissionsAdmin(
+    @Param('agentId') agentId: string,
+    @Query() query: GetCommisionFilterDto,
+  ) {
+    return this.agentsService.getAgentCommissions(
+      agentId,
+     query
     );
   }
 

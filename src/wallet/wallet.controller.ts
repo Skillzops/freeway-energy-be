@@ -8,7 +8,7 @@ import { ApiBody, ApiExtraModels, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CreateAgentWalletDto } from './dto/create-agent-wallet.dto';
 import { PaymentGateway } from '@prisma/client';
 import { WalletTopUpDto } from './dto/wallet-topup.dto';
-import { PaginationQueryDto } from 'src/utils/dto/pagination.dto';
+import { GetWalletTransactionsQuery } from './dto/wallet-transactions.dto';
 
 @Controller('wallet')
 @ApiTags('Wallet')
@@ -43,10 +43,10 @@ export class WalletController {
   }
 
   @Get('transactions')
-  @ApiExtraModels(PaginationQueryDto)
+  @ApiExtraModels(GetWalletTransactionsQuery)
   async getTransactions(
     @GetSessionUser('agent') agent: any,
-    @Query() query: PaginationQueryDto,
+    @Query() query: GetWalletTransactionsQuery,
   ) {
     return this.walletService.getWalletTransactions(agent.id, query);
   }

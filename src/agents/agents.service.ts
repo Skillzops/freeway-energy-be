@@ -15,6 +15,7 @@ import {
   ActionEnum,
   Agent,
   AgentCategory,
+  PaymentStatus,
   Prisma,
   SalesStatus,
   SubjectEnum,
@@ -28,6 +29,7 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
+import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 
 @Injectable()
 export class AgentsService {
@@ -798,6 +800,96 @@ export class AgentsService {
     return agent?.userId;
   }
 
+  async getAgentCommissions(agentId: string, query?: GetCommisionFilterDto) {
+    const { page = 1, limit = 100, endDate, startDate } = query;
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      include: { user: true },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const where: Prisma.PaymentWhereInput = {
+      sale: { creatorId: agent.userId },
+      paymentStatus: PaymentStatus.COMPLETED,
+    };
+
+    if (startDate || endDate) {
+      where.paymentDate = {};
+      if (startDate) where.paymentDate.gte = startDate;
+      if (endDate) where.paymentDate.lte = endDate;
+    }
+
+    // if (status) {
+    //   where.paymentStatus = status;
+    // }
+
+    const [payments, totalCount] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        include: {
+          sale: {
+            include: {
+              customer: {
+                select: {
+                  firstname: true,
+                  lastname: true,
+                  phone: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { paymentDate: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+
+    const commissionRate = 0.07; // 7%
+
+    const commissionsData = payments.map((payment) => ({
+      id: payment.id,
+      transactionRef: payment.transactionRef,
+      amount: payment.amount,
+      commissionAmount: (payment.amount * commissionRate).toFixed(2),
+      paymentDate: payment.paymentDate,
+      paymentMethod: payment.paymentMethod,
+      customer: {
+        name: `${payment.sale.customer.firstname} ${payment.sale.customer.lastname}`,
+        phone: payment.sale.customer.phone,
+      },
+      saleId: payment.saleId,
+    }));
+
+    const totalCommission = payments.reduce(
+      (sum, payment) => sum + payment.amount * commissionRate,
+      0,
+    );
+
+    return {
+      data: commissionsData,
+      total: totalCount,
+      page,
+      limit,
+      totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
+      summary: {
+        totalCommission,
+        totalPayments: payments.length,
+        commissionRate: commissionRate * 100,
+      },
+    };
+  }
+
   async getAgentDashboardStats(agentId: string, filters: DashboardFilterDto) {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
@@ -871,8 +963,57 @@ export class AgentsService {
       charts: {
         salesGraph: monthlySalesData,
         transactionGraph: transactionLineData,
+        productCategoriesPieChart: await this.getProductCategoriesData(
+          agent.userId,
+          where,
+        ),
       },
     };
+  }
+
+  private async getProductCategoriesData(userId: string, where: any) {
+    const salesWithCategories = await this.prisma.sales.findMany({
+      where: { ...where, creatorId: userId },
+      include: {
+        saleItems: {
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const categoryStats = new Map<string, { count: number; value: number }>();
+
+    salesWithCategories.forEach((sale) => {
+      sale.saleItems.forEach((item) => {
+        const categoryName = item.product.category.name;
+        const existing = categoryStats.get(categoryName) || {
+          count: 0,
+          value: 0,
+        };
+        existing.count += item.quantity;
+        existing.value += item.totalPrice;
+        categoryStats.set(categoryName, existing);
+      });
+    });
+
+    const totalValue = Array.from(categoryStats.values()).reduce(
+      (sum, cat) => sum + cat.value,
+      0,
+    );
+
+    return Array.from(categoryStats.entries()).map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      value: stats.value,
+      percentage:
+        totalValue > 0 ? ((stats.value / totalValue) * 100).toFixed(2) : '0',
+    }));
   }
 
   async getAgentTasks(agent: Agent, getTasksQuery?: GetAgentTaskQueryDto) {
@@ -885,6 +1026,7 @@ export class AgentsService {
       search,
       status,
       customerId,
+      isAssigned,
     } = getTasksQuery;
 
     const whereConditions: Prisma.InstallerTaskWhereInput = {
@@ -910,6 +1052,11 @@ export class AgentsService {
         customerId
           ? {
               customerId: customerId,
+            }
+          : {},
+        isAssigned !== undefined
+          ? {
+              installerAgentId: isAssigned == false ? null : {},
             }
           : {},
         agent.category === AgentCategory.INSTALLER
@@ -1050,7 +1197,7 @@ export class AgentsService {
     });
 
     return {
-      total
+      total,
     };
   }
 

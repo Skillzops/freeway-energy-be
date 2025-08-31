@@ -1,6 +1,13 @@
-import { IsOptional, IsString, IsInt, Min, IsEnum } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  IsEnum,
+  IsBoolean,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { TaskStatus } from '@prisma/client';
 
 export class GetTaskQueryDto {
@@ -83,4 +90,19 @@ export class GetTaskQueryDto {
   status?: TaskStatus;
 }
 
-export class GetAgentTaskQueryDto extends GetTaskQueryDto {}
+export class GetAgentTaskQueryDto extends GetTaskQueryDto {
+  @ApiPropertyOptional({
+    // description: 'If true, applies exact match for serialNumber',
+    type: Boolean,
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string')
+      return value.toLowerCase() === 'true' || value === '1';
+    return false;
+  })
+  isAssigned?: boolean;
+}
