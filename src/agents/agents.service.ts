@@ -1056,7 +1056,8 @@ export class AgentsService {
           : {},
         isAssigned !== undefined
           ? {
-              installerAgentId: isAssigned == false ? null : {},
+              installerAgentId:
+                isAssigned === false ? { isSet: false } : { not: null },
             }
           : {},
         agent.category === AgentCategory.INSTALLER
@@ -1071,9 +1072,13 @@ export class AgentsService {
       ],
     };
 
+    const finalWhereConditions = {
+      ...whereConditions,
+      ...(status ? { status } : {}),
+    };
+
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
@@ -1081,52 +1086,62 @@ export class AgentsService {
       [sortField || 'createdAt']: sortOrder || 'asc',
     };
 
-    return this.prisma.installerTask.findMany({
-      where: {
-        ...whereConditions,
-        ...(status ? { status } : {}),
-      },
-      skip,
-      take,
-      orderBy,
-      include: {
-        sale: {
-          include: {
-            saleItems: {
-              include: {
-                product: true,
-                devices: true,
+    const [tasks, total] = await Promise.all([
+      this.prisma.installerTask.findMany({
+        where: finalWhereConditions,
+        skip,
+        take,
+        orderBy,
+        include: {
+          sale: {
+            include: {
+              saleItems: {
+                include: {
+                  product: true,
+                  devices: true,
+                },
+              },
+            },
+          },
+          customer: true,
+          requestingAgent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstname: true,
+                  lastname: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          installerAgent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstname: true,
+                  lastname: true,
+                  email: true,
+                },
               },
             },
           },
         },
-        customer: true,
-        requestingAgent: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                email: true,
-              },
-            },
-          },
-        },
-        installerAgent: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.installerTask.count({
+        where: finalWhereConditions,
+      }),
+    ]);
+
+    return {
+      data: tasks,
+      total,
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages: Math.ceil(total / limitNumber),
+    };
   }
 
   async getAgentTask(agent: Agent, taskId?: string) {
