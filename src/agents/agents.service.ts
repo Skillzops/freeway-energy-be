@@ -1113,6 +1113,18 @@ export class AgentsService {
             },
           },
         },
+        installerAgent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+              },
+            },
+          },
+        },
       },
     });
   }
