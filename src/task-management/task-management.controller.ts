@@ -21,11 +21,17 @@ import {
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { SalesService } from 'src/sales/sales.service';
-import { ApiBody, ApiExtraModels, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiExtraModels,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { TaskManagementService } from './task-management.service';
 import { GetTaskQueryDto } from './dto/get-task-query.dto';
 import { AssignInstallerDto } from './dto/assign-task.dto';
-import { DeviceService } from 'src/device/device.service';
+import { AuthService } from 'src/auth/auth.service';
 
 @Controller('tasks')
 @ApiTags('Task Management')
@@ -34,7 +40,7 @@ export class TaskManagementController {
     private readonly installerService: InstallerService,
     private readonly taskManagementService: TaskManagementService,
     private readonly salesService: SalesService,
-    private readonly deviceService: DeviceService,
+    private readonly authService: AuthService,
   ) {}
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -99,16 +105,14 @@ export class TaskManagementController {
     @Body() body: AssignInstallerDto,
     @GetSessionUser('id') reqUserId: string,
   ) {
-    await this.deviceService.validateUpdatePermissions(
-      reqUserId,
-      undefined,
-      [
+    await this.authService.validateUserPermissions({
+      userId: reqUserId,
+      extraPermissions: [
         { action: ActionEnum.manage, subject: SubjectEnum.Sales },
         { action: ActionEnum.write, subject: SubjectEnum.Sales },
       ],
-      true,
-      AgentCategory.SALES,
-    );
+      agentCategory: AgentCategory.SALES,
+    });
 
     return this.taskManagementService.assignInstallerTask(
       taskId,

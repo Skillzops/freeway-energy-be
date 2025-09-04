@@ -13,7 +13,7 @@ import { HttpModule } from '@nestjs/axios';
 import { BullModule } from '@nestjs/bullmq';
 import { WalletModule } from 'src/wallet/wallet.module';
 import { PaymentModule } from 'src/payment/payment.module';
-import { DeviceModule } from 'src/device/device.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
@@ -27,7 +27,7 @@ import { DeviceModule } from 'src/device/device.module';
     }),
     WalletModule,
     PaymentModule,
-    DeviceModule
+    AuthModule,
   ],
   controllers: [SalesController],
   providers: [

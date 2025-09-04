@@ -34,6 +34,7 @@ export class InventoryService {
       createdAt,
       updatedAt,
       class: inventoryClass,
+      warehouseId,
     } = query;
 
     const filterConditions: Prisma.InventoryWhereInput = {
@@ -48,6 +49,7 @@ export class InventoryService {
           : {},
         inventoryCategoryId ? { inventoryCategoryId } : {},
         inventorySubCategoryId ? { inventorySubCategoryId } : {},
+        warehouseId ? { warehouseId } : {},
         createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
         updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
         inventoryClass ? { class: inventoryClass as InventoryClass } : {},
@@ -89,6 +91,13 @@ export class InventoryService {
       );
     }
 
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
     const image = (await this.uploadInventoryImage(file)).secure_url;
 
     const inventoryData = await this.prisma.inventory.create({
@@ -96,6 +105,9 @@ export class InventoryService {
         name: createInventoryDto.name,
         manufacturerName: createInventoryDto.manufacturerName,
         dateOfManufacture: createInventoryDto.dateOfManufacture,
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
         sku: createInventoryDto.sku,
         image,
         class: createInventoryDto.class,
@@ -104,6 +116,7 @@ export class InventoryService {
       },
     });
 
+    // Create initial batch in main warehouse
     await this.prisma.inventoryBatch.create({
       data: {
         creatorId: requestUserId,
@@ -123,11 +136,21 @@ export class InventoryService {
 
   async createInventoryBatch(
     requestUserId: string,
-    createInventoryBatchDto: CreateInventoryBatchDto,
+    createInventoryBatchDto: CreateInventoryBatchDto & { warehouseId?: string },
   ) {
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
     const isInventoryValid = await this.prisma.inventory.findFirst({
       where: {
         id: createInventoryBatchDto.inventoryId,
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
       },
     });
 
@@ -152,7 +175,7 @@ export class InventoryService {
     };
   }
 
-  async getInventories(query: FetchInventoryQueryDto) {
+  async getInventories(query: FetchInventoryQueryDto, requestUserId?: string) {
     const {
       page = 1,
       limit = 100,
@@ -183,7 +206,19 @@ export class InventoryService {
       }
     }
 
-    const filterConditions = await this.inventoryFilter(query);
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
+    const filterConditions = await this.inventoryFilter({
+      ...query,
+      ...(warehouseManager
+        ? { warehouseId: warehouseManager.warehouseId }
+        : {}),
+    });
 
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
@@ -231,9 +266,21 @@ export class InventoryService {
     };
   }
 
-  async getInventory(inventoryId: string) {
+  async getInventory(inventoryId: string, requestUserId?: string) {
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
     const inventory = await this.prisma.inventory.findUnique({
-      where: { id: inventoryId },
+      where: {
+        id: inventoryId,
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
+      },
       include: {
         batches: {
           include: {
@@ -257,9 +304,23 @@ export class InventoryService {
     return this.mapInventoryToResponseDto(inventory);
   }
 
-  async getInventoryBatch(inventoryBatchId: string) {
+  async getInventoryBatch(inventoryBatchId: string, requestUserId: string) {
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
     const inventorybatch = await this.prisma.inventoryBatch.findUnique({
-      where: { id: inventoryBatchId },
+      where: {
+        id: inventoryBatchId,
+        inventory: {
+          ...(warehouseManager
+            ? { warehouseId: warehouseManager.warehouseId }
+            : {}),
+        },
+      },
       include: {
         inventory: true,
       },
@@ -331,7 +392,21 @@ export class InventoryService {
     });
   }
 
-  async getInventoryStats() {
+  async getInventoryStats(requestUserId: string) {
+    const warehouseManager = await this.prisma.warehouseManager.findFirst({
+      where: {
+        userId: requestUserId,
+        warehouse: { isMain: true, isActive: true, deletedAt: null },
+      },
+    });
+
+    // const inventory = await this.prisma.inventory.findUnique({
+    //   where: {
+    //     id: inventoryId,
+    // ...(warehouseManager
+    //   ? { warehouseId: warehouseManager.warehouseId }
+    //   : {}),
+    //   },
     const inventoryClassCounts = await this.prisma.inventory.groupBy({
       by: ['class'],
       _count: {
@@ -344,10 +419,19 @@ export class InventoryService {
       count: item._count.class,
     }));
 
-    const totalInventoryCount = await this.prisma.inventory.count();
+    const totalInventoryCount = await this.prisma.inventory.count({
+      where: {
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
+      },
+    });
 
     const deletedInventoryCount = await this.prisma.inventory.count({
       where: {
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
         deletedAt: {
           not: null,
         },

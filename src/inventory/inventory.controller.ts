@@ -14,7 +14,6 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from '../auth/guards/roles.guard';
 import { ActionEnum, AgentCategory, SubjectEnum } from '@prisma/client';
@@ -36,7 +35,7 @@ import { FetchInventoryQueryDto } from './dto/fetch-inventory.dto';
 import { CreateCategoryArrayDto } from './dto/create-category.dto';
 import { CreateInventoryBatchDto } from './dto/create-inventory-batch.dto';
 import { GetSessionUser } from '../auth/decorators/getUser';
-import { DeviceService } from 'src/device/device.service';
+import { AuthService } from 'src/auth/auth.service';
 
 @SkipThrottle()
 @ApiTags('Inventory')
@@ -54,16 +53,10 @@ import { DeviceService } from 'src/device/device.service';
 export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
-    private readonly deviceService: DeviceService,
+    private readonly authService: AuthService,
   ) {}
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiBody({
     type: CreateInventoryDto,
     description: 'Json structure for request payload',
@@ -83,6 +76,16 @@ export class InventoryController {
     )
     file: Express.Multer.File,
   ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.write, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'main',
+    });
+
     return await this.inventoryService.createInventory(
       requestUserId,
       createInventoryDto,
@@ -90,13 +93,7 @@ export class InventoryController {
     );
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiBody({
     type: CreateInventoryBatchDto,
     description: 'Json structure for request payload',
@@ -108,19 +105,22 @@ export class InventoryController {
     @GetSessionUser('id') requestUserId: string,
     @Body() createInventoryDto: CreateInventoryBatchDto,
   ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.write, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'main',
+    });
     return await this.inventoryService.createInventoryBatch(
       requestUserId,
       createInventoryDto,
     );
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @Get('')
   @ApiOkResponse({
     description: 'Fetch all inventory with pagination',
@@ -129,17 +129,23 @@ export class InventoryController {
   @ApiBadRequestResponse({})
   @ApiExtraModels(FetchInventoryQueryDto)
   @HttpCode(HttpStatus.OK)
-  async getInventories(@Query() query: FetchInventoryQueryDto) {
-    return await this.inventoryService.getInventories(query);
+  async getInventories(
+    @Query() query: FetchInventoryQueryDto,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'all',
+    });
+    return await this.inventoryService.getInventories(query, requestUserId);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @Get('stats')
   @ApiOkResponse({
     description: 'Fetch Inventory Statistics',
@@ -147,17 +153,20 @@ export class InventoryController {
   })
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
-  async getInventoryStats() {
-    return await this.inventoryService.getInventoryStats();
+  async getInventoryStats(@GetSessionUser('id') requestUserId: string) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'all',
+    });
+    return await this.inventoryService.getInventoryStats(requestUserId);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiParam({
     name: 'id',
     description: 'Inventory id to fetch details',
@@ -171,17 +180,23 @@ export class InventoryController {
   @ApiBearerAuth('access_token')
   @ApiOkResponse({})
   @HttpCode(HttpStatus.OK)
-  async getInventoryDetails(@Param('id') inventoryId: string) {
-    return await this.inventoryService.getInventory(inventoryId);
+  async getInventoryDetails(
+    @Param('id') inventoryId: string,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'all',
+    });
+    return await this.inventoryService.getInventory(inventoryId, requestUserId);
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiParam({
     name: 'id',
     description: 'Inventory Batch Id to fetch details',
@@ -195,17 +210,26 @@ export class InventoryController {
   @ApiBearerAuth('access_token')
   @ApiOkResponse({})
   @HttpCode(HttpStatus.OK)
-  async getInventoryBatchDetails(@Param('id') inventoryId: string) {
-    return await this.inventoryService.getInventoryBatch(inventoryId);
+  async getInventoryBatchDetails(
+    @Param('id') inventoryId: string,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'all',
+    });
+    return await this.inventoryService.getInventoryBatch(
+      inventoryId,
+      requestUserId,
+    );
   }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.write}:${SubjectEnum.Inventory}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access_token')
   @ApiBody({
     type: CreateCategoryArrayDto,
@@ -221,7 +245,18 @@ export class InventoryController {
   @ApiOkResponse({})
   async createInventoryCategory(
     @Body() createCategoryArrayDto: CreateCategoryArrayDto,
+    @GetSessionUser('id') requestUserId: string,
   ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.write, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'main',
+    });
+
     return await this.inventoryService.createInventoryCategory(
       createCategoryArrayDto.categories,
     );
@@ -236,29 +271,22 @@ export class InventoryController {
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
   async getInventoryCategories(@GetSessionUser('id') requestUserId: string) {
-    await this.deviceService.validateUpdatePermissions(
-      requestUserId,
-      undefined,
-      [
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
         { action: ActionEnum.manage, subject: SubjectEnum.Sales },
         { action: ActionEnum.write, subject: SubjectEnum.Sales },
         { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
         { action: ActionEnum.read, subject: SubjectEnum.Inventory },
       ],
-      true,
-      AgentCategory.SALES,
-    );
+      agentCategory: AgentCategory.SALES,
+      allowedWarehouseManagers: 'main',
+    });
 
     return await this.inventoryService.getInventoryCategories();
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Inventory}`,
-      `${ActionEnum.read}:${SubjectEnum.Inventory}`,
-    ],
-  })
   @ApiParam({
     name: 'id',
     description: 'inventory id to fetch tabs',
@@ -270,7 +298,19 @@ export class InventoryController {
   @ApiBadRequestResponse({})
   @HttpCode(HttpStatus.OK)
   @Get(':id/tabs')
-  async getInventoryTabs(@Param('id') inventoryId: string) {
+  async getInventoryTabs(
+    @Param('id') inventoryId: string,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.read, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'all',
+    });
     return this.inventoryService.getInventoryTabs(inventoryId);
   }
 }

@@ -45,6 +45,7 @@ import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JobStatusService } from 'src/jobstatus/jobstatus.service';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
+import { AuthService } from 'src/auth/auth.service';
 
 @SkipThrottle()
 @ApiTags('Devices')
@@ -63,6 +64,7 @@ export class DeviceController {
   constructor(
     private readonly deviceService: DeviceService,
     private readonly jobStatusService: JobStatusService,
+    private readonly authService: AuthService,
   ) {}
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -284,17 +286,12 @@ export class DeviceController {
     @Param('tokenId') tokenId: string,
     @GetSessionUser('id') userId: string,
   ) {
-    await this.deviceService.validateUpdatePermissions(
+    await this.authService.validateUserPermissions({
       userId,
-      undefined,
-      [],
-      false,
-    );
+      allowAgents: false,
+    });
 
-    return await this.deviceService.deleteDeviceToken(
-      deviceId,
-      tokenId,
-    );
+    return await this.deviceService.deleteDeviceToken(deviceId, tokenId);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -327,10 +324,13 @@ export class DeviceController {
     @Query() query: ListDevicesQueryDto,
     @GetSessionUser('id') userId: string,
   ) {
-    await this.deviceService.validateUpdatePermissions(userId, undefined, [
-      { action: ActionEnum.manage, subject: SubjectEnum.Sales },
-      { action: ActionEnum.read, subject: SubjectEnum.Sales },
-    ]);
+    await this.authService.validateUserPermissions({
+      userId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+        { action: ActionEnum.read, subject: SubjectEnum.Sales },
+      ],
+    });
     return await this.deviceService.fetchDevices(query);
   }
 
@@ -346,10 +346,13 @@ export class DeviceController {
     @Param('id') id: string,
     @GetSessionUser('id') userId: string,
   ) {
-    await this.deviceService.validateUpdatePermissions(userId, undefined, [
-      { action: ActionEnum.manage, subject: SubjectEnum.Sales },
-      { action: ActionEnum.read, subject: SubjectEnum.Sales },
-    ]);
+    await this.authService.validateUserPermissions({
+      userId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Sales },
+        { action: ActionEnum.read, subject: SubjectEnum.Sales },
+      ],
+    });
     return await this.deviceService.validateDeviceExistsAndReturn({ id });
   }
 

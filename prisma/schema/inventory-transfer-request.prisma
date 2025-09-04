@@ -1,0 +1,38 @@
+model InventoryTransferRequest {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  requestId String @unique // Auto-generated request ID like "tr-001"
+
+  fromWarehouseId String    @db.ObjectId
+  fromWarehouse   Warehouse @relation("FromWarehouse", fields: [fromWarehouseId], references: [id])
+
+  toWarehouseId String    @db.ObjectId
+  toWarehouse   Warehouse @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
+
+  inventoryBatchId String         @db.ObjectId
+  inventoryBatch   InventoryBatch @relation(fields: [inventoryBatchId], references: [id])
+
+  requestedQuantity Int
+  fulfilledQuantity Int            @default(0)
+  status            TransferStatus @default(PENDING)
+  notes             String?
+
+  requestedById String? @db.ObjectId
+  requestedBy   User?   @relation("InventoryTransferRequestCreator", fields: [requestedById], references: [id])
+
+  fulfilledById String? @db.ObjectId
+  fulfilledBy   User?   @relation("InventoryTransferRequestFulfiller", fields: [fulfilledById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("transfer_requests")
+}
+
+enum TransferStatus {
+  PENDING
+  PARTIAL
+  FULFILLED
+  REJECTED
+  CANCELLED
+}

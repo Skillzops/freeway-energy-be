@@ -1,0 +1,45 @@
+model Warehouse {
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+
+    name        String
+    location    String
+    description String?
+    image       String?
+    isMain      Boolean @default(false)
+    isActive    Boolean @default(true)
+
+    warehouseManagers WarehouseManager[]
+
+    inventory Inventory[] @relation("WarehouseInventory")
+
+    outgoingRequests InventoryTransferRequest[] @relation("FromWarehouse")
+    incomingRequests InventoryTransferRequest[] @relation("ToWarehouse")
+
+    createdById String? @db.ObjectId
+    createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    deletedAt DateTime?
+
+    @@map("warehouses")
+}
+
+model WarehouseManager {
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+
+    warehouseId String    @db.ObjectId
+    warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+    userId String @unique @db.ObjectId
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    assignedById String @db.ObjectId
+    assignedBy   User   @relation("WarehouseManagerAssigner", fields: [assignedById], references: [id])
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([warehouseId, userId])
+    @@map("warehouse_managers")
+}

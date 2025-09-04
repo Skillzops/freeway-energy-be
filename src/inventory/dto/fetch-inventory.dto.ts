@@ -22,6 +22,13 @@ export class FetchInventoryQueryDto {
   inventorySubCategoryId?: string;
 
   @ApiPropertyOptional({
+    description: 'Filter by warehouse ID',
+  })
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter by creation date',
     type: String,
     format: 'date-time',

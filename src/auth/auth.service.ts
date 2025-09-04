@@ -2,9 +2,17 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TokenType, UserStatus } from '@prisma/client';
+import {
+  ActionEnum,
+  AgentCategory,
+  SubjectEnum,
+  TaskStatus,
+  TokenType,
+  UserStatus,
+} from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
 import * as argon from 'argon2';
@@ -426,5 +434,135 @@ export class AuthService {
     }
 
     return tokenValid;
+  }
+
+  async validateUserPermissions(data: {
+    userId: string;
+    deviceId?: string;
+    extraPermissions?: { action: ActionEnum; subject: SubjectEnum }[];
+    allowAgents?: boolean;
+    allowedWarehouseManagers?: 'main' | 'all';
+    agentCategory?: AgentCategory;
+  }) {
+    const {
+      userId,
+      deviceId,
+      extraPermissions = [],
+      allowAgents = true,
+      allowedWarehouseManagers,
+      agentCategory,
+    } = data;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+          },
+        },
+        agentDetails: true,
+        warehouseManager: {
+          include: {
+            warehouse: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const userRole = user.role.role;
+
+    const hasManagePermission = user.role.permissions.some(
+      (permission) =>
+        permission.action === ActionEnum.manage &&
+        permission.subject === SubjectEnum.all,
+    );
+
+    // allow admin and super-admin users to access resource
+    if (
+      userRole == 'admin' ||
+      userRole == 'super-admin' ||
+      hasManagePermission
+    ) {
+      return true;
+    }
+
+    const hasExtraPermission = extraPermissions.some((extra) =>
+      user.role.permissions.some(
+        (permission) =>
+          permission.action === extra.action &&
+          permission.subject === extra.subject,
+      ),
+    );
+
+    if (hasExtraPermission) {
+      return;
+    }
+
+    if (allowAgents) {
+      if (user.agentDetails) {
+        if (agentCategory && user.agentDetails.category !== agentCategory) {
+          throw new ForbiddenException();
+        }
+        if (!deviceId) return true;
+        await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
+      } else {
+        throw new ForbiddenException();
+      }
+    }
+
+    if (allowedWarehouseManagers) {
+      if (user.warehouseManager) {
+        if (
+          allowedWarehouseManagers === 'main' &&
+          !user.warehouseManager.warehouse.isMain
+        ) {
+          throw new ForbiddenException();
+        }
+        return true;
+
+      } else {
+        throw new ForbiddenException();
+      }
+    }
+
+    throw new ForbiddenException();
+  }
+
+  async validateInstallerAssignment(
+    deviceId: string,
+    installerAgentId: string,
+  ) {
+    const installerTask = await this.prisma.installerTask.findFirst({
+      where: {
+        installerAgentId,
+        sale: {
+          saleItems: {
+            some: {
+              devices: {
+                some: {
+                  id: deviceId,
+                },
+              },
+            },
+          },
+        },
+        status: {
+          in: [TaskStatus.PENDING, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+        },
+      },
+    });
+
+    if (!installerTask) {
+      throw new ForbiddenException(
+        'Device not assigned to this installer or task not active',
+      );
+    }
+
+    return installerTask;
   }
 }

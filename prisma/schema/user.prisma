@@ -28,6 +28,12 @@ model User {
 
   agentDetails Agent?
 
+  warehouseManager          WarehouseManager?
+  createdWarehouses         Warehouse[]
+  assignedWarehouseManagers WarehouseManager[]         @relation("WarehouseManagerAssigner")
+  createdTransferRequests   InventoryTransferRequest[] @relation("InventoryTransferRequestCreator")
+  fulfilledTransferRequests InventoryTransferRequest[] @relation("InventoryTransferRequestFulfiller")
+
   createdProducts         Product[]
   createdCustomers        Customer[]
   createdTokens           Tokens[]

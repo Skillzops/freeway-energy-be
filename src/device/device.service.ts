@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,24 +14,19 @@ import { createReadStream, readFileSync } from 'fs';
 import * as csvParser from 'csv-parser';
 import { parse } from 'papaparse';
 import { MESSAGES } from '../constants';
-import {
-  ActionEnum,
-  AgentCategory,
-  InstallationStatus,
-  Prisma,
-  SubjectEnum,
-  TaskStatus,
-} from '@prisma/client';
+import { InstallationStatus, Prisma } from '@prisma/client';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { AuthService } from 'src/auth/auth.service';
 
 @Injectable()
 export class DeviceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openPayGo: OpenPayGoService,
+    private readonly authService: AuthService,
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
 
@@ -80,112 +74,12 @@ export class DeviceService {
     }
   }
 
-  private async validateInstallerAssignment(
-    deviceId: string,
-    installerAgentId: string,
-  ) {
-    const installerTask = await this.prisma.installerTask.findFirst({
-      where: {
-        installerAgentId,
-        sale: {
-          saleItems: {
-            some: {
-              devices: {
-                some: {
-                  id: deviceId,
-                },
-              },
-            },
-          },
-        },
-        status: {
-          in: [TaskStatus.PENDING, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
-        },
-      },
-    });
-
-    if (!installerTask) {
-      throw new ForbiddenException(
-        'Device not assigned to this installer or task not active',
-      );
-    }
-
-    return installerTask;
-  }
-
-  async validateUpdatePermissions(
-    userId: string,
-    deviceId?: string,
-    extraPermissions: { action: ActionEnum; subject: SubjectEnum }[] = [],
-    allowAgents = true,
-    agentCategory?: AgentCategory
-  ) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        role: {
-          include: {
-            permissions: true,
-          },
-        },
-        agentDetails: true,
-      },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const userRole = user.role.role;
-
-    // allow admin and super-admin users to access resource
-    if (userRole == 'admin' || userRole == 'super-admin') {
-      return true;
-    }
-
-    const hasManagePermission = user.role.permissions.some(
-      (permission) =>
-        permission.action === ActionEnum.manage &&
-        permission.subject === SubjectEnum.all,
-    );
-
-    if (hasManagePermission) {
-      return;
-    }
-
-    const hasExtraPermission = extraPermissions.some((extra) =>
-      user.role.permissions.some(
-        (permission) =>
-          permission.action === extra.action &&
-          permission.subject === extra.subject,
-      ),
-    );
-
-    if (hasExtraPermission) {
-      return;
-    }
-
-    if (allowAgents) {
-      if (user.agentDetails) {
-        if (agentCategory && user.agentDetails.category !== agentCategory) {
-          throw new ForbiddenException();
-        }
-        if (!deviceId) return true;
-        await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
-      } else {
-        throw new ForbiddenException();
-      }
-    }
-
-    throw new ForbiddenException();
-  }
-
   async updateDeviceStatus(
     deviceId: string,
     updateData: UpdateDeviceStatusDto,
     userId: string,
   ) {
-    await this.validateUpdatePermissions(userId, deviceId);
+    await this.authService.validateUserPermissions({ userId, deviceId });
 
     const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
 
@@ -221,7 +115,10 @@ export class DeviceService {
     const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
 
     // Validate that installer is assigned to this device
-    await this.validateInstallerAssignment(deviceId, installerAgentId);
+    await this.authService.validateInstallerAssignment(
+      deviceId,
+      installerAgentId,
+    );
 
     // Validate current status
     if (

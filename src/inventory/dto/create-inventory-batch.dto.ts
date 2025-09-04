@@ -57,10 +57,16 @@ export class CreateInventoryBatchDto {
   numberOfStock: number;
 
   @ApiProperty({
-    description: 'inventoryId Id',
-    example: '',
+    description: 'Inventory ID to create batch for',
   })
-  @IsNotEmpty()
   @IsString()
+  @IsNotEmpty()
   inventoryId: string;
+
+  @ApiPropertyOptional({
+    description: 'Warehouse ID to assign batch to (defaults to main warehouse)',
+  })
+  @IsString()
+  @IsOptional()
+  warehouseId?: string;
 }

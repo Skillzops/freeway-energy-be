@@ -34,7 +34,7 @@ import { CreateNextPaymentDto } from '../payment/dto/cash-payment.dto';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
-import { DeviceService } from 'src/device/device.service';
+import { AuthService } from 'src/auth/auth.service';
 
 @SkipThrottle()
 @ApiTags('Sales')
@@ -52,7 +52,7 @@ import { DeviceService } from 'src/device/device.service';
 export class SalesController {
   constructor(
     private readonly salesService: SalesService,
-    private readonly deviceService: DeviceService,
+    private readonly authService: AuthService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -90,16 +90,14 @@ export class SalesController {
     @Body() recordCashPaymentDto: CreateNextPaymentDto,
     @GetSessionUser('id') requestUserId: string,
   ) {
-    await this.deviceService.validateUpdatePermissions(
-      requestUserId,
-      undefined,
-      [
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
         { action: ActionEnum.manage, subject: SubjectEnum.Sales },
         { action: ActionEnum.write, subject: SubjectEnum.Sales },
       ],
-      true,
-      AgentCategory.SALES,
-    );
+      agentCategory: AgentCategory.SALES,
+    });
 
     try {
       const paymentData = await this.salesService.createNextPayment(

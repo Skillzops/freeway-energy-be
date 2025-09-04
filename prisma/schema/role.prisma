@@ -57,4 +57,5 @@ enum SubjectEnum {
   Support
   Communication
   Assignments
+  Warehouse
 }

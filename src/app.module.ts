@@ -32,6 +32,7 @@ import { OgaranyaModule } from './ogaranya/ogaranya.module';
 import { InstallerModule } from './installer/installer.module';
 import { TaskManagementModule } from './task-management/task-management.module';
 import { ReportsModule } from './reports/reports.module';
+import { WarehouseModule } from './warehouse/warehouse.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { ReportsModule } from './reports/reports.module';
     InstallerModule,
     TaskManagementModule,
     ReportsModule,
+    WarehouseModule,
   ],
   controllers: [AppController],
   providers: [

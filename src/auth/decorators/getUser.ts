@@ -13,7 +13,9 @@ export const GetSessionUser = createParamDecorator(
   ) => {
     const request = ctx.switchToHttp().getRequest();
 
-    const user = request.user as User & { agent?: Agent };
+    const user = request.user as User & {
+      agent?: Agent;
+    };
 
     if (!user) {
       throw new ForbiddenException('User not found');

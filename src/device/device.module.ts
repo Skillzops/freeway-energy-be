@@ -6,12 +6,14 @@ import { BullModule } from '@nestjs/bullmq';
 import { JobStatusService } from 'src/jobstatus/jobstatus.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { DeviceProcessor } from './device.processor';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'device-processing',
     }),
+    AuthModule,
   ],
   controllers: [DeviceController],
   providers: [
