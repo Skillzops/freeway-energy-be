@@ -8,6 +8,12 @@ import {
   HttpStatus,
   HttpCode,
   UseGuards,
+  Get,
+  Param,
+  Res,
+  Query,
+  NotFoundException,
+  Delete,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -17,7 +23,7 @@ import {
   ApiResponse,
   ApiBody,
 } from '@nestjs/swagger';
-import { Express } from 'express';
+import { Express, Response } from 'express';
 import { CsvUploadService } from './csv-upload.service';
 import {
   CsvFileUploadDto,
@@ -34,6 +40,8 @@ import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
 import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';
 import { ActionEnum, SubjectEnum } from '@prisma/client';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 @ApiTags('CSV Data Migration')
 @Controller('csv-upload')
@@ -213,5 +221,195 @@ export class CsvUploadController {
     @Body() statsRequest: SessionStatsRequestDto,
   ): Promise<CsvUploadStatsDto> {
     return await this.csvUploadService.getUploadStats(statsRequest.sessionId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Get('agent-credentials/:sessionId')
+  async getAgentCredentialsFile(
+    @Param('sessionId') sessionId: string,
+    @Res() res: Response,
+    @Query('download') download?: string,
+  ) {
+    try {
+      // Validate session ID format (basic UUID validation)
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(sessionId)) {
+        throw new BadRequestException('Invalid session ID format');
+      }
+
+      // Construct file path
+      const uploadsDir = path.join(
+        process.cwd(),
+        'uploads',
+        'agent_credentials',
+      );
+      const files = await fs.readdir(uploadsDir).catch(() => []);
+
+      // Find file that matches the session ID pattern
+      const fileName = files.find(
+        (file) => file.includes(sessionId) && file.endsWith('.txt'),
+      );
+
+      if (!fileName) {
+        throw new NotFoundException(
+          'Agent credentials file not found for this session',
+        );
+      }
+
+      const filePath = path.join(uploadsDir, fileName);
+
+      // Check if file exists and is readable
+      try {
+        await fs.access(filePath, fs.constants.R_OK);
+      } catch {
+        throw new NotFoundException('Agent credentials file not accessible');
+      }
+
+      // Get file stats for headers
+      const stats = await fs.stat(filePath);
+      const fileContent = await fs.readFile(filePath, 'utf8');
+
+      // Set appropriate headers
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Length', stats.size);
+
+      if (download === 'true') {
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${fileName}"`,
+        );
+      } else {
+        res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      }
+
+      // Send file content
+      res.send(fileContent);
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException('Error retrieving agent credentials file');
+    }
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Get('agent-credentials')
+  async listAgentCredentialFiles() {
+    try {
+      const uploadsDir = path.join(
+        process.cwd(),
+        'uploads',
+        'agent_credentials',
+      );
+
+      // Ensure directory exists
+      try {
+        await fs.access(uploadsDir);
+      } catch {
+        return { files: [] };
+      }
+
+      const files = await fs.readdir(uploadsDir);
+      const fileDetails = await Promise.all(
+        files
+          .filter((file) => file.endsWith('.txt'))
+          .map(async (fileName) => {
+            const filePath = path.join(uploadsDir, fileName);
+            const stats = await fs.stat(filePath);
+
+            // Extract session ID from filename
+            const sessionIdMatch = fileName.match(
+              /new_agents_([0-9a-f-]+)_\d+\.txt/i,
+            );
+            const sessionId = sessionIdMatch ? sessionIdMatch[1] : null;
+
+            return {
+              fileName,
+              sessionId,
+              size: stats.size,
+              createdAt: stats.birthtime,
+              modifiedAt: stats.mtime,
+            };
+          }),
+      );
+
+      return {
+        files: fileDetails.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        ),
+      };
+    } catch (error: any) {
+      throw new BadRequestException('Error listing agent credentials files');
+    }
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Delete('agent-credentials/:sessionId')
+  async deleteAgentCredentialsFile(@Param('sessionId') sessionId: string) {
+    try {
+      // Validate session ID format
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(sessionId)) {
+        throw new BadRequestException('Invalid session ID format');
+      }
+
+      const uploadsDir = path.join(
+        process.cwd(),
+        'uploads',
+        'agent_credentials',
+      );
+      const files = await fs.readdir(uploadsDir).catch(() => []);
+
+      const fileName = files.find(
+        (file) => file.includes(sessionId) && file.endsWith('.txt'),
+      );
+
+      if (!fileName) {
+        throw new NotFoundException(
+          'Agent credentials file not found for this session',
+        );
+      }
+
+      const filePath = path.join(uploadsDir, fileName);
+      await fs.unlink(filePath);
+
+      return {
+        success: true,
+        message: `Agent credentials file for session ${sessionId} deleted successfully`,
+        fileName,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException('Error deleting agent credentials file');
+    }
   }
 }

@@ -11,10 +11,10 @@ model Inventory {
 
   products ProductInventory[]
 
-  inventoryCategoryId String?   @unique @db.ObjectId
+  inventoryCategoryId String?   @db.ObjectId
   inventoryCategory   Category? @relation(name: "InventoryToCategory", fields: [inventoryCategoryId], references: [id])
 
-  inventorySubCategoryId String?   @unique @db.ObjectId
+  inventorySubCategoryId String?  @db.ObjectId
   inventorySubCategory   Category? @relation(name: "InventoryToSubCategory", fields: [inventorySubCategoryId], references: [id])
 
   warehouseId String?    @db.ObjectId

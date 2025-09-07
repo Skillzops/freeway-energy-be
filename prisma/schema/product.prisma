@@ -11,7 +11,7 @@ model Product {
   creatorId      String? @db.ObjectId
   creatorDetails User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  categoryId String   @unique @db.ObjectId
+  categoryId String   @db.ObjectId
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   customers CustomerProducts[]
