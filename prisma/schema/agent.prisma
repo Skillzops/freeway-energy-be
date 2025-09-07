@@ -64,11 +64,11 @@ model AgentProduct {
 model AgentCustomer {
   id String @id @default(auto()) @map("_id") @db.ObjectId
 
-  agentId String @db.ObjectId
-  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String? @db.ObjectId
+  agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  customerId String   @db.ObjectId
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerId String?   @db.ObjectId
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   assignedAt DateTime @default(now())
   assignedBy String   @db.ObjectId

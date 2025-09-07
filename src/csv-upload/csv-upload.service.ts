@@ -15,6 +15,11 @@ import { PaymentMode } from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { hashPassword } from 'src/utils/helpers.util';
+import { generateRandomPassword } from 'src/utils/generate-pwd';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 
 interface ProcessingSession {
   id: string;
@@ -46,15 +51,29 @@ interface ProcessingSession {
   };
 }
 
+export interface CreatedAgentInfo {
+  id: string;
+  agentId: number;
+  email: string;
+  password: string; // Plain text password for file generation
+  firstname: string;
+  lastname: string;
+  username: string;
+  salesAssigned: number;
+}
+
 @Injectable()
 export class CsvUploadService {
   private readonly logger = new Logger(CsvUploadService.name);
   private readonly sessions = new Map<string, ProcessingSession>();
+  private readonly newAgentsCredentials = new Map<string, CreatedAgentInfo[]>();
+  private readonly referenceGenerator: ReferenceGeneratorService;
 
   private readonly COLUMN_MAPPINGS = new Map([
     // Agent/Sales Person
     ['sales agent', 'salesAgent'],
     ['sales_agent', 'salesAgent'],
+    ['sales_agent_name', 'salesAgent'],
     ['agent', 'salesAgent'],
 
     // Customer Basic Info
@@ -97,6 +116,7 @@ export class CsvUploadService {
     // ID Information
     ['type of i.d', 'idType'],
     ['type of i d', 'idType'],
+    ['type of id', 'idType'],
     ['type_of_id', 'idType'],
     ['id type', 'idType'],
     ['id_type', 'idType'],
@@ -143,6 +163,7 @@ export class CsvUploadService {
     ['payment mode', 'paymentOption'],
     ['initial deposit', 'initialDeposit'],
     ['initial_deposit', 'initialDeposit'],
+    ['initial_deposit_paid', 'initialDeposit'],
     ['deposit', 'initialDeposit'],
 
     ['period of payment', 'paymentPeriod'],
@@ -151,6 +172,7 @@ export class CsvUploadService {
 
     ['payment type', 'paymentType'],
     ['payment_type', 'paymentType'],
+    // ['payment_option', 'paymentType'], //to be updated based on sheet format
 
     ['total payment', 'totalPayment'],
     ['total_payment', 'totalPayment'],
@@ -169,6 +191,17 @@ export class CsvUploadService {
     ['date_of_registration', 'dateOfRegistration'],
     ['registration date', 'dateOfRegistration'],
     ['date', 'dateOfRegistration'],
+
+    ['timestamp', 'timestamp'],
+    ['middle name', 'middleName'],
+    ['middlename', 'middleName'],
+    ['middle_name', 'middleName'],
+    ['upload all images', 'uploadAllImages'],
+    ['upload_all_images', 'uploadAllImages'],
+    ['token sent', 'tokenSent'],
+    ['token_sent', 'tokenSent'],
+    ['sales agent name', 'salesAgent'],
+    ['sales_agent_name', 'salesAgent'],
   ]);
 
   constructor(
@@ -250,14 +283,12 @@ export class CsvUploadService {
     this.logger.log(`Starting sales file processing session: ${sessionId}`);
 
     try {
-      // Parse file
       const { data, headers } = await this.fileParser.parseSalesFile(file);
 
       if (!data || data.length === 0) {
         throw new BadRequestException('File contains no readable sales data');
       }
 
-      // Validate if not skipped
       if (!processCsvDto.skipValidation) {
         const validation = await this.validateSalesFile(file);
         if (!validation.isValid) {
@@ -267,24 +298,22 @@ export class CsvUploadService {
         }
       }
 
-      // Generate defaults and setup mapping
       const generatedDefaults =
         await this.defaultsGenerator.generateDefaults(sessionUserId);
       const columnMapping = this.mapColumns(headers);
-
-      // Transform data using column mapping
       const transformedData = data.map((row) =>
         this.transformRowWithMapping(row, columnMapping),
       );
 
-      // Create processing session
+      // Initialize new agents tracking
+      this.newAgentsCredentials.set(sessionId, []);
+
       const session = await this.createProcessingSession(
         sessionId,
         file,
         transformedData,
         generatedDefaults,
         columnMapping,
-        // processCsvDto.batchSize || 50,
       );
 
       await this.queueRowProcessingJobs(
@@ -320,6 +349,7 @@ export class CsvUploadService {
         rowData,
         rowIndex: index,
         generatedDefaults,
+        isLastJob: index === data.length - 1,
       },
       opts: {
         attempts: 3,
@@ -411,7 +441,20 @@ export class CsvUploadService {
       throw new BadRequestException('Session not found');
     }
 
-    return session.stats;
+    const stats = { ...session.stats };
+
+    const newAgents = this.newAgentsCredentials.get(sessionId) || [];
+    stats.newAgentsCount = newAgents.length;
+
+    if (newAgents.length > 0) {
+      stats.newAgentsSummary = newAgents.map((agent) => ({
+        name: `${agent.firstname} ${agent.lastname}`,
+        username: agent.username,
+        salesCount: agent.salesAssigned,
+      }));
+    }
+
+    return stats;
   }
 
   private mapColumns(headers: string[]): Map<string, string> {
@@ -446,7 +489,13 @@ export class CsvUploadService {
   ): { errors: string[]; warnings: string[] } {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const requiredFields = this.getRequiredColumns();
+    const requiredFields = [
+      'firstName',
+      'lastName',
+      'phoneNumber',
+      'productType',
+      'serialNumber',
+    ];
     const mappedFields = new Set(columnMapping.values());
 
     // Check for required columns
@@ -454,6 +503,19 @@ export class CsvUploadService {
       if (!mappedFields.has(required)) {
         errors.push(`Required column missing: ${required}`);
       }
+    }
+
+    // Specific validations for your CSV structure
+    if (!mappedFields.has('timestamp')) {
+      warnings.push(
+        'Timestamp column not found - will use current date for all records',
+      );
+    }
+
+    if (!mappedFields.has('salesAgent')) {
+      warnings.push(
+        'Sales Agent column not found - sales will not be assigned to specific agents',
+      );
     }
 
     // Check for unmapped columns
@@ -560,43 +622,48 @@ export class CsvUploadService {
     row: SalesRowDto,
     generatedDefaults: any,
     rowIndex: number,
-  ): Promise<void> {
-    // Transform the row data to database entities
+    sessionId?: string,
+  ): Promise<any> {
     const transformedData =
       await this.dataMappingService.transformSalesRowToEntities(
         row,
         generatedDefaults,
       );
 
-    // Process each entity in proper order (dependencies first)
-
-    // 1. Create or find agent
-    // let agent = null;
-    // if (transformedData.agentData) {
-    //   agent = await this.createOrFindAgent(
-    //     transformedData.agentData,
-    //     generatedDefaults,
-    //   );
-    // }
+    // 1. Create or find agent with credential tracking
+    let agent = null;
+    let isNewAgent = false;
+    if (transformedData.agentData) {
+      const agentResult = await this.createOrFindAgent(
+        transformedData.agentData,
+        generatedDefaults,
+        sessionId,
+      );
+      agent = agentResult.agent;
+      isNewAgent = agentResult.isNewAgent;
+    }
 
     // 2. Create or find customer
     const customer = await this.createOrFindCustomer(
       transformedData.customerData,
       generatedDefaults,
-      // agent?.id,
+      agent?.id,
     );
 
     // 3. Create or find product
     const product = await this.createOrFindProduct(
       transformedData.productData,
       generatedDefaults,
+      agent?.id,
     );
 
-    // 4. Create inventory and device if needed
+    // 4. Create inventory and device with smart mapping
     const { inventory, device } = await this.createInventoryAndDevice(
       transformedData.inventoryData,
       transformedData.deviceData,
       generatedDefaults,
+      customer,
+      product,
     );
 
     // 5. Create contract if needed
@@ -614,7 +681,8 @@ export class CsvUploadService {
       device?.id,
       contract?.id,
       generatedDefaults,
-      transformedData.agentData.fullname,
+      transformedData.agentData?.fullname,
+      agent?.userId,
     );
 
     // 7. Create initial payment if there's a deposit
@@ -626,15 +694,45 @@ export class CsvUploadService {
       );
     }
 
+    // 8. Update agent credentials tracking
+    if (isNewAgent && sessionId) {
+      await this.updateNewAgentCredentials(sessionId, agent.id, sale.id);
+    }
+
     this.logger.debug(`Successfully processed sales row ${rowIndex + 1}`);
+
+    return {
+      customerCreated: true,
+      productCreated: true,
+      saleCreated: true,
+      contractCreated: !!contract,
+      agentCreated: isNewAgent,
+      deviceCreated: !!device,
+    };
+  }
+
+  private async updateNewAgentCredentials(
+    sessionId: string,
+    agentUserId: string,
+    saleId: string,
+  ): Promise<void> {
+    console.log({ saleId });
+    const agentCredentials = this.newAgentsCredentials.get(sessionId) || [];
+    const credentialIndex = agentCredentials.findIndex(
+      (cred) => cred.id === agentUserId,
+    );
+
+    if (credentialIndex !== -1) {
+      agentCredentials[credentialIndex].salesAssigned++;
+    }
   }
 
   private async createOrFindAgent(
     agentData: any,
     generatedDefaults: any,
-  ): Promise<any> {
+    sessionId?: string,
+  ): Promise<{ agent: any; isNewAgent: boolean }> {
     try {
-      // First, try to find existing user by name or create one
       let user = await this.prisma.user.findFirst({
         where: {
           OR: [
@@ -650,24 +748,46 @@ export class CsvUploadService {
         include: { agentDetails: true },
       });
 
+      let isNewAgent = false;
+
       if (!user) {
+        // Generate plain password for file generation
+        const plainPassword = generateRandomPassword(12);
+        const hashedPassword = await hashPassword(plainPassword);
+
         // Create user first
         user = await this.prisma.user.create({
           data: {
             ...agentData.userData,
-            roleId: generatedDefaults.defaultRole.id,
+            password: hashedPassword,
+            roleId: generatedDefaults.defaultAgentRole.id,
           },
           include: { agentDetails: true },
         });
+
+        isNewAgent = true;
+
+        // Store credentials for file generation
+        if (sessionId) {
+          const agentCredentials =
+            this.newAgentsCredentials.get(sessionId) || [];
+          agentCredentials.push({
+            id: user.id,
+            agentId: 0, // Will be updated when agent details are created
+            email: user.email,
+            password: plainPassword,
+            firstname: user.firstname || '',
+            lastname: user.lastname || '',
+            username: user.username || '',
+            salesAssigned: 0,
+          });
+          this.newAgentsCredentials.set(sessionId, agentCredentials);
+        }
       }
 
       // Check if user has agent details, create if not
       if (!user.agentDetails) {
-        const lastAgent = await this.prisma.agent.findFirst({
-          orderBy: { agentId: 'desc' },
-        });
-
-        const nextAgentId = (lastAgent?.agentId || 0) + 1;
+        const nextAgentId = Math.floor(10000000 + Math.random() * 90000000);
 
         const agent = await this.prisma.agent.create({
           data: {
@@ -676,23 +796,33 @@ export class CsvUploadService {
           },
         });
 
-        return { ...agent, user };
+        // Update agent ID in credentials if this is a new agent
+        if (isNewAgent && sessionId) {
+          const agentCredentials =
+            this.newAgentsCredentials.get(sessionId) || [];
+          const credentialIndex = agentCredentials.findIndex(
+            (cred) => cred.id === user.id,
+          );
+          if (credentialIndex !== -1) {
+            agentCredentials[credentialIndex].agentId = nextAgentId;
+          }
+        }
+
+        return { agent: { ...agent, user }, isNewAgent };
       }
 
-      return user.agentDetails;
+      return { agent: user.agentDetails, isNewAgent };
     } catch (error) {
       this.logger.error('Error creating/finding agent', error);
       throw error;
     }
   }
-
   private async createOrFindCustomer(
     customerData: any,
     generatedDefaults: any,
     agentId?: string,
   ): Promise<any> {
     try {
-      // Try to find existing customer by phone or email
       let customer = await this.prisma.customer.findFirst({
         where: {
           OR: [{ phone: customerData.phone }, { email: customerData.email }],
@@ -706,36 +836,41 @@ export class CsvUploadService {
       if (!customer) {
         const processedCustomerData = { ...customerData };
 
-        // Upload images to Cloudinary if URLs are provided
-        if (customerData.passportPhotoUrl) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.passportPhotoUrl,
-            `${customerData.firstname}_${customerData.lastname}_passport`,
-          );
-          processedCustomerData.passportPhotoUrl = cloudinaryUrl;
-        }
+        // Handle image uploads to Cloudinary
+        const imageFields = [
+          'passportPhotoUrl',
+          'idImageUrl',
+          'contractFormImageUrl',
+        ];
 
-        if (customerData.idImageUrl) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.idImageUrl,
-            `${customerData.firstname}_${customerData.lastname}_id`,
-          );
-          processedCustomerData.idImageUrl = cloudinaryUrl;
-        }
-
-        if (customerData.contractFormImageUrl) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.contractFormImageUrl,
-            `${customerData.firstname}_${customerData.lastname}_contract`,
-          );
-          processedCustomerData.contractFormImageUrl = cloudinaryUrl;
+        for (const field of imageFields) {
+          if (customerData[field]) {
+            try {
+              const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
+                customerData[field],
+                `${customerData.firstname}_${customerData.lastname}_${field}`,
+              );
+              if (cloudinaryUrl) {
+                processedCustomerData[field] = cloudinaryUrl;
+              }
+            } catch (error) {
+              this.logger.warn(
+                `Failed to upload ${field} for customer ${customerData.firstname} ${customerData.lastname}:`,
+                error,
+              );
+              // Continue without the image rather than failing the entire import
+              processedCustomerData[field] = null;
+            }
+          }
         }
 
         customer = await this.prisma.customer.create({
           data: {
             ...processedCustomerData,
-            creatorId: generatedDefaults.defaultUser.id || agentId,
-            agentId: agentId,
+            creatorId: generatedDefaults.defaultUser.id,
+            // Use timestamp from CSV
+            createdAt: customerData.createdAt || new Date(),
+            updatedAt: customerData.updatedAt || new Date(),
           },
         });
 
@@ -743,8 +878,7 @@ export class CsvUploadService {
           `Created new customer: ${customer.firstname} ${customer.lastname}`,
         );
       } else {
-        // Update customer with any new information
-
+        // Update customer with any new information and maintain original creation date
         const updateData: any = {
           installationAddress:
             customer.installationAddress || customerData.installationAddress,
@@ -755,36 +889,33 @@ export class CsvUploadService {
           gender: customer.gender || customerData.gender,
           idType: customer.idType || customerData.idType,
           idNumber: customer.idNumber || customerData.idNumber,
-          passportPhotoUrl:
-            customer.passportPhotoUrl || customerData.passportPhotoUrl,
-          idImageUrl: customer.idImageUrl || customerData.idImageUrl,
+          updatedAt: new Date(), // Update the updated timestamp
         };
 
-        if (!customer.passportPhotoUrl && customerData.passportPhotoUrl) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.passportPhotoUrl,
-            `${customer.firstname}_${customer.lastname}_passport`,
-          );
-          if (cloudinaryUrl) updateData.passportPhotoUrl = cloudinaryUrl;
-        }
+        // Handle image updates
+        const imageFields = [
+          'passportPhotoUrl',
+          'idImageUrl',
+          'contractFormImageUrl',
+        ];
 
-        if (!customer.idImageUrl && customerData.idImageUrl) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.idImageUrl,
-            `${customer.firstname}_${customer.lastname}_id`,
-          );
-          if (cloudinaryUrl) updateData.idImageUrl = cloudinaryUrl;
-        }
-
-        if (
-          !customer.contractFormImageUrl &&
-          customerData.contractFormImageUrl
-        ) {
-          const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
-            customerData.contractFormImageUrl,
-            `${customer.firstname}_${customer.lastname}_contract`,
-          );
-          if (cloudinaryUrl) updateData.contractFormImageUrl = cloudinaryUrl;
+        for (const field of imageFields) {
+          if (!customer[field] && customerData[field]) {
+            try {
+              const cloudinaryUrl = await this.cloudinary.uploadUrlToCloudinary(
+                customerData[field],
+                `${customer.firstname}_${customer.lastname}_${field}`,
+              );
+              if (cloudinaryUrl) {
+                updateData[field] = cloudinaryUrl;
+              }
+            } catch (error) {
+              this.logger.warn(
+                `Failed to upload ${field} for customer ${customer.firstname} ${customer.lastname}:`,
+                error,
+              );
+            }
+          }
         }
 
         customer = await this.prisma.customer.update({
@@ -797,6 +928,25 @@ export class CsvUploadService {
         );
       }
 
+      if (agentId) {
+        const existingAgentCustomer = await this.prisma.agentCustomer.findFirst({
+          where: {
+            agentId,
+            customerId: customer.id,
+          },
+        });
+
+        if (!existingAgentCustomer) {
+          await this.prisma.agentCustomer.create({
+            data: {
+              agentId,
+              customerId: customer.id,
+              assignedBy: generatedDefaults.defaultUser.id,
+            },
+          });
+        }
+      }
+
       return customer;
     } catch (error) {
       this.logger.error('Error creating/finding customer', error);
@@ -807,6 +957,7 @@ export class CsvUploadService {
   private async createOrFindProduct(
     productData: any,
     generatedDefaults: any,
+    agentId?: string,
   ): Promise<any> {
     try {
       let product = await this.prisma.product.findFirst({
@@ -830,6 +981,25 @@ export class CsvUploadService {
         this.logger.debug(`Created new product: ${product.name}`);
       }
 
+      if (agentId) {
+        const existingAgentProduct = await this.prisma.agentProduct.findFirst({
+          where: {
+            agentId,
+            productId: product.id,
+          },
+        });
+
+        if (!existingAgentProduct) {
+          await this.prisma.agentProduct.create({
+            data: {
+              agentId,
+              productId: product.id,
+              assignedBy: generatedDefaults.defaultUser.id,
+            },
+          });
+        }
+      }
+
       return product;
     } catch (error) {
       this.logger.error('Error creating/finding product', error);
@@ -841,19 +1011,17 @@ export class CsvUploadService {
     inventoryData: any,
     deviceData: any,
     generatedDefaults: any,
+    customer: any,
+    product: any,
   ): Promise<{ inventory: any; device: any }> {
     try {
       let inventory = null;
       let device = null;
 
-      // Create inventory if data provided
       if (inventoryData) {
         inventory = await this.prisma.inventory.findFirst({
           where: {
-            name: {
-              equals: inventoryData.name,
-              mode: 'insensitive',
-            },
+            name: { equals: inventoryData.name, mode: 'insensitive' },
           },
         });
 
@@ -868,7 +1036,6 @@ export class CsvUploadService {
           });
         }
 
-        // Create inventory batch
         await this.prisma.inventoryBatch.create({
           data: {
             inventoryId: inventory.id,
@@ -876,13 +1043,13 @@ export class CsvUploadService {
             costOfItem: costOfItem || 0,
             batchNumber: Date.now() - 100,
             numberOfStock: 1,
-            remainingQuantity: 0, // Will be reduced when sold
+            remainingQuantity: 0,
             creatorId: generatedDefaults.defaultUser.id,
           },
         });
       }
 
-      // Create device if serial number provided
+      // Enhanced device creation with location mapping
       if (deviceData && deviceData.serialNumber) {
         device = await this.prisma.device.findUnique({
           where: { serialNumber: deviceData.serialNumber },
@@ -892,11 +1059,16 @@ export class CsvUploadService {
           device = await this.prisma.device.create({
             data: {
               ...deviceData,
+              installationLocation: customer.installationAddress || null,
+              installationLatitude: customer.latitude || null,
+              installationLongitude: customer.longitude || null,
               creatorId: generatedDefaults.defaultUser.id as string,
             },
           });
 
-          this.logger.debug(`Created new device: ${device.serialNumber}`);
+          this.logger.debug(
+            `Created new device: ${device.serialNumber} for customer: ${customer.firstname} ${customer.lastname}`,
+          );
         }
       }
 
@@ -904,6 +1076,87 @@ export class CsvUploadService {
     } catch (error) {
       this.logger.error('Error creating inventory/device', error);
       throw error;
+    }
+  }
+
+  async generateAgentCredentialsFile(
+    sessionId: string,
+  ): Promise<string | null> {
+    const agentCredentials = this.newAgentsCredentials.get(sessionId);
+
+    if (!agentCredentials || agentCredentials.length === 0) {
+      return null;
+    }
+
+    try {
+      const fileName = `new_agents_${sessionId}_${Date.now()}.txt`;
+      const filePath = path.join(
+        process.cwd(),
+        'uploads',
+        'agent_credentials',
+        fileName,
+      );
+
+      // Ensure directory exists
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+      const content = [
+        '='.repeat(80),
+        'NEWLY CREATED AGENT CREDENTIALS',
+        `Session ID: ${sessionId}`,
+        `Generated on: ${new Date().toISOString()}`,
+        `Total New Agents: ${agentCredentials.length}`,
+        '='.repeat(80),
+        '',
+        ...agentCredentials.map((agent, index) =>
+          [
+            `${index + 1}. Agent ID: ${agent.agentId}`,
+            `   Name: ${agent.firstname} ${agent.lastname}`,
+            `   Username: ${agent.username}`,
+            `   Email: ${agent.email}`,
+            `   Password: ${agent.password}`,
+            `   Sales Assigned: ${agent.salesAssigned}`,
+            '-'.repeat(50),
+          ].join('\n'),
+        ),
+        '',
+        'NOTE: Please distribute these credentials securely to the respective agents.',
+        'Agents can login and view their assigned sales data.',
+        '='.repeat(80),
+      ].join('\n');
+
+      await fs.writeFile(filePath, content, 'utf8');
+
+      this.logger.log(`Generated agent credentials file: ${fileName}`);
+      return filePath;
+    } catch (error) {
+      this.logger.error('Error generating agent credentials file', error);
+      throw error;
+    }
+  }
+
+  async completeSession(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    try {
+      // Generate agent credentials file if new agents were created
+      const credentialsFilePath =
+        await this.generateAgentCredentialsFile(sessionId);
+
+      if (credentialsFilePath) {
+        // Update session stats
+        session.stats.newAgentsFile = credentialsFilePath;
+        session.stats.newAgentsCount =
+          this.newAgentsCredentials.get(sessionId)?.length || 0;
+      }
+
+      // Clean up credentials from memory
+      this.newAgentsCredentials.delete(sessionId);
+
+      this.logger.log(`Session ${sessionId} completed successfully`);
+    } catch (error) {
+      this.logger.error(`Error completing session ${sessionId}`, error);
     }
   }
 
@@ -931,6 +1184,7 @@ export class CsvUploadService {
     contractId?: string,
     generatedDefaults?: any,
     agentName?: string,
+    agentId?: string,
   ): Promise<any> {
     try {
       const { paymentMode, miscellaneousPrices, ...rest } = saleData;
@@ -941,7 +1195,10 @@ export class CsvUploadService {
           agentName,
           customerId,
           contractId,
-          creatorId: generatedDefaults.defaultUser.id,
+          creatorId: agentId || generatedDefaults.defaultUser.id,
+
+          createdAt: saleData.createdAt || new Date(),
+          updatedAt: saleData.updatedAt || new Date(),
         },
       });
 
@@ -958,6 +1215,8 @@ export class CsvUploadService {
           miscellaneousPrices,
           paymentMode: paymentMode || PaymentMode.ONE_OFF,
           deviceIDs: deviceId ? [deviceId] : [],
+          createdAt: saleData.createdAt || new Date(),
+          updatedAt: saleData.updatedAt || new Date(),
         },
       });
 
@@ -972,13 +1231,34 @@ export class CsvUploadService {
         });
       }
 
+      // Create agent-customer assignment if agent exists
+      if (agentId && customerId) {
+        const agentExists = await this.prisma.agent.findUnique({
+          where: { id: agentId },
+        });
+
+        if (agentExists) {
+          const existingAssignment = await this.prisma.agentCustomer.findFirst({
+            where: { agentId, customerId },
+          });
+
+          if (!existingAssignment) {
+            await this.prisma.agentCustomer.create({
+              data: {
+                agentId,
+                customerId,
+                assignedBy: generatedDefaults.defaultUser.id,
+                assignedAt: saleData.createdAt || new Date(),
+              },
+            });
+          }
+        }
+      }
+
       // Create product-inventory relationship if needed
       if (inventoryId) {
         const existingRelation = await this.prisma.productInventory.findFirst({
-          where: {
-            productId,
-            inventoryId,
-          },
+          where: { productId, inventoryId },
         });
 
         if (!existingRelation) {
@@ -992,8 +1272,9 @@ export class CsvUploadService {
         }
       }
 
-      this.logger.debug(`Created sale: ${sale.id}`);
-
+      this.logger.debug(
+        `Created sale: ${sale.id} for agent: ${agentName || 'Unknown'}`,
+      );
       return sale;
     } catch (error) {
       this.logger.error('Error creating sale', error);
@@ -1011,8 +1292,14 @@ export class CsvUploadService {
         data: {
           ...paymentData,
           transactionRef: `sale-${saleId}-${Date.now()}`,
+          // transactionRef:
+          //   await this.referenceGenerator.generatePaymentReference(),
           saleId,
           recordedById: generatedDefaults.defaultUser.id,
+
+          paymentDate: paymentData.paymentDate || new Date(),
+          createdAt: paymentData.paymentDate || new Date(),
+          updatedAt: paymentData.paymentDate || new Date(),
         },
       });
 
@@ -1099,22 +1386,6 @@ export class CsvUploadService {
         error,
       );
       return false;
-    }
-  }
-
-  private cleanupOldSessions(): void {
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
-
-    for (const [sessionId, session] of this.sessions.entries()) {
-      if (
-        session.stats.startTime < fourHoursAgo &&
-        (session.stats.status === 'completed' ||
-          session.stats.status === 'failed' ||
-          session.stats.status === 'cancelled')
-      ) {
-        this.sessions.delete(sessionId);
-        this.logger.log(`Cleaned up old session: ${sessionId}`);
-      }
     }
   }
 }

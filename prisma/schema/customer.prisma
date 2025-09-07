@@ -6,7 +6,7 @@ model Customer {
   phone            String
   alternatePhone   String?
   gender           String?
-  email            String? @unique
+  email            String?
   passportPhotoUrl String?
 
   addressType         AddressType

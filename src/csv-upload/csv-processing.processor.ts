@@ -21,32 +21,35 @@ export class CsvProcessingProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<any> {
-    const { sessionId, rowData, rowIndex, generatedDefaults } = job.data;
+    const { sessionId, rowData, rowIndex, generatedDefaults, isLastJob } =
+      job.data;
 
     try {
       await job.updateProgress(10);
 
-      // Process the sales row (move the logic from processSalesRow here)
-      const result = await this.processSalesRowInQueue(
+      const result = await this.csvUploadService.processSalesRow(
         rowData,
         generatedDefaults,
         rowIndex,
-        // job,
+        sessionId,
       );
 
-      // Update session stats
       await this.csvUploadService.updateSessionProgress(sessionId, {
         processed: true,
         success: true,
         result,
       });
 
+      // If this is the last job, complete the session
+      if (isLastJob) {
+        await this.csvUploadService.completeSession(sessionId);
+      }
+
       await job.updateProgress(100);
       return result;
     } catch (error) {
       this.logger.error(`Error processing row ${rowIndex}:`, error);
 
-      // Update session with error
       await this.csvUploadService.updateSessionProgress(sessionId, {
         processed: true,
         success: false,

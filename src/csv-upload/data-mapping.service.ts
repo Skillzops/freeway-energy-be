@@ -24,13 +24,9 @@ export class DataMappingService {
   ) {}
 
   async transformSalesRowToEntities(row: SalesRowDto, generatedDefaults: any) {
-    this.logger.debug('Transforming sales row to database entities');
-
-    // Extract and clean data from the row
     const extractedData = this.extractAndValidateData(row);
 
-    // Transform to database entities
-    const transformedData = {
+    return {
       agentData: this.transformAgentData(extractedData, generatedDefaults),
       customerData: this.transformCustomerData(extractedData),
       productData: this.transformProductData(extractedData),
@@ -44,8 +40,6 @@ export class DataMappingService {
         ? this.transformPaymentData(extractedData)
         : null,
     };
-
-    return transformedData;
   }
 
   private extractAndValidateData(row: SalesRowDto) {
@@ -101,6 +95,13 @@ export class DataMappingService {
 
       // Date
       dateOfRegistration: this.parseDate(row.dateOfRegistration) || new Date(),
+
+      timestamp: this.parseDate(row.timestamp) || new Date(),
+      middleName: this.cleanString(row.middleName),
+      uploadAllImages: this.cleanString(row.uploadAllImages),
+      tokenSent: this.cleanString(row.tokenSent),
+      // Use timestamp as creation date for all entities
+      creationDate: this.parseDate(row.timestamp) || new Date(),
     };
 
     // Validate required fields
@@ -172,6 +173,9 @@ export class DataMappingService {
 
       status: UserStatus.active,
       type: extractedData.customerCategory,
+
+      createdAt: extractedData.creationDate,
+      updatedAt: extractedData.creationDate,
     };
   }
 
@@ -214,6 +218,10 @@ export class DataMappingService {
       serialNumber: extractedData.serialNumber,
       key: this.generateDeviceKey(),
       isUsed: true, // Will be marked as used when sold
+
+      // Timestamps
+      createdAt: extractedData.creationDate,
+      updatedAt: extractedData.creationDate,
     };
   }
 
@@ -254,6 +262,9 @@ export class DataMappingService {
       nextOfKinEmail: null,
       nextOfKinDateOfBirth: null,
       nextOfKinNationality: null,
+
+      createdAt: extractedData.creationDate,
+      updatedAt: extractedData.creationDate,
     };
   }
 
@@ -263,16 +274,14 @@ export class DataMappingService {
     const paymentMode = this.getPaymentMode(extractedData.paymentType);
     const paymentMethod = this.getPaymentMethod(extractedData.paymentOption);
     const totalPaid = extractedData.initialDeposit || 0;
+    const paymentPeriod = extractedData.paymentPeriod || 24;
+
     const totalInstallmentDuration =
-      extractedData.paymentPeriod ||
-      (paymentMode === PaymentMode.INSTALLMENT ? 24 : 0);
+      paymentMode === PaymentMode.INSTALLMENT ? paymentPeriod : 0;
 
     const totalMonthlyPayment =
-      paymentMode === PaymentMode.INSTALLMENT
-        ? Math.ceil(
-            // (estimatedPrice - totalPaid) / extractedData.paymentPeriod,
-            estimatedPrice / extractedData.paymentPeriod,
-          )
+      paymentMode === PaymentMode.INSTALLMENT && paymentPeriod > 0
+        ? Math.ceil(estimatedPrice / paymentPeriod)
         : 0;
 
     const totalMiscellaneousPrice = Math.max(
@@ -280,13 +289,12 @@ export class DataMappingService {
       0,
     );
 
-    const miscellaneousPrices = totalMiscellaneousPrice > 0 ? {misc1: totalMiscellaneousPrice} : null;
+    const miscellaneousPrices =
+      totalMiscellaneousPrice > 0 ? { misc1: totalMiscellaneousPrice } : null;
 
     let status: SalesStatus = SalesStatus.COMPLETED;
     if (paymentMode === PaymentMode.INSTALLMENT) {
       status = SalesStatus.IN_INSTALLMENT;
-    } else {
-      status = SalesStatus.COMPLETED;
     }
 
     return {
@@ -297,14 +305,17 @@ export class DataMappingService {
       installmentStartingPrice:
         paymentMode === PaymentMode.INSTALLMENT ? totalPaid : 0,
       totalMiscellaneousPrice,
-      miscellaneousPrices, 
+      miscellaneousPrices,
       paymentMode: paymentMode,
       paymentMethod,
-      transactionDate: extractedData.dateOfRegistration,
       installerName: extractedData.installerName || null,
       totalInstallmentDuration,
       remainingInstallments: Math.max(totalInstallmentDuration - 1, 0),
       totalMonthlyPayment,
+      transactionDate:
+        extractedData.creationDate || extractedData.dateOfRegistration,
+      createdAt: extractedData.creationDate,
+      updatedAt: extractedData.creationDate,
     };
   }
 
@@ -316,7 +327,7 @@ export class DataMappingService {
     return {
       amount: extractedData.initialDeposit,
       paymentStatus: PaymentStatus.COMPLETED,
-      paymentDate: extractedData.dateOfRegistration,
+      paymentDate: extractedData.creationDate || extractedData.dateOfRegistration,
       paymentMethod: PaymentMethod.ONLINE,
       notes: 'Initial deposit from CSV import',
     };
@@ -488,8 +499,8 @@ export class DataMappingService {
       return { firstname: names[0], lastname: 'Agent' };
     } else {
       return {
-        firstname: `${names[0]}(sheet)`,
-        lastname: `${names.slice(1).join(' ')}(sheet)`,
+        firstname: `${names[0]}`,
+        lastname: `${names.slice(1).join(' ')}`,
       };
     }
   }

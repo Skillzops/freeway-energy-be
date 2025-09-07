@@ -133,6 +133,15 @@ export class CsvUploadStatsDto {
     devices: EntityStats;
   };
 
+  @ApiProperty()
+  newAgentsCount?: any;
+
+  @ApiProperty()
+  newAgentsSummary?: any;
+
+  @ApiProperty()
+  newAgentsFile?: any;
+
   @ApiProperty({ description: 'List of processing errors' })
   errors: ProcessingError[];
 
@@ -155,6 +164,12 @@ export class CsvUploadResponseDto {
 
   @ApiProperty({ description: 'Processing statistics' })
   stats: CsvUploadStatsDto;
+
+  @ApiProperty({ description: 'Processing statistics' })
+  newAgentsFile?: string;
+
+  @ApiProperty({ description: 'Processing statistics' })
+  newAgentsCount?: number;
 }
 
 export class EntityStats {
@@ -283,6 +298,18 @@ export class SalesRowDto {
 
   @ApiPropertyOptional({ description: 'Date of registration' })
   dateOfRegistration?: string | Date;
+
+  @ApiPropertyOptional()
+  timestamp?: string;
+
+  @ApiPropertyOptional()
+  middleName?: string;
+
+  @ApiPropertyOptional()
+  uploadAllImages?: string;
+
+  @ApiPropertyOptional()
+  tokenSent?: string;
 }
 
 // Enums for validation

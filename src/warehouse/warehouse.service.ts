@@ -34,7 +34,12 @@ export class WarehouseService {
 
     if (isMain) {
       const existingMainWarehouse = await this.prisma.warehouse.findFirst({
-        where: { isMain: true, deletedAt: null },
+        where: {
+          isMain: true,
+          deletedAt: {
+            isSet: false,
+          },
+        },
       });
 
       if (existingMainWarehouse) {
@@ -45,7 +50,9 @@ export class WarehouseService {
     const existingWarehouse = await this.prisma.warehouse.findFirst({
       where: {
         name: { equals: name, mode: 'insensitive' },
-        deletedAt: null,
+        deletedAt: {
+          isSet: false,
+        },
       },
     });
 
@@ -101,23 +108,21 @@ export class WarehouseService {
     } = query;
 
     const whereConditions: Prisma.WarehouseWhereInput = {
-      AND: [
-        { deletedAt: null },
-        search
-          ? {
-              OR: [
-                { name: { contains: search, mode: 'insensitive' } },
-                { location: { contains: search, mode: 'insensitive' } },
-                { description: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : {},
-        isActive !== undefined ? { isActive } : {},
-        isMain !== undefined ? { isMain } : {},
-        userType === 'warehouseManager' && warehouseManager
-          ? { id: warehouseManager.warehouseId }
-          : {},
-      ],
+      // deletedAt: { isSet: false },
+      OR: [{ deletedAt: { isSet: false } }, { deletedAt: null }],
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+      ...(isActive !== undefined && { isActive }),
+      ...(isMain !== undefined && { isMain }),
+      ...(userType === 'warehouseManager' &&
+        warehouseManager && {
+          id: warehouseManager.warehouseId,
+        }),
     };
 
     const pageNumber = parseInt(String(page), 10);
@@ -128,7 +133,7 @@ export class WarehouseService {
 
     const [warehouses, total] = await Promise.all([
       this.prisma.warehouse.findMany({
-        where: whereConditions,
+        where: { ...whereConditions },
         include: {
           _count: {
             select: {
@@ -207,7 +212,12 @@ export class WarehouseService {
 
   async getWarehouse(id: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: {
+          isSet: false,
+        },
+      },
       include: {
         _count: {
           select: {
@@ -259,7 +269,12 @@ export class WarehouseService {
     file?: Express.Multer.File,
   ) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: {
+          isSet: false,
+        },
+      },
     });
 
     if (!warehouse) {
@@ -273,7 +288,9 @@ export class WarehouseService {
         where: {
           name: { equals: name, mode: 'insensitive' },
           id: { not: id },
-          deletedAt: null,
+          deletedAt: {
+            isSet: false,
+          },
         },
       });
 
@@ -307,7 +324,12 @@ export class WarehouseService {
 
   async deleteWarehouse(id: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: {
+          isSet: false,
+        },
+      },
       include: {
         _count: {
           select: {
@@ -360,7 +382,12 @@ export class WarehouseService {
 
   async deactivateWarehouse(id: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: {
+          isSet: false,
+        },
+      },
     });
 
     if (!warehouse) {
@@ -381,7 +408,12 @@ export class WarehouseService {
 
   async activateWarehouse(id: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: {
+          isSet: false,
+        },
+      },
     });
 
     if (!warehouse) {
@@ -425,7 +457,9 @@ export class WarehouseService {
     const fromWareHouseAsMainExists = await this.prisma.warehouse.findFirst({
       where: {
         id: fromWarehouseId,
-        deletedAt: null,
+        deletedAt: {
+          isSet: false,
+        },
         isMain: true,
         isActive: true,
       },
@@ -440,7 +474,9 @@ export class WarehouseService {
     const toWareHouseAsExists = await this.prisma.warehouse.findFirst({
       where: {
         id: toWarehouseId,
-        deletedAt: null,
+        deletedAt: {
+          isSet: false,
+        },
         isActive: true,
       },
     });
@@ -793,11 +829,29 @@ export class WarehouseService {
       mainWarehouses,
       pendingTransferRequests,
     ] = await Promise.all([
-      this.prisma.warehouse.count({ where: { deletedAt: null } }),
       this.prisma.warehouse.count({
-        where: { isActive: true, deletedAt: null },
+        where: {
+          deletedAt: {
+            isSet: false,
+          },
+        },
       }),
-      this.prisma.warehouse.count({ where: { isMain: true, deletedAt: null } }),
+      this.prisma.warehouse.count({
+        where: {
+          isActive: true,
+          deletedAt: {
+            isSet: false,
+          },
+        },
+      }),
+      this.prisma.warehouse.count({
+        where: {
+          isMain: true,
+          deletedAt: {
+            isSet: false,
+          },
+        },
+      }),
       this.prisma.inventoryTransferRequest.count({
         where: { status: TransferStatus.PENDING },
       }),
@@ -819,7 +873,12 @@ export class WarehouseService {
     assignedBy: string,
   ) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id: warehouseId, deletedAt: null },
+      where: {
+        id: warehouseId,
+        deletedAt: {
+          isSet: false,
+        },
+      },
     });
 
     if (!warehouse) {
@@ -832,7 +891,9 @@ export class WarehouseService {
       where: {
         id: { in: userIds },
         status: UserStatus.active,
-        deletedAt: null,
+        deletedAt: {
+          isSet: false,
+        },
         warehouseManager: null,
         agentDetails: null,
       },
@@ -873,7 +934,12 @@ export class WarehouseService {
 
   async getWarehouseManagers(warehouseId: string) {
     const warehouse = await this.prisma.warehouse.findFirst({
-      where: { id: warehouseId, deletedAt: null },
+      where: {
+        id: warehouseId,
+        deletedAt: {
+          isSet: false,
+        },
+      },
     });
 
     if (!warehouse) {

@@ -234,7 +234,12 @@ export class CustomersService {
             email: true,
           },
         },
+        // assignedAgents: true
+
         assignedAgents: {
+          where: {
+            agentId: { not: null },
+          },
           select: {
             agent: {
               include: {
@@ -282,6 +287,9 @@ export class CustomersService {
           },
         },
         assignedAgents: {
+          where: {
+            agentId: { not: null },
+          },
           select: {
             agent: {
               include: {

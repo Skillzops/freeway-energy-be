@@ -31,6 +31,7 @@ export class DefaultsGeneratorService {
       categories: await this.ensureDefaultCategories(),
       defaultUser: await this.ensureDefaultUser(defaultPassword, sessionUserId),
       defaultRole: await this.ensureDefaultRole(),
+      defaultAgentRole: await this.ensureDefaultRole('agent'),
       defaultPassword: await hashPassword(defaultPassword),
     };
 
@@ -106,7 +107,6 @@ export class DefaultsGeneratorService {
           username: 'csv_migration_agent',
           roleId: defaultRole.id,
           phone: this.generateNigerianPhone(),
-          location: 'System Generated - CSV Migration',
           addressType: AddressType.WORK,
           status: UserStatus.active,
         },
@@ -118,17 +118,23 @@ export class DefaultsGeneratorService {
     return defaultUser;
   }
 
-  private async ensureDefaultRole(): Promise<any> {
+  private async ensureDefaultRole(type?: 'agent' | 'admin'): Promise<any> {
     let defaultRole = await this.prisma.role.findFirst({
-      where: { role: 'CSV Migration Agent' },
+      where: { role: type === 'agent' ? 'AssignedAgent' : 'CSV Migration' },
     });
 
     if (!defaultRole) {
-      const permissions = await this.createMigrationPermissions();
+      const requiredPermissions =
+        type === 'agent'
+          ? [{ action: ActionEnum.manage, subject: SubjectEnum.Assignments }]
+          : [{ action: ActionEnum.manage, subject: SubjectEnum.all }];
+
+      const permissions =
+        await this.createMigrationPermissions(requiredPermissions);
 
       defaultRole = await this.prisma.role.create({
         data: {
-          role: 'CSV Migration Agent',
+          role: type === 'agent' ? 'AssignedAgent' : 'CSV Migration',
           active: true,
           permissionIds: permissions.map((p) => p.id),
         },
@@ -140,11 +146,11 @@ export class DefaultsGeneratorService {
     return defaultRole;
   }
 
-  private async createMigrationPermissions(): Promise<any[]> {
-    const requiredPermissions = [
+  private async createMigrationPermissions(
+    requiredPermissions: any = [
       { action: ActionEnum.manage, subject: SubjectEnum.all },
-    ];
-
+    ],
+  ): Promise<any[]> {
     const permissions = [];
 
     for (const perm of requiredPermissions) {
