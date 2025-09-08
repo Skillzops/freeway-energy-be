@@ -98,6 +98,21 @@ export class InventoryService {
       },
     });
 
+    const warehouseId =
+      warehouseManager?.warehouseId ?? createInventoryDto.warehouseId;
+
+    if(warehouseId){
+      const warehouse = await this.prisma.warehouse.findFirst({
+        where: {
+          id: warehouseId
+        }
+      })
+
+      if(!warehouse){
+        throw new NotFoundException("Warehouse not found")
+      }
+    }
+
     const image = (await this.uploadInventoryImage(file)).secure_url;
 
     const inventoryData = await this.prisma.inventory.create({
@@ -105,9 +120,7 @@ export class InventoryService {
         name: createInventoryDto.name,
         manufacturerName: createInventoryDto.manufacturerName,
         dateOfManufacture: createInventoryDto.dateOfManufacture,
-        ...(warehouseManager
-          ? { warehouseId: warehouseManager.warehouseId }
-          : {}),
+        ...(warehouseId ? { warehouseId } : {}),
         sku: createInventoryDto.sku,
         image,
         class: createInventoryDto.class,
@@ -136,7 +149,7 @@ export class InventoryService {
 
   async createInventoryBatch(
     requestUserId: string,
-    createInventoryBatchDto: CreateInventoryBatchDto & { warehouseId?: string },
+    createInventoryBatchDto: CreateInventoryBatchDto,
   ) {
     const warehouseManager = await this.prisma.warehouseManager.findFirst({
       where: {
@@ -145,12 +158,13 @@ export class InventoryService {
       },
     });
 
+    const warehouseId =
+      warehouseManager?.warehouseId ?? createInventoryBatchDto.warehouseId;
+
     const isInventoryValid = await this.prisma.inventory.findFirst({
       where: {
         id: createInventoryBatchDto.inventoryId,
-        ...(warehouseManager
-          ? { warehouseId: warehouseManager.warehouseId }
-          : {}),
+        ...(warehouseId ? { warehouseId } : {}),
       },
     });
 

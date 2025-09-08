@@ -116,4 +116,11 @@ export class CreateInventoryDto {
 
   @ApiProperty({ type: 'file' })
   inventoryImage: Express.Multer.File;
+
+  @ApiPropertyOptional({
+    description: 'Warehouse ID to assign to inventory',
+  })
+  @IsString()
+  @IsOptional()
+  warehouseId?: string;
 }

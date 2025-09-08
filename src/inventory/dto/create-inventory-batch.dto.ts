@@ -64,7 +64,7 @@ export class CreateInventoryBatchDto {
   inventoryId: string;
 
   @ApiPropertyOptional({
-    description: 'Warehouse ID to assign batch to (defaults to main warehouse)',
+    description: 'Warehouse ID to assign batch to',
   })
   @IsString()
   @IsOptional()
