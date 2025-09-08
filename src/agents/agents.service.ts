@@ -30,6 +30,19 @@ import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export interface AgentCredentialInfo {
+  id: string;
+  agentId: number;
+  email: string;
+  password: string;
+  firstname: string;
+  lastname: string;
+  username: string;
+  salesCount: number;
+}
 
 @Injectable()
 export class AgentsService {
@@ -969,6 +982,166 @@ export class AgentsService {
         ),
       },
     };
+  }
+
+  async generateAllAgentCredentials(): Promise<{
+    filePath: string;
+    totalAgents: number;
+    newPasswordsGenerated: number;
+  }> {
+    try {
+      // Fetch all agents with user details and sales count
+      const agents = await this.prisma.agent.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstname: true,
+              lastname: true,
+              username: true,
+              password: true,
+            },
+          },
+          sales: {
+            select: {
+              id: true,
+            },
+          },
+        },
+        orderBy: {
+          agentId: 'asc',
+        },
+      });
+
+      if (agents.length === 0) {
+        throw new Error('No agents found in the database');
+      }
+
+      // const credentialsList: AgentCredentialInfo[] = [];
+      let newPasswordsGenerated = 0;
+
+      const credentialsList = [];
+
+      // Process each agent
+      for (const agent of agents) {
+        console.log({ newPasswordsGenerated });
+        const user = agent.user;
+
+        const plainPassword = generateRandomPassword(12);
+        const hashedPassword = await hashPassword(plainPassword);
+
+        // Update user with new password
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { password: hashedPassword },
+        });
+
+        newPasswordsGenerated++;
+
+        credentialsList.push({
+          id: user.id,
+          agentId: agent.agentId,
+          email: user.email,
+          password: plainPassword,
+          firstname: user.firstname || 'N/A',
+          lastname: user.lastname || 'N/A',
+          username: user.username || 'N/A',
+          salesCount: agent.sales.length,
+        });
+      }
+
+      const filePath = await this.generateCredentialsFile(credentialsList);
+
+      const fileContent = await fs.readFile(filePath, 'utf8');
+      const fileName = path.basename(filePath);
+
+      await this.Email.sendMail({
+        from: this.config.get<string>('EMAIL_USER'),
+        to: 'francisalexander000@gmail.com',
+        subject: `Agent Credentials Generated`,
+        html: ` <h1>🔐 Agent Credentials Generated Successfully</h1>`,
+        attachments: [
+          {
+            filename: fileName,
+            content: fileContent,
+            contentType: 'text/plain',
+          },
+        ],
+      });
+
+      // Generate the credentials file
+      // const filePath = await this.generateCredentialsFile(credentialsList);
+
+      return {
+        filePath,
+        totalAgents: agents.length,
+        newPasswordsGenerated,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  private async generateCredentialsFile(
+    credentialsList: AgentCredentialInfo[],
+    prefix: string = 'all_agents',
+  ): Promise<string> {
+    // const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    // const fileName = `${prefix}_credentials_${timestamp}.txt`;
+    const fileName = `${prefix}_credentials_.txt`;
+    const filePath = path.join(
+      process.cwd(),
+      'uploads',
+      'agent_credentials',
+      fileName,
+    );
+
+    // Ensure directory exists
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    // Sort agents by agentId for better organization
+    const sortedCredentials = credentialsList.sort(
+      (a, b) => a.agentId - b.agentId,
+    );
+
+    const content = [
+      '='.repeat(100),
+      'AGENT LOGIN CREDENTIALS',
+      `Generated on: ${new Date().toISOString()}`,
+      // `Total Agents: ${credentialsList.length}`,
+      // '='.repeat(100),
+      // '',
+      // '⚠️  SECURITY WARNING: This file contains sensitive login credentials.',
+      // '⚠️  Please handle with extreme care and delete after use.',
+      // '⚠️  Do not share via insecure channels.',
+      // '',
+      '='.repeat(100),
+      '',
+      ...sortedCredentials.map((agent, index) =>
+        [
+          `${index + 1}. Agent ID: ${agent.agentId}`,
+          `   Name: ${agent.firstname} ${agent.lastname}`,
+          `   Username: ${agent.username}`,
+          `   Email: ${agent.email}`,
+          `   Password: ${agent.password}`,
+          `   Sales Count: ${agent.salesCount}`,
+          '-'.repeat(80),
+        ].join('\n'),
+      ),
+      '',
+      '='.repeat(100),
+      'INSTRUCTIONS:',
+      '1. Distribute these credentials securely to respective agents',
+      '2. Advise agents to change passwords after first login',
+      '3. Delete this file after credentials are distributed',
+      '4. Monitor for any unauthorized access attempts',
+      '='.repeat(100),
+    ].join('\n');
+
+    await fs.writeFile(filePath, content, 'utf8');
+
+    return filePath;
   }
 
   private async getProductCategoriesData(userId: string, where: any) {

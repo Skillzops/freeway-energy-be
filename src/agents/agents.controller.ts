@@ -57,8 +57,9 @@ import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
 import { DeviceService } from 'src/device/device.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
-import { GetWalletTransactionsQuery } from 'src/wallet/dto/wallet-transactions.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -71,6 +72,7 @@ export class AgentsController {
     private readonly salesService: SalesService,
     private readonly deviceService: DeviceService,
     private readonly installerService: InstallerService,
+    @InjectQueue('agent-queue') private agentQueue: Queue,
   ) {}
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -824,10 +826,7 @@ export class AgentsController {
     @Param('agentId') agentId: string,
     @Query() query: GetCommisionFilterDto,
   ) {
-    return this.agentsService.getAgentCommissions(
-      agentId,
-     query
-    );
+    return this.agentsService.getAgentCommissions(agentId, query);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -1061,5 +1060,49 @@ export class AgentsController {
     const agent = await this.agentsService.findOne(id);
 
     return agent;
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @Post('generate-all')
+  async generateAllAgentCredentials() {
+    try{
+
+      await this.agentQueue.waitUntilReady();
+  
+      const job = await this.agentQueue.add(
+        'process-agent-credentials',
+        {},
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: true,
+          removeOnFail: false,
+          delay: 1000,
+        },
+      );
+  
+      return {
+        jobId: job.id,
+        status: 'processing',
+        message: 'Agent credentials generation proceessing'
+      };
+    }catch (err){
+      console.log({err})
+    }
+
+    // await this.agentsService.generateAllAgentCredentials();
+    // return {
+    //   success: true,
+    //   message: 'Agent credentials generation proceessing',
+    // };
   }
 }
