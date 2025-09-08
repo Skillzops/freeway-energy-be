@@ -465,7 +465,7 @@ export class WarehouseService {
       },
     });
 
-    if (fromWareHouseAsMainExists) {
+    if (!fromWareHouseAsMainExists) {
       throw new BadRequestException(
         'You can only request transfer from a valid main warehouse',
       );
