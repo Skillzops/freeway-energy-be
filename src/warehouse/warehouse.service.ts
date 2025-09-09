@@ -481,7 +481,7 @@ export class WarehouseService {
       },
     });
 
-    if (toWareHouseAsExists) {
+    if (!toWareHouseAsExists) {
       throw new BadRequestException('toWarehouse id is invalid warehouse');
     }
 
