@@ -131,7 +131,8 @@ export class DataMappingService {
         firstname: agentNames.firstname,
         lastname: agentNames.lastname,
         username: username,
-        email: `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
+        email:
+          `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
         password: generatedDefaults.defaultPassword,
         // phone: this.defaultsGenerator.generateNigerianPhone(),
         // location: 'Field Agent',
@@ -162,7 +163,8 @@ export class DataMappingService {
         firstname: agentNames.firstname,
         lastname: agentNames.lastname,
         username: username,
-        email: `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
+        email:
+          `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
         password: generatedDefaults.defaultPassword,
       },
       agentData: {
@@ -183,6 +185,9 @@ export class DataMappingService {
     return {
       firstname: extractedData.firstName,
       lastname: extractedData.lastName,
+      // middleName: extractedData.middleName
+      //   ? extractedData.middleName
+      //   : undefined,
       phone: extractedData.phoneNumber,
       alternatePhone: extractedData.alternatePhoneNumber || null,
       gender: extractedData.gender || null,

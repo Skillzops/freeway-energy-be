@@ -412,4 +412,14 @@ export class CsvUploadController {
       throw new BadRequestException('Error deleting agent credentials file');
     }
   }
+
+  @Delete('flush')
+  async flushQueue() {
+    await this.csvQueue.obliterate({ force: true });
+    await this.csvQueue.drain(true);
+    // await (await this.csvQueue.client).flushall();
+    // await this.csvQueue.close();
+
+    return { message: 'Queue drained and worker stopped.' };
+  }
 }
