@@ -19,12 +19,12 @@ export class CreateTransferRequestDto {
   toWarehouseId: string;
 
   @ApiProperty({
-    description: 'ID of the inventory batch to request',
+    description: 'ID of the inventory to request',
     example: '60f1b2b3b3f3b3b3b3f3b3b4',
   })
   @IsString()
   @IsNotEmpty()
-  inventoryBatchId: string;
+  inventoryId: string;
 
   @ApiProperty({
     description: 'Quantity to request',

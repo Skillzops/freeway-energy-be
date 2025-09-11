@@ -436,7 +436,7 @@ export class WarehouseService {
     const {
       fromWarehouseId,
       toWarehouseId,
-      inventoryBatchId,
+      inventoryId,
       requestedQuantity,
       notes,
     } = createTransferRequestDto;
@@ -486,26 +486,28 @@ export class WarehouseService {
     }
 
     // Validate inventory batch exists and has sufficient quantity
-    const inventoryBatch = await this.prisma.inventoryBatch.findFirst({
+    const inventory = await this.prisma.inventory.findFirst({
       where: {
-        id: inventoryBatchId,
-        inventory: {
-          warehouseId: fromWarehouseId,
-        },
-        remainingQuantity: { gte: requestedQuantity },
+        id: inventoryId,
+        warehouseId: fromWarehouseId,
       },
       include: {
-        inventory: {
-          include: {
-            warehouse: true,
-          },
+        batches: {
+          where: { remainingQuantity: { gt: 0 } },
         },
+        warehouse: true,
       },
     });
 
-    if (!inventoryBatch) {
+    const totalAvailableQuantity =
+      inventory?.batches.reduce(
+        (sum, batch) => sum + batch.remainingQuantity,
+        0,
+      ) || 0;
+
+    if (!inventory || totalAvailableQuantity < requestedQuantity) {
       throw new NotFoundException(
-        'Inventory batch not found or insufficient quantity',
+        'Inventory not found or insufficient quantity available',
       );
     }
 
@@ -518,7 +520,7 @@ export class WarehouseService {
         requestId,
         fromWarehouseId,
         toWarehouseId,
-        inventoryBatchId,
+        inventoryId,
         requestedQuantity,
         notes,
         requestedById: requestedBy,
@@ -526,9 +528,7 @@ export class WarehouseService {
       include: {
         fromWarehouse: true,
         toWarehouse: true,
-        inventoryBatch: {
-          include: { inventory: true },
-        },
+        inventory: true,
         requestedBy: {
           select: {
             firstname: true,
@@ -576,10 +576,8 @@ export class WarehouseService {
         toWarehouseId ? { toWarehouseId } : {},
         search
           ? {
-              inventoryBatch: {
-                inventory: {
-                  name: { contains: search, mode: 'insensitive' },
-                },
+              inventory: {
+                name: { contains: search, mode: 'insensitive' },
               },
             }
           : {},
@@ -610,14 +608,10 @@ export class WarehouseService {
               location: true,
             },
           },
-          inventoryBatch: {
-            include: {
-              inventory: {
-                select: {
-                  name: true,
-                  manufacturerName: true,
-                },
-              },
+          inventory: {
+            select: {
+              name: true,
+              manufacturerName: true,
             },
           },
           requestedBy: {
@@ -657,7 +651,7 @@ export class WarehouseService {
     fulfilledBy: string,
     warehouseManager?: any,
   ) {
-    const { fulfilledQuantity, notes } = fulfillTransferRequestDto;
+    const { quantity } = fulfillTransferRequestDto;
 
     const transferRequest =
       await this.prisma.inventoryTransferRequest.findUnique({
@@ -668,7 +662,14 @@ export class WarehouseService {
             : {}),
         },
         include: {
-          inventoryBatch: true,
+          inventory: {
+            include: {
+              batches: {
+                where: { remainingQuantity: { gt: 0 } },
+                orderBy: { createdAt: 'asc' },
+              },
+            },
+          },
           toWarehouse: true,
         },
       });
@@ -685,89 +686,117 @@ export class WarehouseService {
       throw new BadRequestException('Cannot fulfill rejected request');
     }
 
-    const remainingToFulfill =
-      transferRequest.requestedQuantity - transferRequest.fulfilledQuantity;
+    const totalAvailableQuantity = transferRequest.inventory.batches.reduce(
+      (sum, batch) => sum + batch.remainingQuantity,
+      0,
+    );
 
-    if (fulfilledQuantity > remainingToFulfill) {
+    if (quantity > totalAvailableQuantity) {
       throw new BadRequestException(
-        'Fulfilled quantity exceeds remaining request',
+        `Insufficient inventory quantity: Max: ${totalAvailableQuantity}`,
       );
     }
 
-    if (fulfilledQuantity > transferRequest.inventoryBatch.remainingQuantity) {
-      throw new BadRequestException('Insufficient inventory quantity');
-    }
-
-    // Start transaction
     return await this.prisma.$transaction(async (prisma) => {
-      // Update source batch quantity
-      await prisma.inventoryBatch.update({
-        where: { id: transferRequest.inventoryBatchId },
-        data: {
-          remainingQuantity: {
-            decrement: fulfilledQuantity,
-          },
-        },
-      });
+      let remainingToFulfill = quantity;
 
-      // Create or update destination batch
-      const destinationBatch = await prisma.inventoryBatch.findFirst({
-        where: {
-          inventory: {
-            id: transferRequest.inventoryBatch.inventoryId,
-            warehouseId: transferRequest.toWarehouseId,
-          },
-          price: transferRequest.inventoryBatch.price,
-        },
-      });
+      for (const batch of transferRequest.inventory.batches) {
+        if (remainingToFulfill <= 0) break;
 
-      if (destinationBatch) {
+        const quantityFromThisBatch = Math.min(
+          remainingToFulfill,
+          batch.remainingQuantity,
+        );
+
+        // Update source batch
         await prisma.inventoryBatch.update({
-          where: { id: destinationBatch.id },
+          where: { id: batch.id },
           data: {
             remainingQuantity: {
-              increment: fulfilledQuantity,
-            },
-            numberOfStock: {
-              increment: fulfilledQuantity,
+              decrement: quantityFromThisBatch,
             },
           },
         });
-      } else {
-        await prisma.inventoryBatch.create({
-          data: {
-            inventoryId: transferRequest.inventoryBatch.inventoryId,
-            price: transferRequest.inventoryBatch.price,
-            costOfItem: transferRequest.inventoryBatch.costOfItem,
-            batchNumber: Date.now(),
-            numberOfStock: fulfilledQuantity,
-            remainingQuantity: fulfilledQuantity,
-          },
-        });
-      }
 
-      // Update transfer request
-      const totalFulfilled =
-        transferRequest.fulfilledQuantity + fulfilledQuantity;
-      const newStatus =
-        totalFulfilled >= transferRequest.requestedQuantity
-          ? TransferStatus.FULFILLED
-          : TransferStatus.PARTIAL;
+        // Create or update destination batch
+        const destinationBatch = await prisma.inventoryBatch.findFirst({
+          where: {
+            inventory: {
+              id: transferRequest.inventoryId,
+              warehouseId: transferRequest.toWarehouseId,
+            },
+            price: batch.price, // Use current batch price
+          },
+        });
+
+        if (destinationBatch) {
+          await prisma.inventoryBatch.update({
+            where: { id: destinationBatch.id },
+            data: {
+              remainingQuantity: {
+                increment: quantityFromThisBatch,
+              },
+              numberOfStock: {
+                increment: quantityFromThisBatch,
+              },
+            },
+          });
+        } else {
+          // First, ensure the inventory exists at destination warehouse
+          const destinationInventory = await prisma.inventory.findFirst({
+            where: {
+              id: transferRequest.inventoryId,
+              warehouseId: transferRequest.toWarehouseId,
+            },
+          });
+
+          if (!destinationInventory) {
+            // Create inventory record at destination warehouse
+            await prisma.inventory.create({
+              data: {
+                name: transferRequest.inventory.name,
+                manufacturerName: transferRequest.inventory.manufacturerName,
+                sku: transferRequest.inventory.sku,
+                image: transferRequest.inventory.image,
+                dateOfManufacture: transferRequest.inventory.dateOfManufacture,
+                status: transferRequest.inventory.status,
+                class: transferRequest.inventory.class,
+                inventoryCategoryId:
+                  transferRequest.inventory.inventoryCategoryId,
+                inventorySubCategoryId:
+                  transferRequest.inventory.inventorySubCategoryId,
+                warehouseId: transferRequest.toWarehouseId,
+              },
+            });
+          }
+
+          await prisma.inventoryBatch.create({
+            data: {
+              inventoryId:
+                destinationInventory?.id || transferRequest.inventoryId,
+              price: batch.price,
+              costOfItem: batch.costOfItem,
+              batchNumber: Date.now(),
+              numberOfStock: quantityFromThisBatch,
+              remainingQuantity: quantityFromThisBatch,
+            },
+          });
+        }
+
+        remainingToFulfill -= quantityFromThisBatch;
+      }
 
       const updatedRequest = await prisma.inventoryTransferRequest.update({
         where: { id: requestId },
         data: {
-          fulfilledQuantity: totalFulfilled,
-          status: newStatus,
+          fulfilledQuantity: quantity,
+          status: TransferStatus.FULFILLED,
           fulfilledById: fulfilledBy,
-          notes: notes || transferRequest.notes,
         },
         include: {
           fromWarehouse: true,
           toWarehouse: true,
-          inventoryBatch: {
-            include: { inventory: true },
-          },
+          inventory: true,
           fulfilledBy: {
             select: {
               firstname: true,

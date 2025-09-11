@@ -9,8 +9,8 @@ model InventoryTransferRequest {
   toWarehouseId String    @db.ObjectId
   toWarehouse   Warehouse @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
 
-  inventoryBatchId String         @db.ObjectId
-  inventoryBatch   InventoryBatch @relation(fields: [inventoryBatchId], references: [id])
+  inventoryId String    @db.ObjectId
+  inventory   Inventory @relation(fields: [inventoryId], references: [id])
 
   requestedQuantity Int
   fulfilledQuantity Int            @default(0)

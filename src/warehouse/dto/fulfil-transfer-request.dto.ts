@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, Min, IsInt } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { Min, IsInt } from 'class-validator';
 
 export class FulfillTransferRequestDto {
   @ApiProperty({
@@ -9,13 +9,13 @@ export class FulfillTransferRequestDto {
   })
   @IsInt()
   @Min(1)
-  fulfilledQuantity: number;
+  quantity: number;
 
-  @ApiPropertyOptional({
-    description: 'Additional notes for fulfillment',
-    example: 'Partially fulfilled due to stock limitations',
-  })
-  @IsString()
-  @IsOptional()
-  notes?: string;
+  // @ApiPropertyOptional({
+  //   description: 'Additional notes for fulfillment',
+  //   example: 'Partially fulfilled due to stock limitations',
+  // })
+  // @IsString()
+  // @IsOptional()
+  // notes?: string;
 }
