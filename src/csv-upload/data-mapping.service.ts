@@ -540,7 +540,7 @@ export class DataMappingService {
       return {
         firstname: `${names[0]}`,
         lastname: `${names.slice(1).join(' ')}`,
-        mn: `${names[1]}`,
+        mn: names.slice(1).join(''),
       };
     }
   }

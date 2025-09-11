@@ -789,11 +789,12 @@ export class CsvUploadService {
       let user = await this.prisma.user.findFirst({
         where: {
           OR: [
-            { username: agentData.username },
+            { username: agentData.userData.username },
+            { email: agentData.userData.email },
             {
               AND: [
-                { firstname: agentData.firstname },
-                { lastname: agentData.lastname },
+                { firstname: agentData.userData.firstname },
+                { lastname: agentData.userData.lastname },
               ],
             },
           ],
