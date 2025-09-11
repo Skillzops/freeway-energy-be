@@ -11,7 +11,7 @@ import {
   CsvUploadStatsDto,
   SalesRowDto,
 } from './dto/csv-upload.dto';
-import { PaymentMode } from '@prisma/client';
+import { AgentCategory, PaymentMode } from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -192,6 +192,8 @@ export class CsvUploadService {
     ['registration date', 'dateOfRegistration'],
     ['date', 'dateOfRegistration'],
 
+    ['activation date', 'timestamp'],
+    ['activation_date', 'timestamp'],
     ['timestamp', 'timestamp'],
     ['middle name', 'middleName'],
     ['middlename', 'middleName'],
@@ -643,6 +645,27 @@ export class CsvUploadService {
       isNewAgent = agentResult.isNewAgent;
     }
 
+    let installer = null;
+    let isNewInstaller = false;
+    if (transformedData.installerData) {
+      const installerResult = await this.createOrFindAgent(
+        transformedData.installerData,
+        generatedDefaults,
+        sessionId,
+        AgentCategory.INSTALLER,
+      );
+      installer = installerResult.agent;
+      isNewInstaller = installerResult.isNewAgent;
+    }
+
+    if (agent && installer) {
+      await this.createInstallerAssignment(
+        agent.id,
+        installer.id,
+        generatedDefaults.defaultUser.id,
+      );
+    }
+
     // 2. Create or find customer
     const customer = await this.createOrFindCustomer(
       transformedData.customerData,
@@ -699,6 +722,10 @@ export class CsvUploadService {
       await this.updateNewAgentCredentials(sessionId, agent.id, sale.id);
     }
 
+    if (isNewInstaller && sessionId) {
+      await this.updateNewAgentCredentials(sessionId, installer.id, sale.id);
+    }
+
     this.logger.debug(`Successfully processed sales row ${rowIndex + 1}`);
 
     return {
@@ -709,6 +736,31 @@ export class CsvUploadService {
       agentCreated: isNewAgent,
       deviceCreated: !!device,
     };
+  }
+
+  private async createInstallerAssignment(
+    agentId: string,
+    installerId: string,
+    assignedBy: string,
+  ): Promise<void> {
+    try {
+      const existingAssignment =
+        await this.prisma.agentInstallerAssignment.findFirst({
+          where: { agentId, installerId },
+        });
+
+      if (!existingAssignment) {
+        await this.prisma.agentInstallerAssignment.create({
+          data: {
+            agentId,
+            installerId,
+            assignedBy,
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error creating installer assignment', error);
+    }
   }
 
   private async updateNewAgentCredentials(
@@ -731,6 +783,7 @@ export class CsvUploadService {
     agentData: any,
     generatedDefaults: any,
     sessionId?: string,
+    category: AgentCategory = AgentCategory.SALES,
   ): Promise<{ agent: any; isNewAgent: boolean }> {
     try {
       let user = await this.prisma.user.findFirst({
@@ -793,6 +846,7 @@ export class CsvUploadService {
           data: {
             agentId: nextAgentId,
             userId: user.id,
+            category: category,
           },
         });
 
@@ -929,12 +983,14 @@ export class CsvUploadService {
       }
 
       if (agentId) {
-        const existingAgentCustomer = await this.prisma.agentCustomer.findFirst({
-          where: {
-            agentId,
-            customerId: customer.id,
+        const existingAgentCustomer = await this.prisma.agentCustomer.findFirst(
+          {
+            where: {
+              agentId,
+              customerId: customer.id,
+            },
           },
-        });
+        );
 
         if (!existingAgentCustomer) {
           await this.prisma.agentCustomer.create({

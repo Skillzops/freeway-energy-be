@@ -42,6 +42,7 @@ export interface AgentCredentialInfo {
   lastname: string;
   username: string;
   salesCount: number;
+  category: AgentCategory;
 }
 
 @Injectable()
@@ -1048,6 +1049,7 @@ export class AgentsService {
           lastname: user.lastname || 'N/A',
           username: user.username || 'N/A',
           salesCount: agent.sales.length,
+          category: agent.category,
         });
       }
 
@@ -1060,7 +1062,7 @@ export class AgentsService {
         from: this.config.get<string>('EMAIL_USER'),
         to: 'francisalexander000@gmail.com',
         subject: `Agent Credentials Generated`,
-        html: ` <h1>🔐 Agent Credentials Generated Successfully</h1>`,
+        html: `<h1>🔐 Agent Credentials Generated Successfully</h1>`,
         attachments: [
           {
             filename: fileName,
@@ -1087,8 +1089,6 @@ export class AgentsService {
     credentialsList: AgentCredentialInfo[],
     prefix: string = 'all_agents',
   ): Promise<string> {
-    // const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    // const fileName = `${prefix}_credentials_${timestamp}.txt`;
     const fileName = `${prefix}_credentials_.txt`;
     const filePath = path.join(
       process.cwd(),
@@ -1097,10 +1097,8 @@ export class AgentsService {
       fileName,
     );
 
-    // Ensure directory exists
     await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-    // Sort agents by agentId for better organization
     const sortedCredentials = credentialsList.sort(
       (a, b) => a.agentId - b.agentId,
     );
@@ -1109,13 +1107,6 @@ export class AgentsService {
       '='.repeat(100),
       'AGENT LOGIN CREDENTIALS',
       `Generated on: ${new Date().toISOString()}`,
-      // `Total Agents: ${credentialsList.length}`,
-      // '='.repeat(100),
-      // '',
-      // '⚠️  SECURITY WARNING: This file contains sensitive login credentials.',
-      // '⚠️  Please handle with extreme care and delete after use.',
-      // '⚠️  Do not share via insecure channels.',
-      // '',
       '='.repeat(100),
       '',
       ...sortedCredentials.map((agent, index) =>
@@ -1125,11 +1116,12 @@ export class AgentsService {
           `   Username: ${agent.username}`,
           `   Email: ${agent.email}`,
           `   Password: ${agent.password}`,
+          `   Type: ${agent.category || 'SALES'}`,
           `   Sales Count: ${agent.salesCount}`,
           '-'.repeat(80),
+          '',
         ].join('\n'),
       ),
-      '',
       '='.repeat(100),
       'INSTRUCTIONS:',
       '1. Distribute these credentials securely to respective agents',
@@ -1140,7 +1132,6 @@ export class AgentsService {
     ].join('\n');
 
     await fs.writeFile(filePath, content, 'utf8');
-
     return filePath;
   }
 

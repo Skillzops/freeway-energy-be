@@ -12,6 +12,7 @@ import {
   PaymentStatus,
   PaymentMethod,
   InventoryClass,
+  AgentCategory,
 } from '@prisma/client';
 
 @Injectable()
@@ -27,6 +28,10 @@ export class DataMappingService {
     const extractedData = this.extractAndValidateData(row);
 
     return {
+      installerData: this.transformInstallerData(
+        extractedData.installerName,
+        generatedDefaults,
+      ),
       agentData: this.transformAgentData(extractedData, generatedDefaults),
       customerData: this.transformCustomerData(extractedData),
       productData: this.transformProductData(extractedData),
@@ -118,7 +123,7 @@ export class DataMappingService {
     const agentNames = this.parseFullName(extractedData.salesAgent);
     const username = this.generateUsername(
       agentNames.firstname,
-      agentNames.lastname,
+      agentNames.mn || Date.now().toString(),
     );
 
     return {
@@ -126,7 +131,7 @@ export class DataMappingService {
         firstname: agentNames.firstname,
         lastname: agentNames.lastname,
         username: username,
-        email: `${username}@gmail.com`,
+        email: `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
         password: generatedDefaults.defaultPassword,
         // phone: this.defaultsGenerator.generateNigerianPhone(),
         // location: 'Field Agent',
@@ -137,6 +142,33 @@ export class DataMappingService {
       firstname: agentNames.firstname,
       lastname: agentNames.lastname,
       fullname: extractedData.salesAgent,
+    };
+  }
+
+  private transformInstallerData(
+    installerName: string,
+    generatedDefaults: any,
+  ) {
+    if (!installerName) return null;
+
+    const agentNames = this.parseFullName(installerName);
+    const username = this.generateUsername(
+      agentNames.firstname,
+      agentNames.mn || Date.now().toString(),
+    );
+
+    return {
+      userData: {
+        firstname: agentNames.firstname,
+        lastname: agentNames.lastname,
+        username: username,
+        email: `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
+        password: generatedDefaults.defaultPassword,
+      },
+      agentData: {
+        category: AgentCategory.INSTALLER,
+        fullname: installerName,
+      },
     };
   }
 
@@ -327,7 +359,8 @@ export class DataMappingService {
     return {
       amount: extractedData.initialDeposit,
       paymentStatus: PaymentStatus.COMPLETED,
-      paymentDate: extractedData.creationDate || extractedData.dateOfRegistration,
+      paymentDate:
+        extractedData.creationDate || extractedData.dateOfRegistration,
       paymentMethod: PaymentMethod.ONLINE,
       notes: 'Initial deposit from CSV import',
     };
@@ -483,6 +516,7 @@ export class DataMappingService {
   private parseFullName(fullName: string): {
     firstname: string;
     lastname: string;
+    mn?: string;
   } {
     if (!fullName || fullName.trim() === '') {
       return { firstname: 'Unknown', lastname: 'Agent' };
@@ -501,14 +535,15 @@ export class DataMappingService {
       return {
         firstname: `${names[0]}`,
         lastname: `${names.slice(1).join(' ')}`,
+        mn: `${names[1]}`,
       };
     }
   }
 
   private generateUsername(firstname: string, lastname: string): string {
-    const base = `${firstname.toLowerCase()}.${lastname.toLowerCase()}`;
+    const base = `${firstname.trim().toLowerCase()}.${lastname.trim().toLowerCase()}`;
     const timestamp = Date.now().toString().slice(-4);
-    return `${base}.${timestamp}`;
+    return `${base}.${timestamp}`.toLowerCase();
   }
 
   private generateCustomerEmail(
