@@ -270,25 +270,6 @@ export class WarehouseController {
     return this.warehouseService.getWarehouseStats();
   }
 
-  @Get(':id')
-  @UseGuards(JwtAuthGuard, AdminOrWarehouseManagerGuard)
-  @ApiOperation({ summary: 'Get warehouse by ID (with access control)' })
-  @ApiParam({ name: 'id', description: 'Warehouse ID' })
-  @ApiOkResponse({
-    description: 'Warehouse retrieved successfully',
-    type: WarehouseEntity,
-  })
-  async getWarehouse(@Param('id') id: string, @Req() req: any) {
-    // Warehouse managers can only view their assigned warehouse
-    if (
-      req.userType === 'warehouseManager' &&
-      req.warehouseManager.warehouseId !== id
-    ) {
-      throw new ForbiddenException('Access denied to this warehouse');
-    }
-    return this.warehouseService.getWarehouse(id);
-  }
-
   @Get(':id/managers')
   @UseGuards(JwtAuthGuard, AdminOrWarehouseManagerGuard)
   @ApiOperation({ summary: 'Get warehouse managers (with access control)' })
@@ -408,5 +389,24 @@ export class WarehouseController {
       );
     }
     return this.warehouseService.rejectTransferRequest(requestId, notes);
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard, AdminOrWarehouseManagerGuard)
+  @ApiOperation({ summary: 'Get warehouse by ID (with access control)' })
+  @ApiParam({ name: 'id', description: 'Warehouse ID' })
+  @ApiOkResponse({
+    description: 'Warehouse retrieved successfully',
+    type: WarehouseEntity,
+  })
+  async getWarehouse(@Param('id') id: string, @Req() req: any) {
+    // Warehouse managers can only view their assigned warehouse
+    if (
+      req.userType === 'warehouseManager' &&
+      req.warehouseManager.warehouseId !== id
+    ) {
+      throw new ForbiddenException('Access denied to this warehouse');
+    }
+    return this.warehouseService.getWarehouse(id);
   }
 }
