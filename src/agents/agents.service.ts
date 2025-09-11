@@ -818,7 +818,6 @@ export class AgentsService {
     const { page = 1, limit = 100, endDate, startDate } = query;
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
@@ -831,6 +830,7 @@ export class AgentsService {
       throw new NotFoundException('Agent not found');
     }
 
+    // Base filter
     const where: Prisma.PaymentWhereInput = {
       sale: { creatorId: agent.userId },
       paymentStatus: PaymentStatus.COMPLETED,
@@ -842,11 +842,9 @@ export class AgentsService {
       if (endDate) where.paymentDate.lte = endDate;
     }
 
-    // if (status) {
-    //   where.paymentStatus = status;
-    // }
+    const commissionRate = 0.07; // 7%
 
-    const [payments, totalCount] = await Promise.all([
+    const [payments, totalCount, allPaymentsTotal] = await Promise.all([
       this.prisma.payment.findMany({
         where,
         include: {
@@ -867,9 +865,11 @@ export class AgentsService {
         take,
       }),
       this.prisma.payment.count({ where }),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where,
+      }),
     ]);
-
-    const commissionRate = 0.07; // 7%
 
     const commissionsData = payments.map((payment) => ({
       id: payment.id,
@@ -885,10 +885,9 @@ export class AgentsService {
       saleId: payment.saleId,
     }));
 
-    const totalCommission = payments.reduce(
-      (sum, payment) => sum + payment.amount * commissionRate,
-      0,
-    );
+    // Calculate summary using all payments, not just paginated
+    const totalCommission =
+      (allPaymentsTotal._sum.amount || 0) * commissionRate;
 
     return {
       data: commissionsData,
@@ -898,7 +897,7 @@ export class AgentsService {
       totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
       summary: {
         totalCommission,
-        totalPayments: payments.length,
+        totalPayments: totalCount,
         commissionRate: commissionRate * 100,
       },
     };
