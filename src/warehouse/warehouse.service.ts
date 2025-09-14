@@ -700,6 +700,35 @@ export class WarehouseService {
     return await this.prisma.$transaction(async (prisma) => {
       let remainingToFulfill = quantity;
 
+      // First, ensure the inventory exists at destination warehouse
+      let destinationInventory = await prisma.inventory.findFirst({
+        where: {
+          name: transferRequest.inventory.name,
+          manufacturerName: transferRequest.inventory.manufacturerName,
+          warehouseId: transferRequest.toWarehouseId,
+        },
+      });
+
+      if (!destinationInventory) {
+        // Create inventory record at destination warehouse
+        destinationInventory = await prisma.inventory.create({
+          data: {
+            name: transferRequest.inventory.name,
+            manufacturerName: transferRequest.inventory.manufacturerName,
+            sku: transferRequest.inventory.sku,
+            image: transferRequest.inventory.image,
+            dateOfManufacture: transferRequest.inventory.dateOfManufacture,
+            status: transferRequest.inventory.status,
+            class: transferRequest.inventory.class,
+            inventoryCategoryId: transferRequest.inventory.inventoryCategoryId,
+            inventorySubCategoryId:
+              transferRequest.inventory.inventorySubCategoryId,
+            warehouseId: transferRequest.toWarehouseId,
+          },
+        });
+      }
+
+      // Now process the batches
       for (const batch of transferRequest.inventory.batches) {
         if (remainingToFulfill <= 0) break;
 
@@ -718,14 +747,11 @@ export class WarehouseService {
           },
         });
 
-        // Create or update destination batch
+        // Create or update destination batch using the correct destination inventory ID
         const destinationBatch = await prisma.inventoryBatch.findFirst({
           where: {
-            inventory: {
-              id: transferRequest.inventoryId,
-              warehouseId: transferRequest.toWarehouseId,
-            },
-            price: batch.price, // Use current batch price
+            inventoryId: destinationInventory.id, // Use destination inventory ID
+            price: batch.price,
           },
         });
 
@@ -742,43 +768,16 @@ export class WarehouseService {
             },
           });
         } else {
-          // First, ensure the inventory exists at destination warehouse
-          const destinationInventory = await prisma.inventory.findFirst({
-            where: {
-              id: transferRequest.inventoryId,
-              warehouseId: transferRequest.toWarehouseId,
-            },
-          });
-
-          if (!destinationInventory) {
-            // Create inventory record at destination warehouse
-            await prisma.inventory.create({
-              data: {
-                name: transferRequest.inventory.name,
-                manufacturerName: transferRequest.inventory.manufacturerName,
-                sku: transferRequest.inventory.sku,
-                image: transferRequest.inventory.image,
-                dateOfManufacture: transferRequest.inventory.dateOfManufacture,
-                status: transferRequest.inventory.status,
-                class: transferRequest.inventory.class,
-                inventoryCategoryId:
-                  transferRequest.inventory.inventoryCategoryId,
-                inventorySubCategoryId:
-                  transferRequest.inventory.inventorySubCategoryId,
-                warehouseId: transferRequest.toWarehouseId,
-              },
-            });
-          }
-
+          // Create new batch at destination
           await prisma.inventoryBatch.create({
             data: {
-              inventoryId:
-                destinationInventory?.id || transferRequest.inventoryId,
+              inventoryId: destinationInventory.id, // Use destination inventory ID
               price: batch.price,
               costOfItem: batch.costOfItem,
-              batchNumber: Date.now(),
+              batchNumber: Date.now() + Math.random(),
               numberOfStock: quantityFromThisBatch,
               remainingQuantity: quantityFromThisBatch,
+              creatorId: fulfilledBy,
             },
           });
         }
