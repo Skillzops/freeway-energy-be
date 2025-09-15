@@ -19,6 +19,7 @@ import {
   Prisma,
   SalesStatus,
   SubjectEnum,
+  TaskStatus,
   TokenType,
   UserStatus,
 } from '@prisma/client';
@@ -896,9 +897,156 @@ export class AgentsService {
       limit,
       totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
       summary: {
+        agentType: agent.category,
         totalCommission,
         totalPayments: totalCount,
-        commissionRate: commissionRate * 100,
+        commissionRate: (commissionRate * 100).toFixed(2),
+      },
+    };
+  }
+
+  async getAgentCommissionsByAdmin(
+    agentId: string,
+    query?: GetCommisionFilterDto,
+  ) {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      include: { user: true },
+    });
+
+    if (agent.category === AgentCategory.SALES) {
+      return await this.getAgentCommissions(agent.id, query);
+    } else if (agent.category === AgentCategory.INSTALLER) {
+      return await this.getInstallerCommissions(agent.id, query);
+    } else {
+      throw new BadRequestException(
+        'Invalid agent',
+      );
+    }
+  }
+
+  async getInstallerCommissions(
+    installerId: string,
+    query?: GetCommisionFilterDto,
+  ) {
+    const { page = 1, limit = 100, endDate, startDate } = query || {};
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+    const skip = (pageNumber - 1) * limitNumber;
+    const take = limitNumber;
+
+    const installer = await this.prisma.agent.findUnique({
+      where: { id: installerId, category: AgentCategory.INSTALLER },
+      include: { user: true },
+    });
+
+    if (!installer) {
+      throw new NotFoundException('Installer not found');
+    }
+
+    // Base filter for completed tasks
+    const where: Prisma.InstallerTaskWhereInput = {
+      installerAgentId: installerId,
+      status: TaskStatus.COMPLETED,
+    };
+
+    // Add date filters if provided
+    if (startDate || endDate) {
+      where.completedDate = {};
+      if (startDate) where.completedDate.gte = startDate;
+      if (endDate) where.completedDate.lte = endDate;
+    }
+
+    const commissionPerTask = 2000; // 2000 Naira per completed task
+
+    const [completedTasks, totalCount, allTasksCount] = await Promise.all([
+      this.prisma.installerTask.findMany({
+        where,
+        include: {
+          customer: {
+            select: {
+              firstname: true,
+              lastname: true,
+              phone: true,
+              installationAddress: true,
+            },
+          },
+          sale: {
+            select: {
+              id: true,
+              totalPrice: true,
+            },
+          },
+          requestingAgent: {
+            include: {
+              user: {
+                select: {
+                  firstname: true,
+                  lastname: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { completedDate: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.installerTask.count({ where }),
+      this.prisma.installerTask.count({
+        where: {
+          installerAgentId: installerId,
+          status: TaskStatus.COMPLETED,
+          // ...(startDate || endDate
+          //   ? {
+          //       completedDate: {
+          //         ...(startDate ? { gte: startDate } : {}),
+          //         ...(endDate ? { lte: endDate } : {}),
+          //       },
+          //     }
+          //   : {}),
+        },
+      }),
+    ]);
+
+    const commissionsData = completedTasks.map((task) => ({
+      id: task.id,
+      taskId: task.id,
+      commissionAmount: commissionPerTask,
+      completedDate: task.completedDate,
+      scheduledDate: task.scheduledDate,
+      customer: {
+        name: `${task.customer.firstname} ${task.customer.lastname}`,
+        phone: task.customer.phone,
+        address: task.customer.installationAddress,
+      },
+      requestingAgent: task.requestingAgent
+        ? `${task.requestingAgent.user.firstname} ${task.requestingAgent.user.lastname}`
+        : null,
+      saleId: task.saleId,
+      saleAmount: task.sale?.totalPrice || 0,
+      description: task.description,
+    }));
+
+    // Calculate total commission using all completed tasks in date range
+    const totalCommission = allTasksCount * commissionPerTask;
+
+    return {
+      data: commissionsData,
+      total: totalCount,
+      page,
+      limit,
+      totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
+      summary: {
+        agentType: installer.category,
+        totalCommission,
+        totalCompletedTasks: allTasksCount,
+        commissionPerTask,
+        installer: {
+          id: installer.id,
+          agentId: installer.agentId,
+          name: `${installer.user.firstname} ${installer.user.lastname}`,
+        },
       },
     };
   }

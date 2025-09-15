@@ -11,7 +11,7 @@ import {
   CsvUploadStatsDto,
   SalesRowDto,
 } from './dto/csv-upload.dto';
-import { AgentCategory, PaymentMode } from '@prisma/client';
+import { AgentCategory, PaymentMode, TaskStatus } from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -717,7 +717,26 @@ export class CsvUploadService {
       );
     }
 
-    // 8. Update agent credentials tracking
+    // 8. Create installer task if installer exists - NEW
+    let installerTask = null;
+    if (installer && agent && sale) {
+      installerTask = await this.createInstallerTask({
+        installerAgentId: installer.id,
+        requestingAgentId: agent.id,
+        saleId: sale.id,
+        customerId: customer.id,
+        description: `Installation task for ${product.name}`,
+        installationAddress: customer.installationAddress,
+        scheduledDate: transformedData.saleData?.createdAt || new Date(),
+        assignedBy: generatedDefaults.defaultUser.id,
+        // Mark as completed since this is historical data
+        status: TaskStatus.COMPLETED,
+        completedDate: transformedData.saleData?.createdAt || new Date(),
+        acceptedAt: transformedData.saleData?.createdAt || new Date(),
+      });
+    }
+
+    // 9. Update agent credentials tracking
     if (isNewAgent && sessionId) {
       await this.updateNewAgentCredentials(sessionId, agent.id, sale.id);
     }
@@ -735,6 +754,7 @@ export class CsvUploadService {
       contractCreated: !!contract,
       agentCreated: isNewAgent,
       deviceCreated: !!device,
+      installerTaskCreated: !!installerTask,
     };
   }
 
@@ -760,6 +780,22 @@ export class CsvUploadService {
       }
     } catch (error) {
       this.logger.error('Error creating installer assignment', error);
+    }
+  }
+
+  private async createInstallerTask(taskData: any): Promise<any> {
+    try {
+      const installerTask = await this.prisma.installerTask.create({
+        data: {
+          ...taskData,
+        },
+      });
+  
+      this.logger.debug(`Created installer task: ${installerTask.id}`);
+      return installerTask;
+    } catch (error) {
+      this.logger.error('Error creating installer task', error);
+      throw error;
     }
   }
 

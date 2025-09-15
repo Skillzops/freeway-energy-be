@@ -9,6 +9,7 @@ import {
   HttpStatus,
   Query,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -798,18 +799,26 @@ export class AgentsController {
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
   @Get('commissions')
   @ApiOperation({
-    summary: 'Get agent sales commissions (sales agent)',
+    summary: 'Get agent sales commissions (sales/installer agent)',
   })
   @ApiExtraModels(GetCommisionFilterDto)
   async getCommissions(
     @GetSessionUser('agent') agent: Agent,
     @Query() query: GetCommisionFilterDto,
   ) {
-    if (!agent || agent.category !== AgentCategory.SALES) {
+    if (!agent) {
       throw new ForbiddenException();
     }
 
-    return this.agentsService.getAgentCommissions(agent.id, query);
+    if (agent.category === AgentCategory.SALES) {
+      return await  this.agentsService.getAgentCommissions(agent.id, query);
+    } else if (agent.category === AgentCategory.INSTALLER) {
+      return await this.agentsService.getInstallerCommissions(agent.id, query);
+    } else {
+      throw new BadRequestException(
+        'Invalid agent category for commission calculation',
+      );
+    }
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
@@ -826,7 +835,7 @@ export class AgentsController {
     @Param('agentId') agentId: string,
     @Query() query: GetCommisionFilterDto,
   ) {
-    return this.agentsService.getAgentCommissions(agentId, query);
+    return this.agentsService.getAgentCommissionsByAdmin(agentId, query);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
