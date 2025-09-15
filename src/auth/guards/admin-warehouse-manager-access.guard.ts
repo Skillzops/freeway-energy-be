@@ -25,6 +25,23 @@ export class AdminOrWarehouseManagerGuard implements CanActivate {
       },
     });
 
+    const userRole = user.role.role;
+
+    const hasManagePermission = user.role?.permissions?.some(
+      (permission) =>
+        permission.action === ActionEnum.manage &&
+        permission.subject === SubjectEnum.all,
+    );
+
+    // allow admin and super-admin users to access resource
+    if (
+      userRole == 'admin' ||
+      userRole == 'super-admin' ||
+      hasManagePermission
+    ) {
+      return true;
+    }
+
     // Map HTTP methods to required actions
     const getRequiredAction = (method: string): ActionEnum[] => {
       switch (method) {
