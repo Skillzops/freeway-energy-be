@@ -41,5 +41,7 @@ export class CreateWarehouseDto {
     return false;
   })
   isMain?: boolean = false;
-}
 
+  @ApiPropertyOptional({ type: 'file', description: 'Product image file' })
+  image: Express.Multer.File;
+}
