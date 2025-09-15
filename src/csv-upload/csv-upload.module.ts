@@ -8,10 +8,12 @@ import { FileParserService } from './file-parser.service';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { CsvProcessingProcessor } from './csv-processing.processor';
 import { BullModule } from '@nestjs/bullmq';
+import { EmailModule } from 'src/mailer/email.module';
 
 @Module({
   imports: [
     PrismaModule,
+    EmailModule,
     CloudinaryModule,
     BullModule.registerQueue({
       name: 'csv-processing',

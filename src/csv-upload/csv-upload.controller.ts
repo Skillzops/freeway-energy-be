@@ -422,4 +422,31 @@ export class CsvUploadController {
 
     return { message: 'Queue drained and worker stopped.' };
   }
+
+  @Get('correct-missing')
+  async correctMissingPayments() {
+    await this.csvQueue.waitUntilReady();
+
+    const job = await this.csvQueue.add(
+      'correct-missing',
+      {},
+      {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+        delay: 1000,
+      },
+    );
+
+    return {
+      jobId: job.id,
+      status: 'processing',
+      message: 'Agent credentials generation proceessing',
+    };
+    // return await this.csvUploadService.previewCorrections();
+  }
 }

@@ -356,34 +356,76 @@ export class SalesService {
   }
 
   async getAllSales(query: ListSalesQueryDto, agent?: string) {
-    const { page = 1, limit = 100 } = query;
+    const { page = 1, limit = 100, search, paymentMethod, agentId } = query;
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
-    const whereClause: Prisma.SaleItemWhereInput = {};
+    const searchTerm = search?.trim();
 
-    if (query.paymentMethod) {
-      whereClause.sale = {
-        paymentMethod: query.paymentMethod,
-      };
-    }
+    const whereClause: Prisma.SaleItemWhereInput = {
+      AND: [
+        searchTerm
+          ? {
+              OR: [
+                {
+                  product: {
+                    name: { contains: search, mode: 'insensitive' },
+                  },
+                },
+                {
+                  sale: {
+                    customer: {
+                      OR: [
+                        {
+                          firstname: {
+                            contains: searchTerm,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          lastname: {
+                            contains: searchTerm,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          phone: { contains: searchTerm, mode: 'insensitive' },
+                        },
+                        {
+                          alternatePhone: {
+                            contains: searchTerm,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          email: { contains: searchTerm, mode: 'insensitive' },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            }
+          : {},
 
-    if (query.agentId) {
-      whereClause.sale = {
-        creatorId: query.agentId,
-      };
-    }
+        paymentMethod
+          ? {
+              sale: { paymentMethod },
+            }
+          : {},
+        agentId || agent
+          ? {
+              sale: {
+                creatorId: agent || agentId,
+              },
+            }
+          : {},
+      ],
+    };
 
-    if (agent) {
-      whereClause.sale = {
-        creatorId: agent,
-      };
-    }
-
-    const [totalCount, saleItems] = await Promise.all([
+    const [totalCount, saleItems, total] = await Promise.all([
       this.prisma.saleItem.count({
         where: whereClause,
       }),
@@ -422,6 +464,7 @@ export class SalesService {
         skip,
         take,
       }),
+      this.prisma.saleItem.count(),
     ]);
 
     return {
@@ -443,7 +486,7 @@ export class SalesService {
           },
         };
       }),
-      total: totalCount,
+      total,
       page: pageNumber,
       limit: limitNumber,
       totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),

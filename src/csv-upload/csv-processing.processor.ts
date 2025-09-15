@@ -25,6 +25,9 @@ export class CsvProcessingProcessor extends WorkerHost {
       job.data;
 
     try {
+      if (job.name == 'correct-missing') {
+        await this.csvUploadService.correctMissingPayments();
+      }
       await job.updateProgress(10);
 
       const result = await this.csvUploadService.processSalesRow(

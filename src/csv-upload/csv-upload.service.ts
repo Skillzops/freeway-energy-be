@@ -11,7 +11,7 @@ import {
   CsvUploadStatsDto,
   SalesRowDto,
 } from './dto/csv-upload.dto';
-import { AgentCategory, PaymentMode, TaskStatus } from '@prisma/client';
+import { AgentCategory, PaymentMethod, PaymentMode, PaymentStatus, TaskStatus } from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -20,6 +20,7 @@ import { generateRandomPassword } from 'src/utils/generate-pwd';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
+import { EmailService } from 'src/mailer/email.service';
 
 interface ProcessingSession {
   id: string;
@@ -212,6 +213,7 @@ export class CsvUploadService {
     private readonly defaultsGenerator: DefaultsGeneratorService,
     private readonly fileParser: FileParserService,
     private readonly cloudinary: CloudinaryService,
+    private readonly emailService: EmailService,
     @InjectQueue('csv-processing') private readonly csvQueue: Queue,
   ) {
     // Start cleanup interval for old sessions
@@ -790,7 +792,7 @@ export class CsvUploadService {
           ...taskData,
         },
       });
-  
+
       this.logger.debug(`Created installer task: ${installerTask.id}`);
       return installerTask;
     } catch (error) {
@@ -1414,71 +1416,322 @@ export class CsvUploadService {
     }
   }
 
-  private async rollbackCreatedEntities(
-    session: ProcessingSession,
-  ): Promise<boolean> {
+  async correctMissingPayments() {
+    const startTime = new Date();
+    let totalProcessed = 0;
+    let totalSkipped = 0;
+    let totalErrors = 0;
+    let batchCount = 0;
+    const allCorrectionResults = [];
+
     try {
-      // Rollback in reverse order of creation
-
-      // Delete sales (this will cascade to sale items)
-      if (session.createdEntities.sales.length > 0) {
-        await this.prisma.sales.deleteMany({
-          where: {
-            id: { in: session.createdEntities.sales },
+      // Get devices with tokens
+      const devicesWithMultipleTokens = await this.prisma.device.findMany({
+        include: {
+          tokens: {
+            orderBy: { createdAt: 'asc' },
           },
-        });
-      }
-
-      // Delete contracts
-      if (session.createdEntities.contracts.length > 0) {
-        await this.prisma.contract.deleteMany({
-          where: {
-            id: { in: session.createdEntities.contracts },
+        },
+        where: {
+          tokens: {
+            some: {},
           },
-        });
-      }
+        },
+      });
 
-      // Delete products
-      if (session.createdEntities.products.length > 0) {
-        await this.prisma.product.deleteMany({
-          where: {
-            id: { in: session.createdEntities.products },
-          },
-        });
-      }
-
-      // Delete customers
-      if (session.createdEntities.customers.length > 0) {
-        await this.prisma.customer.deleteMany({
-          where: {
-            id: { in: session.createdEntities.customers },
-          },
-        });
-      }
-
-      // Delete agents
-      if (session.createdEntities.agents.length > 0) {
-        await this.prisma.agent.deleteMany({
-          where: {
-            userId: { in: session.createdEntities.agents },
-          },
-        });
-
-        await this.prisma.user.deleteMany({
-          where: {
-            id: { in: session.createdEntities.agents },
-          },
-        });
-      }
-
-      this.logger.log(`Rollback completed for session ${session.id}`);
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Error during rollback for session ${session.id}`,
-        error,
+      console.log(
+        `Found ${devicesWithMultipleTokens.length} devices with tokens`,
       );
-      return false;
+
+      const correctionResults = [];
+      let processedCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < devicesWithMultipleTokens.length; i++) {
+        const device = devicesWithMultipleTokens[i];
+
+        try {
+          // Skip devices with only one token
+          if (device.tokens.length <= 1) {
+            skippedCount++;
+            continue;
+          }
+
+          // Find the sale that contains this device
+          const saleItem = await this.prisma.saleItem.findFirst({
+            where: {
+              deviceIDs: {
+                has: device.id,
+              },
+            },
+            include: {
+              sale: {
+                include: {
+                  payment: true,
+                  customer: true,
+                },
+              },
+            },
+          });
+
+          if (!saleItem || !saleItem.sale) {
+            console.log(`No sale found for device ${device.serialNumber}`);
+            skippedCount++;
+            continue;
+          }
+
+          const sale = saleItem.sale;
+          const existingPayments = sale.payment.length;
+          const totalTokens = device.tokens.length;
+
+          // Check if payments already match token count
+          if (existingPayments >= totalTokens) {
+            console.log(
+              `Sale ${sale.id} already has sufficient payment records`,
+            );
+            skippedCount++;
+            continue;
+          }
+
+          console.log(
+            `Processing device ${device.serialNumber} with ${totalTokens} tokens and ${existingPayments} payments`,
+          );
+
+          // Calculate missing payments (skip tokens that already have payments)
+          const missingTokens = device.tokens.slice(existingPayments);
+          let totalAdditionalAmount = 0;
+          const newPayments = [];
+
+          for (const token of missingTokens) {
+            const paymentAmount = this.calculatePaymentAmount(
+              token.duration,
+              sale,
+            );
+            totalAdditionalAmount += paymentAmount;
+
+            const payment = await this.prisma.payment.create({
+              data: {
+                transactionRef: `correction-${sale.id}-${token.id}-${Date.now()}`,
+                amount: paymentAmount,
+                paymentStatus: PaymentStatus.COMPLETED,
+                paymentMethod: PaymentMethod.ONLINE,
+                paymentDate: token.createdAt,
+                saleId: sale.id,
+                recordedById: sale.creatorId || null,
+                notes: `Auto-corrected payment for token ${token.id} (Duration: ${token.duration} days)`,
+              },
+            });
+
+            newPayments.push(payment);
+          }
+
+          // Update the sale record
+          const updatedSale = await this.prisma.sales.update({
+            where: { id: sale.id },
+            data: {
+              totalPaid: sale.totalPaid + totalAdditionalAmount,
+              remainingInstallments: sale.remainingInstallments
+                ? Math.max(0, sale.remainingInstallments - missingTokens.length)
+                : sale.remainingInstallments,
+            },
+          });
+
+          const correctionResult = {
+            deviceSerialNumber: device.serialNumber,
+            deviceId: device.id,
+            saleId: sale.id,
+            customerId: sale.customerId,
+            customerName: `${sale.customer?.firstname || ''} ${sale.customer?.lastname || ''}`,
+            tokensCount: totalTokens,
+            existingPayments: existingPayments,
+            newPaymentsCreated: newPayments.length,
+            additionalAmount: totalAdditionalAmount,
+            newTotalPaid: updatedSale.totalPaid,
+            paymentIds: newPayments.map((p) => p.id),
+            tokenDetails: missingTokens.map((token) => ({
+              tokenId: token.id,
+              duration: token.duration,
+              amount: this.calculatePaymentAmount(token.duration, sale),
+              createdAt: token.createdAt,
+            })),
+          };
+
+          correctionResults.push(correctionResult);
+          allCorrectionResults.push(correctionResult);
+          processedCount++;
+
+          // Send email every 1000 iterations
+          if ((i + 1) % 1000 === 0) {
+            batchCount++;
+            await this.emailService.sendBatchProgressEmail(
+              batchCount,
+              correctionResults,
+              processedCount,
+              skippedCount,
+              errorCount,
+            );
+            correctionResults.length = 0;
+          }
+        } catch (deviceError) {
+          console.error(
+            `Error processing device ${device.serialNumber}:`,
+            deviceError,
+          );
+          errorCount++;
+
+          await this.emailService.sendErrorEmail(
+            deviceError,
+            device.serialNumber,
+            i + 1,
+          );
+        }
+      }
+
+      // Send final batch if there are remaining results
+      if (correctionResults.length > 0) {
+        batchCount++;
+        await this.emailService.sendBatchProgressEmail(
+          batchCount,
+          correctionResults,
+          processedCount,
+          skippedCount,
+          errorCount,
+        );
+      }
+
+      totalProcessed = processedCount;
+      totalSkipped = skippedCount;
+      totalErrors = errorCount;
+
+      await this.emailService.sendCompletionEmail(
+        totalProcessed,
+        totalSkipped,
+        totalErrors,
+        startTime,
+        allCorrectionResults,
+      );
+
+      this.logger.log(
+        `Correction completed. Processed: ${processedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`,
+      );
+
+      return {
+        success: true,
+        message: 'Sales payment correction completed',
+        summary: {
+          totalDevicesChecked: devicesWithMultipleTokens.length,
+          processedCount,
+          skippedCount,
+          errorCount,
+        },
+        corrections: allCorrectionResults,
+      };
+    } catch (error) {
+      this.logger.error('Critical error in payment correction process:', error);
+      await this.emailService.sendCriticalErrorEmail(
+        error,
+        totalProcessed,
+        totalSkipped,
+        totalErrors,
+      );
+      throw error;
     }
+  }
+
+  /**
+   * Calculate payment amount based on token duration
+   */
+  private calculatePaymentAmount(duration: number, sale: any): number {
+    const DAILY_RATE = 6000 / 30; // ₦200 per day (₦6,000 for 30 days)
+
+    if (duration === -1) {
+      // Forever token - this is the completion payment
+      // Calculate remaining balance
+      const remainingBalance = sale.totalPrice - sale.totalPaid;
+      return Math.max(0, remainingBalance);
+    }
+
+    // Calculate based on duration
+    return Math.round(duration * DAILY_RATE);
+  }
+
+  async previewCorrections() {
+    const devicesWithMultipleTokens = await this.prisma.device.findMany({
+      include: {
+        tokens: {
+          orderBy: { createdAt: 'asc' },
+        },
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                payment: true,
+                customer: true,
+              },
+            },
+          },
+        },
+      },
+      where: {
+        tokens: {
+          some: {},
+        },
+      },
+      take: 50,
+    });
+
+    console.log({
+      devicesWithMultipleTokens: devicesWithMultipleTokens.length,
+    });
+
+    const previews = [];
+
+    for (const device of devicesWithMultipleTokens) {
+      if (device.tokens.length <= 1) continue;
+
+      const saleItem = device.saleItems[0];
+      if (!saleItem || !saleItem.sale) continue;
+
+      const sale = saleItem.sale;
+      const existingPayments = sale.payment.length;
+      const totalTokens = device.tokens.length;
+
+      if (existingPayments >= totalTokens) continue;
+
+      const missingPayments = device.tokens.slice(existingPayments);
+      let totalAdditionalAmount = 0;
+
+      const tokenDetails = missingPayments.map((token) => {
+        const amount = this.calculatePaymentAmount(token.duration, sale);
+        totalAdditionalAmount += amount;
+        return {
+          tokenId: token.id,
+          duration: token.duration,
+          createdAt: token.createdAt,
+          calculatedAmount: amount,
+        };
+      });
+
+      previews.push({
+        deviceSerialNumber: device.serialNumber,
+        saleId: sale.id,
+        customerName: `${sale.customer.firstname} ${sale.customer.lastname}`,
+        currentTotalPaid: sale.totalPaid,
+        totalPrice: sale.totalPrice,
+        tokensCount: totalTokens,
+        existingPayments: existingPayments,
+        missingPayments: tokenDetails,
+        totalAdditionalAmount,
+        newTotalPaid: sale.totalPaid + totalAdditionalAmount,
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Preview of corrections',
+      totalDevicesToCorrect: previews.length,
+      previews,
+    };
   }
 }

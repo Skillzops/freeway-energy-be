@@ -20,6 +20,14 @@ export class ListSalesQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   agentId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Search across multiple fields (customer name, phone, serial number, product name, sale ID)',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
 
 export class ListAgentSalesQueryDto extends OmitType(ListSalesQueryDto, [
