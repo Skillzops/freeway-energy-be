@@ -361,141 +361,148 @@ export class SalesService {
     const limitNumber = parseInt(String(limit), 10);
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
-
     const searchTerm = search?.trim();
 
-    const whereClause: Prisma.SaleItemWhereInput = {
-      AND: [
-        searchTerm
-          ? {
-              OR: [
-                {
-                  product: {
-                    name: { contains: search, mode: 'insensitive' },
-                  },
-                },
-                {
-                  sale: {
-                    customer: {
-                      OR: [
-                        {
-                          firstname: {
-                            contains: searchTerm,
-                            mode: 'insensitive',
-                          },
-                        },
-                        {
-                          lastname: {
-                            contains: searchTerm,
-                            mode: 'insensitive',
-                          },
-                        },
-                        {
-                          phone: { contains: searchTerm, mode: 'insensitive' },
-                        },
-                        {
-                          alternatePhone: {
-                            contains: searchTerm,
-                            mode: 'insensitive',
-                          },
-                        },
-                        {
-                          email: { contains: searchTerm, mode: 'insensitive' },
-                        },
-                      ],
-                    },
-                  },
-                },
-              ],
-            }
-          : {},
+    const baseWhere: Prisma.SaleItemWhereInput = {};
 
-        paymentMethod
-          ? {
-              sale: { paymentMethod },
-            }
-          : {},
-        agentId || agent
-          ? {
-              sale: {
-                creatorId: agent || agentId,
-              },
-            }
-          : {},
-      ],
-    };
+    if (agentId || agent || paymentMethod) {
+      baseWhere.sale = {
+        ...(agent || agentId ? { creatorId: agent || agentId } : {}),
+        ...(paymentMethod ? { paymentMethod } : {}),
+      };
+    }
 
-    const [totalCount, saleItems, total] = await Promise.all([
-      this.prisma.saleItem.count({
-        where: whereClause,
-      }),
-      this.prisma.saleItem.findMany({
-        where: whereClause,
-        include: {
-          sale: {
-            include: {
-              customer: true,
-              creatorDetails: true,
-              agent: {
-                include: {
-                  user: true,
-                },
-              },
-              payment: {
-                include: {
-                  recordedBy: {
-                    select: {
-                      id: true,
-                      firstname: true,
-                      lastname: true,
+    // If no search, use simple query
+    if (!searchTerm) {
+      const [totalCount, saleItems, total] = await Promise.all([
+        this.prisma.saleItem.count({ where: baseWhere }),
+        this.prisma.saleItem.findMany({
+          where: baseWhere,
+          include: {
+            sale: {
+              include: {
+                customer: true,
+                creatorDetails: true,
+                agent: { include: { user: true } },
+                payment: {
+                  include: {
+                    recordedBy: {
+                      select: { id: true, firstname: true, lastname: true },
                     },
                   },
                 },
               },
             },
+            devices: true,
+            SaleRecipient: true,
+            product: true,
           },
-          devices: true,
-          SaleRecipient: true,
-          product: true,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip,
-        take,
-      }),
-      this.prisma.saleItem.count({
-        where: {
-          ...(agent
-            ? {
-                sale: {
-                  creatorId: agent,
-                },
-              }
-            : {}),
-        },
-      }),
-    ]);
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        this.prisma.saleItem.count({
+          where: { ...(agent ? { sale: { creatorId: agent } } : {}) },
+        }),
+      ]);
 
+      return this.formatSalesResponse(
+        saleItems,
+        totalCount,
+        total,
+        pageNumber,
+        limitNumber,
+      );
+    }
+
+    // For search, get all matching records and filter in application
+    const allSaleItems = await this.prisma.saleItem.findMany({
+      where: baseWhere,
+      include: {
+        sale: {
+          include: {
+            customer: true,
+            creatorDetails: true,
+            agent: { include: { user: true } },
+            payment: {
+              include: {
+                recordedBy: {
+                  select: { id: true, firstname: true, lastname: true },
+                },
+              },
+            },
+          },
+        },
+        devices: true,
+        SaleRecipient: true,
+        product: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Filter in memory
+    const searchTermLower = searchTerm.toLowerCase();
+    const filteredItems = allSaleItems.filter((item) => {
+      // Search in product name
+      if (item.product?.name?.toLowerCase().includes(searchTermLower)) {
+        return true;
+      }
+
+      // Search in customer fields
+      const customer = item.sale?.customer;
+      if (customer) {
+        if (
+          customer.firstname?.toLowerCase().includes(searchTermLower) ||
+          customer.lastname?.toLowerCase().includes(searchTermLower) ||
+          customer.phone?.toLowerCase().includes(searchTermLower) ||
+          customer.alternatePhone?.toLowerCase().includes(searchTermLower) ||
+          customer.email?.toLowerCase().includes(searchTermLower)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    // Paginate filtered results
+    const paginatedItems = filteredItems.slice(skip, skip + take);
+    const searchTotalCount = filteredItems.length;
+
+    const total = await this.prisma.saleItem.count({
+      where: { ...(agent ? { sale: { creatorId: agent } } : {}) },
+    });
+
+    return this.formatSalesResponse(
+      paginatedItems,
+      searchTotalCount,
+      total,
+      pageNumber,
+      limitNumber,
+    );
+  }
+
+  private formatSalesResponse(
+    saleItems: any[],
+    totalCount: number,
+    total: number,
+    pageNumber: number,
+    limitNumber: number,
+  ) {
     return {
-      saleItems: saleItems.map((item) => {
-        return {
-          ...item,
-          sale: {
-            ...item.sale,
-            creatorDetails: plainToInstance(
-              UserEntity,
-              item.sale.creatorDetails,
-            ),
-            agent: {
-              ...item.sale.agent,
-              user: item.sale.agent?.user
-                ? plainToInstance(UserEntity, item.sale.agent.user)
-                : undefined,
-            },
+      saleItems: saleItems.map((item) => ({
+        ...item,
+        sale: {
+          ...item.sale,
+          creatorDetails: plainToInstance(UserEntity, item.sale.creatorDetails),
+          agent: {
+            ...item.sale.agent,
+            user: item.sale.agent?.user
+              ? plainToInstance(UserEntity, item.sale.agent.user)
+              : undefined,
           },
-        };
-      }),
+        },
+      })),
       total,
       page: pageNumber,
       limit: limitNumber,
