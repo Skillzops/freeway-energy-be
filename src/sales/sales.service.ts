@@ -464,7 +464,17 @@ export class SalesService {
         skip,
         take,
       }),
-      this.prisma.saleItem.count(),
+      this.prisma.saleItem.count({
+        where: {
+          ...(agent
+            ? {
+                sale: {
+                  creatorId: agent,
+                },
+              }
+            : {}),
+        },
+      }),
     ]);
 
     return {
