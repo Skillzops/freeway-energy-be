@@ -34,6 +34,7 @@ import { TaskManagementModule } from './task-management/task-management.module';
 import { ReportsModule } from './reports/reports.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     ReportsModule,
     WarehouseModule,
     AnalyticsModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [

@@ -30,7 +30,7 @@ export class WarehouseService {
     userId: string,
     file?: Express.Multer.File,
   ) {
-    const { name, location, description, isMain } = createWarehouseDto;
+    const { name, location, description, isMain, state } = createWarehouseDto;
 
     if (isMain) {
       const existingMainWarehouse = await this.prisma.warehouse.findFirst({
@@ -50,6 +50,7 @@ export class WarehouseService {
     const existingWarehouse = await this.prisma.warehouse.findFirst({
       where: {
         name: { equals: name, mode: 'insensitive' },
+        state: { equals: state, mode: 'insensitive' },
         deletedAt: {
           isSet: false,
         },
@@ -57,7 +58,9 @@ export class WarehouseService {
     });
 
     if (existingWarehouse) {
-      throw new ConflictException('Warehouse with this name already exists');
+      throw new ConflictException(
+        'Warehouse with this name already exists in this state',
+      );
     }
 
     let imageUrl: string | undefined;
@@ -71,6 +74,7 @@ export class WarehouseService {
       data: {
         name,
         location,
+        state,
         description,
         image: imageUrl,
         isMain: isMain || false,

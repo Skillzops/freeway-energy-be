@@ -3,6 +3,7 @@ model Warehouse {
 
     name        String
     location    String
+    state       String?
     description String?
     image       String?
     isMain      Boolean @default(false)

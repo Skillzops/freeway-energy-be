@@ -19,6 +19,14 @@ export class CreateWarehouseDto {
   @IsNotEmpty()
   location: string;
 
+  @ApiProperty({
+    description: 'State where warehouse is located',
+    example: 'Lagos',
+  })
+  @IsString()
+  @IsNotEmpty()
+  state: string;
+
   @ApiPropertyOptional({
     description: 'Warehouse description',
     example: 'Main distribution center for Lagos region',

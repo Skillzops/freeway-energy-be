@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { JobStatusService } from './jobstatus.service';
 import { BullModule } from '@nestjs/bullmq';
-import { DeviceService } from 'src/device/device.service';
 import { OpenPayGoService } from 'src/openpaygo/openpaygo.service';
 import { AuthModule } from 'src/auth/auth.module';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
   imports: [
@@ -11,9 +11,10 @@ import { AuthModule } from 'src/auth/auth.module';
       name: 'device-processing',
     }),
     AuthModule,
+    DeviceModule
   ],
 
-  providers: [JobStatusService, OpenPayGoService, DeviceService],
+  providers: [JobStatusService, OpenPayGoService],
   exports: [BullModule],
 })
 export class JobstatusModule {}

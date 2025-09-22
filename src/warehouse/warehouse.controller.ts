@@ -66,8 +66,6 @@ import { WarehouseManagerEntity } from './entities/warehouse-manager.entity';
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 
-  // ADMIN ONLY ENDPOINTS
-
   @Post()
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({

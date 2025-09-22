@@ -14,12 +14,13 @@ import { createReadStream, readFileSync } from 'fs';
 import * as csvParser from 'csv-parser';
 import { parse } from 'papaparse';
 import { MESSAGES } from '../constants';
-import { InstallationStatus, Prisma } from '@prisma/client';
+import { InstallationStatus, PaymentMode, Prisma } from '@prisma/client';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AuthService } from 'src/auth/auth.service';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class DeviceService {
@@ -27,6 +28,7 @@ export class DeviceService {
     private readonly prisma: PrismaService,
     private readonly openPayGo: OpenPayGoService,
     private readonly authService: AuthService,
+    private readonly notificationService: NotificationService,
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
 
@@ -129,15 +131,44 @@ export class DeviceService {
       );
     }
 
-    return this.prisma.device.update({
+    // Update device with location and mark as installed
+    const updatedDevice = await this.prisma.device.update({
       where: { id: deviceId },
       data: {
         installationStatus: InstallationStatus.installed,
         installationLocation: locationData.location,
-        installationLongitude: locationData.latitude,
-        installationLatitude: locationData.longitude,
+        installationLongitude: locationData.longitude,
+        installationLatitude: locationData.latitude,
+        gpsVerified: true,
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: true,
+                saleItems: {
+                  include: {
+                    devices: true,
+                  },
+                },
+              },
+            },
+            product: true,
+          },
+        },
       },
     });
+
+    // Check if device has associated sales and generate tokens
+    for (const saleItem of updatedDevice.saleItems) {
+      const sale = saleItem.sale;
+      if (sale && device.isTokenable) {
+        await this.generateAndSendTokensForDevice(device, sale, saleItem);
+      }
+    }
+
+    return updatedDevice;
   }
 
   async markDevicesReadyForInstallation(saleId: string) {
@@ -851,6 +882,79 @@ export class DeviceService {
         updatedAt: updatedDevice.updatedAt,
       },
     };
+  }
+
+  private async generateAndSendTokensForDevice(
+    device: any,
+    sale: any,
+    saleItem: any,
+  ) {
+    try {
+      // Calculate token duration based on payment mode
+      let tokenDuration: number;
+
+      if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
+        tokenDuration = -1; // Forever
+      } else {
+        // Calculate based on installment payments
+        const monthsCovered = this.calculateMonthsCoveredBySale(sale);
+        tokenDuration = monthsCovered === -1 ? -1 : monthsCovered * 30;
+      }
+
+      // Generate token
+      const tokenResult = await this.openPayGo.generateToken(
+        device,
+        tokenDuration,
+        Number(device.count),
+      );
+
+      // Update device count and mark token as released
+      await this.prisma.device.update({
+        where: { id: device.id },
+        data: {
+          count: String(tokenResult.newCount),
+        },
+      });
+
+      // Save token to database
+      await this.prisma.tokens.create({
+        data: {
+          deviceId: device.id,
+          token: String(tokenResult.finalToken),
+          duration: tokenDuration,
+          creatorId: sale.creatorId,
+        },
+      });
+
+      // Send token via email and SMS
+      const tokenData = {
+        deviceSerialNumber: device.serialNumber,
+        deviceKey: device.key,
+        deviceToken: String(tokenResult.finalToken),
+      };
+
+      await this.notificationService.sendTokenToCustomer(sale.customer, [
+        tokenData,
+      ]);
+
+      await this.notificationService.sendTokenToCustomer(sale.customer, [tokenData]);
+
+      console.log(`Token generated and sent for device ${device.serialNumber}`);
+    } catch (error) {
+      console.error(
+        `Failed to generate token for device ${device.serialNumber}:`,
+        error,
+      );
+    }
+  }
+
+  private calculateMonthsCoveredBySale(sale: any): number {
+    if (sale.totalMonthlyPayment === 0) {
+      return -1; // Forever for outright purchases
+    }
+
+    const totalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
+    return Math.floor(totalPaid / sale.totalMonthlyPayment);
   }
 
   async validateDeviceExistsAndReturn(

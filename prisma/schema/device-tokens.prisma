@@ -21,6 +21,8 @@ model Device {
   installationLongitude String?
   installationLatitude  String?
 
+  gpsVerified Boolean @default(false)
+
   saleItemIDs String[]   @db.ObjectId
   saleItems   SaleItem[] @relation(fields: [saleItemIDs], references: [id])
 
@@ -38,6 +40,8 @@ model Tokens {
 
   token    String
   duration Int    @default(0)
+
+  tokenReleased Boolean @default(false)
 
   createdAt DateTime @default(now())
 

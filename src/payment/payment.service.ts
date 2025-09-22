@@ -12,6 +12,7 @@ import {
   SalesStatus,
   WalletTransactionStatus,
   WalletTransactionType,
+  InstallationStatus,
 } from '@prisma/client';
 import { EmailService } from '../mailer/email.service';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +23,7 @@ import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
 import { DeviceService } from 'src/device/device.service';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class PaymentService {
@@ -36,6 +38,7 @@ export class PaymentService {
     private readonly termiiService: TermiiService,
     private readonly referenceGenerator: ReferenceGeneratorService,
     private readonly deviceService: DeviceService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async generatePaymentPayload(
@@ -878,11 +881,19 @@ export class PaymentService {
     // Process tokenable devices
     const deviceTokens = [];
     for (const saleItem of sale.saleItems) {
-      const saleDevices = saleItem.devices;
-      const tokenableDevices = saleDevices.filter(
-        (device) => device.isTokenable,
+      // const saleDevices = saleItem.devices;
+      // const tokenableDevices = saleDevices.filter(
+      //   (device) => device.isTokenable,
+      // );
+
+      const installedDevices = saleItem.devices.filter(
+        (device) =>
+          device.installationStatus === InstallationStatus.installed &&
+          device.gpsVerified &&
+          device.isTokenable 
       );
-      if (tokenableDevices.length) {
+
+      if (installedDevices.length) {
         let tokenDuration: number;
         if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
           tokenDuration = -1; // Represents forever
@@ -893,7 +904,7 @@ export class PaymentService {
               : installmentInfo.monthsCovered * 30;
         }
 
-        for (const device of tokenableDevices) {
+        for (const device of installedDevices) {
           const token = await this.openPayGo.generateToken(
             device,
             tokenDuration,
@@ -925,29 +936,10 @@ export class PaymentService {
 
     // Send device tokens via email and SMS
     if (deviceTokens.length) {
-      if (sale.customer.email) {
-        await this.Email.sendMail({
-          to: sale.customer.email,
-          from: this.config.get<string>('MAIL_FROM'),
-          subject: `Here are your device tokens`,
-          template: './device-tokens',
-          context: {
-            tokens: JSON.stringify(deviceTokens, undefined, 4),
-          },
-        });
-      }
-
-      if (sale.customer.phone) {
-        try {
-          await this.termiiService.sendDeviceTokensSms(
-            sale.customer.phone,
-            deviceTokens,
-            sale.customer.firstname || sale.customer.lastname,
-          );
-        } catch (error) {
-          console.error('Failed to send device tokens SMS:', error);
-        }
-      }
+      await this.notificationService.sendTokenToCustomer(
+        sale.customer,
+        deviceTokens,
+      );
     }
 
     // Handle installment account details if applicable

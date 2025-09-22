@@ -7,6 +7,7 @@ import { JobStatusService } from 'src/jobstatus/jobstatus.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { DeviceProcessor } from './device.processor';
 import { AuthModule } from 'src/auth/auth.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from 'src/auth/auth.module';
       name: 'device-processing',
     }),
     AuthModule,
+    NotificationModule,
   ],
   controllers: [DeviceController],
   providers: [

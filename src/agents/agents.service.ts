@@ -7,7 +7,7 @@ import {
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRandomPassword } from '../utils/generate-pwd';
-import { hashPassword } from '../utils/helpers.util';
+import { calculateDistance, hashPassword } from '../utils/helpers.util';
 import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
@@ -506,104 +506,155 @@ export class AgentsService {
   }
 
   async getAgentInstallers(agentId: string, query?: GetAgentsInstallersDto) {
-    const {
-      page = 1,
-      limit = 100,
-      status,
-      sortField,
-      sortOrder,
-      search,
-      createdAt,
-      updatedAt,
-    } = query;
-
-    const whereConditions: Prisma.AgentWhereInput = {
-      AND: [
-        search
-          ? {
-              user: {
-                OR: [
-                  { firstname: { contains: search, mode: 'insensitive' } },
-                  { lastname: { contains: search, mode: 'insensitive' } },
-                  { email: { contains: search, mode: 'insensitive' } },
-                  { username: { contains: search, mode: 'insensitive' } },
-                ],
-              },
-            }
-          : {},
-        status ? { user: { status } } : {},
-        createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
-        updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
-      ],
-    };
-
-    const pageNumber = parseInt(String(page), 10);
-    const limitNumber = parseInt(String(limit), 10);
-
-    const skip = (pageNumber - 1) * limitNumber;
-    const take = limitNumber;
-
-    const orderBy = {
-      [sortField || 'createdAt']: sortOrder || 'asc',
-    };
-
-    const installers = await this.prisma.agentInstallerAssignment.findMany({
-      where: {
-        agent: {
-          id: agentId,
-        },
-        installer: {
-          ...whereConditions,
-        },
-      },
-      select: {
-        installer: {
+    // Get the requesting agent's location
+    const requestingAgent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      include: {
+        user: {
           select: {
-            id: true,
-            user: {
-              select: {
-                firstname: true,
-                lastname: true,
-                email: true,
-                location: true,
-                longitude: true,
-                latitude: true,
-              },
-            },
+            longitude: true,
+            latitude: true,
           },
         },
       },
-      skip,
-      take,
-      orderBy: {
-        installer: {
-          user: orderBy,
+    });
+
+    if (!requestingAgent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const RADIUM_KM = 50;
+
+    // Get all installers
+    const allInstallers = await this.prisma.agent.findMany({
+      where: {
+        category: AgentCategory.INSTALLER,
+        user: {
+          status: UserStatus.active,
+        },
+      },
+      include: {
+        user: {
+          select: {
+            firstname: true,
+            lastname: true,
+            email: true,
+            phone: true,
+            longitude: true,
+            latitude: true,
+          },
+        },
+        assignedAsInstaller: {
+          where: { agentId },
+          select: { id: true },
         },
       },
     });
 
-    const total = await this.prisma.agentInstallerAssignment.count({
-      where: {
-        agent: {
-          id: agentId,
-        },
-      },
-    });
+    // Filter by distance if requesting agent has coordinates
+    let nearbyInstallers = allInstallers;
+
+    if (requestingAgent.user.longitude && requestingAgent.user.latitude) {
+      const agentLat = parseFloat(requestingAgent.user.latitude);
+      const agentLon = parseFloat(requestingAgent.user.longitude);
+
+      nearbyInstallers = allInstallers.filter((installer) => {
+        if (!installer.user.longitude || !installer.user.latitude) return false;
+
+        const installerLat = parseFloat(installer.user.latitude);
+        const installerLon = parseFloat(installer.user.longitude);
+
+        const distance = calculateDistance(
+          agentLat,
+          agentLon,
+          installerLat,
+          installerLon,
+        );
+        return distance <= RADIUM_KM;
+      });
+
+      // Sort by distance (closest first)
+      nearbyInstallers.sort((a, b) => {
+        const distanceA = calculateDistance(
+          agentLat,
+          agentLon,
+          parseFloat(a.user.latitude),
+          parseFloat(a.user.longitude),
+        );
+        const distanceB = calculateDistance(
+          agentLat,
+          agentLon,
+          parseFloat(b.user.latitude),
+          parseFloat(b.user.longitude),
+        );
+        return distanceA - distanceB;
+      });
+    }
+
+    // Add directly assigned installers even if they're outside radius
+    const directlyAssignedIds = new Set(
+      nearbyInstallers
+        .filter((i) => i.assignedAsInstaller.length > 0)
+        .map((i) => i.id),
+    );
+
+    const directlyAssigned = allInstallers.filter(
+      (installer) =>
+        installer.assignedAsInstaller.length > 0 &&
+        !directlyAssignedIds.has(installer.id),
+    );
+
+    const finalInstallers = [...nearbyInstallers, ...directlyAssigned];
+
+    // Apply pagination and search filters
+    let filteredInstallers = finalInstallers;
+
+    if (query?.search) {
+      filteredInstallers = finalInstallers.filter(
+        (installer) =>
+          installer.user.firstname
+            ?.toLowerCase()
+            .includes(query.search.toLowerCase()) ||
+          installer.user.lastname
+            ?.toLowerCase()
+            .includes(query.search.toLowerCase()) ||
+          installer.user.email
+            ?.toLowerCase()
+            .includes(query.search.toLowerCase()),
+      );
+    }
+
+    const total = filteredInstallers.length;
+    const pageNumber = parseInt(String(query?.page || 1), 10);
+    const limitNumber = parseInt(String(query?.limit || 100), 10);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const paginatedInstallers = filteredInstallers.slice(
+      skip,
+      skip + limitNumber,
+    );
 
     return {
-      installers: installers.map((installer) => {
-        return {
-          ...installer,
-          ...installer.installer,
-          ...installer.installer.user,
-          installer: undefined,
-          user: undefined,
-        };
-      }),
+      installers: paginatedInstallers.map((installer) => ({
+        ...installer,
+        isDirectlyAssigned: installer.assignedAsInstaller.length > 0,
+        distance:
+          requestingAgent.user.longitude &&
+          requestingAgent.user.latitude &&
+          installer.user.longitude &&
+          installer.user.latitude
+            ? calculateDistance(
+                parseFloat(requestingAgent.user.latitude),
+                parseFloat(requestingAgent.user.longitude),
+                parseFloat(installer.user.latitude),
+                parseFloat(installer.user.longitude),
+              )
+            : null,
+      })),
       total,
-      page,
-      limit,
-      totalPages: limitNumber === 0 ? 0 : Math.ceil(total / limitNumber),
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages: Math.ceil(total / limitNumber),
     };
   }
 
@@ -919,9 +970,7 @@ export class AgentsService {
     } else if (agent.category === AgentCategory.INSTALLER) {
       return await this.getInstallerCommissions(agent.id, query);
     } else {
-      throw new BadRequestException(
-        'Invalid agent',
-      );
+      throw new BadRequestException('Invalid agent');
     }
   }
 
