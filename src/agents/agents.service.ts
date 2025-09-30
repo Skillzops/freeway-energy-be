@@ -1554,6 +1554,335 @@ export class AgentsService {
     return task;
   }
 
+  /**
+   * Analyze sales records to find installer names that don't have separate installer accounts
+   */
+  async analyzeMissingInstallerAccounts(): Promise<{
+    missingAccounts;
+    summary: {
+      totalUniqueInstallers: number;
+      missingInstallerAccounts: number;
+      existingInstallerAccounts: number;
+    };
+  }> {
+
+    // Get all sales with installer names
+    const salesWithInstallers = await this.prisma.sales.findMany({
+      where: {
+        installerName: { not: null },
+      },
+      select: {
+        installerName: true,
+        agentName: true,
+        creatorId: true,
+      },
+    });
+
+    // Get all existing installer agents
+    const existingInstallers = await this.prisma.agent.findMany({
+      where: {
+        category: AgentCategory.INSTALLER,
+      },
+      include: {
+        user: {
+          select: {
+            firstname: true,
+            lastname: true,
+            email: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    // Get all sales agents
+    const existingSalesAgents = await this.prisma.agent.findMany({
+      where: {
+        category: AgentCategory.SALES,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    // Group sales by installer name
+    const installerGroups = new Map<string, typeof salesWithInstallers>();
+    salesWithInstallers.forEach((sale) => {
+      if (sale.installerName) {
+        const normalizedName = this.normalizeName(sale.installerName);
+        if (!installerGroups.has(normalizedName)) {
+          installerGroups.set(normalizedName, []);
+        }
+        installerGroups.get(normalizedName)!.push(sale);
+      }
+    });
+
+    // Create a map of existing installer names
+    const existingInstallerNames = new Set(
+      existingInstallers.map((installer) =>
+        this.normalizeName(
+          `${installer.user.firstname} ${installer.user.lastname}`,
+        ),
+      ),
+    );
+
+    // Create a map of sales agent names to their details
+    const salesAgentMap = new Map();
+    existingSalesAgents.forEach((agent) => {
+      const normalizedName = this.normalizeName(
+        `${agent.user.firstname} ${agent.user.lastname}`,
+      );
+      salesAgentMap.set(normalizedName, {
+        agentId: agent.agentId,
+        userId: agent.user.id,
+        email: agent.user.email,
+        username: agent.user.username,
+      });
+    });
+
+    // Find missing installer accounts
+    const missingAccounts = [];
+
+    for (const [installerName, salesRecords] of installerGroups) {
+      if (!existingInstallerNames.has(installerName)) {
+        const existingSalesAgent = salesAgentMap.get(installerName);
+
+        missingAccounts.push({
+          installerName: salesRecords[0].installerName!, // Use original name
+          salesCount: salesRecords.length,
+          existingSalesAgent,
+          shouldCreateSeparateAccount: true,
+        });
+      }
+    }
+
+    return {
+      missingAccounts,
+      summary: {
+        totalUniqueInstallers: installerGroups.size,
+        missingInstallerAccounts: missingAccounts.length,
+        existingInstallerAccounts: existingInstallerNames.size,
+      },
+    };
+  }
+
+  /**
+   * Create missing installer accounts with separate credentials
+   */
+  async createMissingInstallerAccounts(): Promise<{
+    created: any;
+    errors: string[];
+    credentialsFile?: string;
+  }> {
+    const analysis = await this.analyzeMissingInstallerAccounts();
+    const created = [];
+    const errors = [];
+
+    for (const missingAccount of analysis.missingAccounts) {
+      try {
+        const createdAccount =
+          await this.createInstallerAccount(missingAccount);
+        created.push(createdAccount);
+
+      } catch (error) {
+        const errorMsg = `Failed to create installer account for ${missingAccount.installerName}: ${error.message}`;
+        errors.push(errorMsg);
+      }
+    }
+
+    // Generate credentials file
+    let credentialsFile: string | undefined;
+    if (created.length > 0) {
+      credentialsFile = await this.generateInstallerCredentialsFile(created);
+    }
+
+    return {
+      created,
+      errors,
+      credentialsFile,
+    };
+  }
+
+  private async createInstallerAccount(
+    missingAccount,
+  ){
+    const parsedName = this.parseFullName(missingAccount.installerName);
+    const plainPassword = generateRandomPassword(12);
+    const hashedPassword = await hashPassword(plainPassword);
+
+    // Generate unique username and email for installer
+    const baseUsername = this.generateUsername(
+      parsedName.firstname,
+      parsedName.lastname,
+    );
+    const installerUsername = `${baseUsername}.installer`;
+    const installerEmail = `${baseUsername}.installer@gmail.com`;
+
+    // Get default role
+    const defaultRole = await this.prisma.role.findFirst({
+      where: {
+        role: 'AssignedAgent',
+      },
+    });
+
+    if (!defaultRole) {
+      throw new Error('Default agent role not found');
+    }
+
+    // Create new user for installer
+    const newUser = await this.prisma.user.create({
+      data: {
+        firstname: parsedName.firstname,
+        lastname: parsedName.lastname,
+        username: installerUsername,
+        email: installerEmail,
+        password: hashedPassword,
+        roleId: defaultRole.id,
+      },
+    });
+
+    // Create installer agent
+    const nextAgentId = Math.floor(10000000 + Math.random() * 90000000);
+    const newAgent = await this.prisma.agent.create({
+      data: {
+        agentId: nextAgentId,
+        userId: newUser.id,
+        category: AgentCategory.INSTALLER,
+      },
+    });
+
+    // Update installer tasks to reference the new installer agent
+    await this.prisma.installerTask.updateMany({
+      where: {
+        installerAgent: null, // Tasks that don't have an installer agent assigned
+        // You might need to add more specific criteria here
+      },
+      data: {
+        installerAgentId: newAgent.id,
+      },
+    });
+
+    return {
+      installerName: missingAccount.installerName,
+      newUserId: newUser.id,
+      newAgentId: nextAgentId,
+      email: installerEmail,
+      username: installerUsername,
+      password: plainPassword,
+      linkedToSalesAgent: missingAccount.existingSalesAgent?.email,
+    };
+  }
+
+  private parseFullName(fullName: string): {
+    firstname: string;
+    lastname: string;
+  } {
+    if (!fullName || fullName.trim() === '') {
+      return { firstname: 'Unknown', lastname: 'Installer' };
+    }
+
+    const names = fullName
+      .trim()
+      .split(' ')
+      .filter((name) => name.length > 0);
+
+    if (names.length === 0) {
+      return { firstname: 'Unknown', lastname: 'Installer' };
+    } else if (names.length === 1) {
+      return { firstname: names[0], lastname: 'Installer' };
+    } else {
+      return {
+        firstname: names[0],
+        lastname: names.slice(1).join(' '),
+      };
+    }
+  }
+
+  private generateUsername(firstname: string, lastname: string): string {
+    const base = `${firstname.trim().toLowerCase()}.${lastname.trim().toLowerCase()}`;
+    const timestamp = Date.now().toString().slice(-4);
+    return `${base}.${timestamp}`.replace(/[^a-z0-9.]/g, '');
+  }
+
+  private normalizeName(name: string): string {
+    return name.toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  private async generateInstallerCredentialsFile(
+    accounts
+  ): Promise<string> {
+    const fileName = `missing_installer_accounts_${Date.now()}.txt`;
+    const filePath = path.join(
+      process.cwd(),
+      'uploads',
+      'agent_credentials',
+      fileName,
+    );
+
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    const content = [
+      '='.repeat(80),
+      'NEWLY CREATED INSTALLER ACCOUNTS',
+      `Generated on: ${new Date().toISOString()}`,
+      `Total New Installer Accounts: ${accounts.length}`,
+      '='.repeat(80),
+      '',
+      'These installer accounts were missing and have now been created:',
+      '',
+      ...accounts.map((account, index) =>
+        [
+          `${index + 1}. Installer Name: ${account.installerName}`,
+          `   Agent ID: ${account.newAgentId}`,
+          `   Username: ${account.username}`,
+          `   Email: ${account.email}`,
+          `   Password: ${account.password}`,
+          `   User ID: ${account.newUserId}`,
+          ...(account.linkedToSalesAgent
+            ? [`   Related Sales Agent: ${account.linkedToSalesAgent}`]
+            : []),
+          '-'.repeat(50),
+        ].join('\n'),
+      ),
+      '',
+      'NOTE: These are separate accounts from any sales agents with the same names.',
+      'Each installer has their own unique login credentials.',
+      '='.repeat(80),
+    ].join('\n');
+
+    await fs.writeFile(filePath, content, 'utf8');
+
+    // Optionally send email with credentials
+    await this.Email.sendMail({
+      to: 'francisalexander000@gmail.com',
+      from: this.config.get<string>('MAIL_FROM'),
+      subject: 'New Installer Accounts Created',
+      html: `
+        <h2>Missing Installer Accounts Created</h2>
+        <p>${accounts.length} new installer accounts have been created.</p>
+        <p>Please find the credentials file attached.</p>
+      `,
+      attachments: [
+        {
+          filename: fileName,
+          path: filePath,
+          contentType: 'text/plain',
+        },
+      ],
+    });
+
+
+    return filePath;
+  }
+
   private async getSalesStatistics(userId: string, where: any) {
     const sales = await this.prisma.sales.findMany({
       where: { ...where, creatorId: userId },

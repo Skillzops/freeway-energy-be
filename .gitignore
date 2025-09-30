@@ -59,3 +59,4 @@ pnpm-lock.yaml
 package-lock.json
 files/
 uploads/
+exports/

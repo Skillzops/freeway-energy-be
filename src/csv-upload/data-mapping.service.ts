@@ -518,7 +518,7 @@ export class DataMappingService {
     }
   }
 
-  private parseFullName(fullName: string): {
+  parseFullName(fullName: string): {
     firstname: string;
     lastname: string;
     mn?: string;
@@ -545,10 +545,10 @@ export class DataMappingService {
     }
   }
 
-  private generateUsername(firstname: string, lastname: string): string {
+  generateUsername(firstname: string, lastname: string): string {
     const base = `${firstname.trim().toLowerCase()}.${lastname.trim().toLowerCase()}`;
     const timestamp = Date.now().toString().slice(-4);
-    return `${base}.${timestamp}`.toLowerCase();
+    return `${base}.${timestamp}`.replace(/[^a-z0-9.]/g, '');
   }
 
   private generateCustomerEmail(

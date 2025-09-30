@@ -256,7 +256,7 @@ export class ReportsService {
 
     // Fetch full device data in parallel
     const [multipleTokenDevices] = await Promise.all([
-      singleTokenDeviceIds.length > 0
+      multipleTokenDeviceIds.length > 0
         ? this.prisma.device.findMany({
             where: {
               id: { in: singleTokenDeviceIds },

@@ -35,6 +35,7 @@ import { ReportsModule } from './reports/reports.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationModule } from './notification/notification.module';
+import { ExportModule } from './export/export.module';
 
 @Module({
   imports: [
@@ -93,6 +94,7 @@ import { NotificationModule } from './notification/notification.module';
     WarehouseModule,
     AnalyticsModule,
     NotificationModule,
+    ExportModule,
   ],
   controllers: [AppController],
   providers: [

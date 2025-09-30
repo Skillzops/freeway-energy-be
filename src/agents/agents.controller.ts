@@ -129,6 +129,24 @@ export class AgentsController {
     return await this.agentsService.create(CreateAgentDto, id);
   }
 
+  // @Get('analyze-missing-installers')
+  // async analyzeMissingInstallers() {
+  //   return this.agentsService.analyzeMissingInstallerAccounts();
+  // }
+
+  // @Post('create-missing-installers')
+  // async createMissingInstallers(@Body() body: { confirmCreate?: boolean }) {
+  //   if (!body.confirmCreate) {
+  //     return {
+  //       error: 'Please confirm creation by setting confirmCreate to true',
+  //       message:
+  //         'This will create separate user accounts for installers. Use analyze endpoint first.',
+  //     };
+  //   }
+
+  //   return this.agentsService.createMissingInstallerAccounts();
+  // }
+
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
     permissions: [
@@ -811,7 +829,7 @@ export class AgentsController {
     }
 
     if (agent.category === AgentCategory.SALES) {
-      return await  this.agentsService.getAgentCommissions(agent.id, query);
+      return await this.agentsService.getAgentCommissions(agent.id, query);
     } else if (agent.category === AgentCategory.INSTALLER) {
       return await this.agentsService.getInstallerCommissions(agent.id, query);
     } else {
@@ -1080,10 +1098,9 @@ export class AgentsController {
   })
   @Post('generate-all')
   async generateAllAgentCredentials() {
-    try{
-
+    try {
       await this.agentQueue.waitUntilReady();
-  
+
       const job = await this.agentQueue.add(
         'process-agent-credentials',
         {},
@@ -1098,14 +1115,14 @@ export class AgentsController {
           delay: 1000,
         },
       );
-  
+
       return {
         jobId: job.id,
         status: 'processing',
-        message: 'Agent credentials generation proceessing'
+        message: 'Agent credentials generation proceessing',
       };
-    }catch (err){
-      console.log({err})
+    } catch (err) {
+      console.log({ err });
     }
 
     // await this.agentsService.generateAllAgentCredentials();

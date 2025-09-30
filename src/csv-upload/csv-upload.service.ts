@@ -61,6 +61,7 @@ export interface CreatedAgentInfo {
   lastname: string;
   username: string;
   salesAssigned: number;
+  category?: AgentCategory;
 }
 
 @Injectable()
@@ -628,13 +629,11 @@ export class CsvUploadService {
     rowIndex: number,
     sessionId?: string,
   ): Promise<any> {
-    const transformedData =
-      await this.dataMappingService.transformSalesRowToEntities(
-        row,
-        generatedDefaults,
-      );
-
-    // 1. Create or find agent with credential tracking
+    const transformedData = await this.dataMappingService.transformSalesRowToEntities(
+      row,
+      generatedDefaults,
+    );
+  
     let agent = null;
     let isNewAgent = false;
     if (transformedData.agentData) {
@@ -642,6 +641,8 @@ export class CsvUploadService {
         transformedData.agentData,
         generatedDefaults,
         sessionId,
+        AgentCategory.SALES,
+        false,
       );
       agent = agentResult.agent;
       isNewAgent = agentResult.isNewAgent;
@@ -655,6 +656,7 @@ export class CsvUploadService {
         generatedDefaults,
         sessionId,
         AgentCategory.INSTALLER,
+        true,
       );
       installer = installerResult.agent;
       isNewInstaller = installerResult.isNewAgent;
@@ -755,11 +757,12 @@ export class CsvUploadService {
       saleCreated: true,
       contractCreated: !!contract,
       agentCreated: isNewAgent,
+      installerCreated: isNewInstaller,
       deviceCreated: !!device,
       installerTaskCreated: !!installerTask,
     };
   }
-
+  
   private async createInstallerAssignment(
     agentId: string,
     installerId: string,
@@ -822,35 +825,67 @@ export class CsvUploadService {
     generatedDefaults: any,
     sessionId?: string,
     category: AgentCategory = AgentCategory.SALES,
+    forceUniqueForInstaller: boolean = false,
   ): Promise<{ agent: any; isNewAgent: boolean }> {
     try {
-      let user = await this.prisma.user.findFirst({
-        where: {
-          OR: [
-            { username: agentData.userData.username },
-            { email: agentData.userData.email },
-            {
-              AND: [
-                { firstname: agentData.userData.firstname },
-                { lastname: agentData.userData.lastname },
-              ],
-            },
-          ],
-        },
-        include: { agentDetails: true },
-      });
-
+      let user = null;
       let isNewAgent = false;
 
+      // FOR INSTALLERS: Always create separate accounts (no name-based searching)
+      if (category === AgentCategory.INSTALLER || forceUniqueForInstaller) {
+        // Only check by username/email, NOT by name
+        user = await this.prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: agentData.userData.username },
+              { email: agentData.userData.email },
+            ],
+          },
+          include: { agentDetails: true },
+        });
+      } else {
+        // FOR SALES AGENTS: Keep the original logic (can match by name)
+        user = await this.prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: agentData.userData.username },
+              { email: agentData.userData.email },
+              {
+                AND: [
+                  { firstname: agentData.userData.firstname },
+                  { lastname: agentData.userData.lastname },
+                ],
+              },
+            ],
+          },
+          include: { agentDetails: true },
+        });
+      }
+
       if (!user) {
-        // Generate plain password for file generation
+        // Generate unique credentials for installers
+        let userData = { ...agentData.userData };
+
+        if (category === AgentCategory.INSTALLER) {
+          const parsedName = this.dataMappingService.parseFullName(agentData.fullname);
+          const baseUsername = this.dataMappingService.generateUsername(
+            parsedName.firstname,
+            parsedName.lastname,
+          );
+
+          userData = {
+            ...userData,
+            username: `${baseUsername}.installer`,
+            email: `${baseUsername}.installer@gmail.com`,
+          };
+        }
+
         const plainPassword = generateRandomPassword(12);
         const hashedPassword = await hashPassword(plainPassword);
 
-        // Create user first
         user = await this.prisma.user.create({
           data: {
-            ...agentData.userData,
+            ...userData,
             password: hashedPassword,
             roleId: generatedDefaults.defaultAgentRole.id,
           },
@@ -872,13 +907,15 @@ export class CsvUploadService {
             lastname: user.lastname || '',
             username: user.username || '',
             salesAssigned: 0,
+            category: category,
           });
           this.newAgentsCredentials.set(sessionId, agentCredentials);
         }
       }
 
-      // Check if user has agent details, create if not
-      if (!user.agentDetails) {
+      // Check if user has agent details for this category
+      if (!user.agentDetails || user.agentDetails.category !== category) {
+        // Create new agent record even if user exists
         const nextAgentId = Math.floor(10000000 + Math.random() * 90000000);
 
         const agent = await this.prisma.agent.create({
@@ -889,7 +926,7 @@ export class CsvUploadService {
           },
         });
 
-        // Update agent ID in credentials if this is a new agent
+        // Update agent ID in credentials if this is a new user
         if (isNewAgent && sessionId) {
           const agentCredentials =
             this.newAgentsCredentials.get(sessionId) || [];

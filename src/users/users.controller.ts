@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -188,4 +189,12 @@ export class UsersController {
   async deleteUser(@Param('id') id: string) {
     return await this.usersService.deleteUser(id);
   }
+
+  // @Post('bulk-password-reset')
+  // async bulkPasswordReset(
+  //   @Body() bulkPasswordResetDto,
+  // ){
+    
+  //   return this.usersService.bulkPasswordReset(bulkPasswordResetDto.emails);
+  // }
 }

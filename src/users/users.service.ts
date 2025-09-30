@@ -6,7 +6,9 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { MESSAGES } from '../constants';
 import { validateOrReject } from 'class-validator';
 import { ListUsersQueryDto } from './dto/list-users.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
+import { hashPassword } from 'src/utils/helpers.util';
+import { generateRandomPassword } from 'src/utils/generate-pwd';
 
 @Injectable()
 export class UsersService {
@@ -80,7 +82,7 @@ export class UsersService {
     const orderBy = {
       [sortField || 'createdAt']: sortOrder || 'asc',
     };
-    
+
     const result = await this.prisma.user.findMany({
       skip,
       take,
@@ -167,6 +169,95 @@ export class UsersService {
 
     return {
       message: MESSAGES.DELETED,
+    };
+  }
+
+  async bulkPasswordReset(
+    emails: string[],
+  ) {
+    const results = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (const email of emails) {
+      try {
+        // Find user by email
+        const user = await this.prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+          select: {
+            id: true,
+            email: true,
+            firstname: true,
+            lastname: true,
+            username: true,
+            status: true,
+            isBlocked: true,
+          },
+        });
+
+        if (!user) {
+          results.push({
+            id: '',
+            email,
+            newPassword: '',
+            status: 'User not found',
+            success: false,
+          });
+          failureCount++;
+          continue;
+        }
+
+        // Generate new password
+        const newPassword = `${user.firstname}@${user.lastname}${generateRandomPassword(4)}`;
+        const hashedPassword = await hashPassword(newPassword);
+
+        // Update user with new password and activate account
+        const updatedUser = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            password: hashedPassword,
+            status: UserStatus.active,
+            isBlocked: false,
+            updatedAt: new Date(),
+          },
+          select: {
+            id: true,
+            email: true,
+            firstname: true,
+            lastname: true,
+            username: true,
+            status: true,
+          },
+        });
+
+        results.push({
+          id: updatedUser.id,
+          email: updatedUser.email,
+          firstname: updatedUser.firstname,
+          lastname: updatedUser.lastname,
+          username: updatedUser.username,
+          newPassword,
+          status: `Password reset successful - User activated`,
+          success: true,
+        });
+
+        successCount++;
+      } catch (error) {
+        results.push({
+          id: '',
+          email,
+          newPassword: '',
+          status: `Error: ${error.message}`,
+          success: false,
+        });
+        failureCount++;
+      }
+    }
+    return {
+      results,
+      totalProcessed: emails.length,
+      successCount,
+      failureCount,
     };
   }
 }
