@@ -22,6 +22,16 @@ export class ExportDataQueryDto {
   startDate?: Date;
 
   @ApiPropertyOptional({
+    enum: ['csv', 'json'],
+    description: 'Response format',
+    example: 'csv',
+    default: 'csv',
+  })
+  @IsOptional()
+  @IsEnum(['csv', 'json'])
+  format?: 'csv' | 'json';
+  
+  @ApiPropertyOptional({
     description: 'End date for filtering (ISO 8601 format)',
   })
   @IsOptional()

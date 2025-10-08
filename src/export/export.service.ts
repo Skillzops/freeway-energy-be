@@ -4,6 +4,7 @@ import { ExportDataQueryDto } from './dto/export-query.dto';
 
 export interface ExportResult {
   data: string; // CSV content
+  jsonData?: any[]; // Raw data array for JSON format
   totalRecords: number;
   estimatedCount?: number;
   exportType: string;
@@ -35,22 +36,27 @@ export class ExportService {
 
     let csvData: string;
     let actualCount: number;
+    let jsonData: any[];
 
     switch (filters.exportType) {
       case 'sales':
-        ({ csvData, actualCount } = await this.exportSales(filters));
+        ({ csvData, actualCount, jsonData } = await this.exportSales(filters));
         break;
       case 'customers':
-        ({ csvData, actualCount } = await this.exportCustomers(filters));
+        ({ csvData, actualCount, jsonData } =
+          await this.exportCustomers(filters));
         break;
       case 'payments':
-        ({ csvData, actualCount } = await this.exportPayments(filters));
+        ({ csvData, actualCount, jsonData } =
+          await this.exportPayments(filters));
         break;
       case 'devices':
-        ({ csvData, actualCount } = await this.exportDevices(filters));
+        ({ csvData, actualCount, jsonData } =
+          await this.exportDevices(filters));
         break;
       case 'comprehensive':
-        ({ csvData, actualCount } = await this.exportComprehensive(filters));
+        ({ csvData, actualCount, jsonData } =
+          await this.exportComprehensive(filters));
         break;
       default:
         throw new BadRequestException(
@@ -65,6 +71,7 @@ export class ExportService {
 
     return {
       data: csvData,
+      jsonData,
       totalRecords: actualCount,
       estimatedCount,
       exportType: filters.exportType,
@@ -76,11 +83,76 @@ export class ExportService {
 
   private async exportSales(
     filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number }> {
+  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
     const pipeline = this.buildSalesAggregationPipeline(filters);
 
     const results = await this.prisma.sales.aggregateRaw({ pipeline });
     const salesData = this.extractAggregationResults(results);
+
+    // Build JSON data array
+    const jsonData = salesData.map((sale) => {
+      const paymentCount = sale.paymentCount || 0;
+      const hasMadeRepayments = paymentCount > 1;
+      const outstandingBalance = (sale.totalPrice || 0) - (sale.totalPaid || 0);
+      const lastPaymentDate = sale.lastPayment?.paymentDate;
+      const daysSinceLastPayment = lastPaymentDate
+        ? Math.floor(
+            (new Date().getTime() - new Date(lastPaymentDate).getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
+        : null;
+
+      let paymentStatus = 'No Payments';
+      if (paymentCount > 0) {
+        if (outstandingBalance <= 0) {
+          paymentStatus = 'Fully Paid';
+        } else if (sale.status === 'IN_INSTALLMENT') {
+          paymentStatus =
+            daysSinceLastPayment && daysSinceLastPayment > 35
+              ? 'Overdue'
+              : 'Active';
+        } else {
+          paymentStatus = 'Partial Payment';
+        }
+      }
+
+      return {
+        saleId: this.extractObjectId(sale._id) || '',
+        transactionDate: this.formatDate(
+          sale.transactionDate || sale.createdAt,
+        ),
+        status: sale.status || '',
+        agentName: sale.agentName || '',
+        agentCategory: sale.agent?.category || '',
+        customerName: sale.customer
+          ? `${sale.customer.firstname} ${sale.customer.lastname}`
+          : '',
+        customerPhone: sale.customer?.phone || '',
+        customerEmail: sale.customer?.email || '',
+        customerType: sale.customer?.type || '',
+        productName: sale.product?.name || '',
+        serialNumber: sale.devices?.[0]?.serialNumber || '',
+        paymentMode: sale.saleItems?.[0]?.paymentMode || '',
+        totalPrice: sale.totalPrice || 0,
+        totalPaid: sale.totalPaid || 0,
+        outstandingBalance: parseFloat(outstandingBalance.toFixed(2)),
+        monthlyPayment: sale.totalMonthlyPayment || 0,
+        remainingInstallments: sale.remainingInstallments || 0,
+        paymentCount,
+        hasMadeRepayments,
+        lastPaymentDate: this.formatDate(lastPaymentDate),
+        lastPaymentAmount: sale.lastPayment?.amount || 0,
+        averagePaymentAmount: parseFloat(
+          sale.averagePaymentAmount?.toFixed(2) || '0',
+        ),
+        daysSinceLastPayment: daysSinceLastPayment?.toString() || 'N/A',
+        paymentStatus,
+        location: sale.customer?.installationAddress || '',
+        state: sale.customer?.state || '',
+        lga: sale.customer?.lga || '',
+        createdDate: this.formatDate(sale.createdAt),
+      };
+    });
 
     const headers = [
       'Sale ID',
@@ -100,13 +172,13 @@ export class ExportService {
       'Outstanding Balance',
       'Monthly Payment',
       'Remaining Installments',
-      'Payment Count', // NEW
-      'Has Made Repayments', // NEW
-      'Last Payment Date', // NEW
-      'Last Payment Amount', // NEW
-      'Average Payment Amount', // NEW
-      'Days Since Last Payment', // NEW
-      'Payment Status', // NEW
+      'Payment Count',
+      'Has Made Repayments',
+      'Last Payment Date',
+      'Last Payment Amount',
+      'Average Payment Amount',
+      'Days Since Last Payment',
+      'Payment Status',
       'Location',
       'State',
       'LGA',
@@ -181,16 +253,43 @@ export class ExportService {
     return {
       csvData: csvRows.join('\n'),
       actualCount: salesData.length,
+      jsonData,
     };
   }
 
   private async exportCustomers(
     filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number }> {
+  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
     const pipeline = this.buildCustomersAggregationPipeline(filters);
 
     const results = await this.prisma.customer.aggregateRaw({ pipeline });
     const customersData = this.extractAggregationResults(results);
+
+    // Build JSON data array
+    const jsonData = customersData.map((customer) => ({
+      customerId: this.extractObjectId(customer._id) || '',
+      firstName: customer.firstname || '',
+      lastName: customer.lastname || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      alternatePhone: customer.alternatePhone || '',
+      gender: customer.gender || '',
+      status: customer.status || '',
+      type: customer.type || '',
+      installationAddress: customer.installationAddress || '',
+      state: customer.state || '',
+      lga: customer.lga || '',
+      location: customer.location || '',
+      latitude: customer.latitude || null,
+      longitude: customer.longitude || null,
+      idType: customer.idType || '',
+      idNumber: customer.idNumber || '',
+      totalSales: customer.salesCount || 0,
+      totalSpent: customer.totalSpent || 0,
+      assignedAgent: customer.assignedAgent || '',
+      createdDate: this.formatDate(customer.createdAt),
+      updatedDate: this.formatDate(customer.updatedAt),
+    }));
 
     const headers = [
       'Customer ID',
@@ -250,16 +349,36 @@ export class ExportService {
     return {
       csvData: csvRows.join('\n'),
       actualCount: customersData.length,
+      jsonData,
     };
   }
 
   private async exportPayments(
     filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number }> {
+  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
     const pipeline = this.buildPaymentsAggregationPipeline(filters);
 
     const results = await this.prisma.payment.aggregateRaw({ pipeline });
     const paymentsData = this.extractAggregationResults(results);
+
+    // Build JSON data array
+    const jsonData = paymentsData.map((payment) => ({
+      paymentId: this.extractObjectId(payment._id) || '',
+      transactionReference: payment.transactionRef || '',
+      amount: payment.amount || 0,
+      status: payment.paymentStatus || '',
+      method: payment.paymentMethod || '',
+      paymentDate: this.formatDate(payment.paymentDate),
+      saleId: this.extractObjectId(payment.sale?._id) || '',
+      customerName: payment.customer
+        ? `${payment.customer.firstname} ${payment.customer.lastname}`
+        : '',
+      customerPhone: payment.customer?.phone || '',
+      agentName: payment.sale?.agentName || '',
+      gateway: payment.sale?.paymentGateway || '',
+      notes: payment.notes || '',
+      createdDate: this.formatDate(payment.createdAt),
+    }));
 
     const headers = [
       'Payment ID',
@@ -305,16 +424,41 @@ export class ExportService {
     return {
       csvData: csvRows.join('\n'),
       actualCount: paymentsData.length,
+      jsonData,
     };
   }
 
   private async exportDevices(
     filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number }> {
+  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
     const pipeline = this.buildDevicesAggregationPipeline(filters);
 
     const results = await this.prisma.device.aggregateRaw({ pipeline });
     const devicesData = this.extractAggregationResults(results);
+
+    // Build JSON data array
+    const jsonData = devicesData.map((device) => ({
+      deviceId: this.extractObjectId(device._id) || '',
+      serialNumber: device.serialNumber || '',
+      hardwareModel: device.hardwareModel || '',
+      firmwareVersion: device.firmwareVersion || '',
+      installationStatus: device.installationStatus || '',
+      installationLocation: device.installationLocation || '',
+      installationLatitude: device.installationLatitude || '',
+      installationLongitude: device.installationLongitude || '',
+      isTokenable: device.isTokenable || false,
+      isUsed: device.isUsed || false,
+      tokenCount: device.tokenCount || 0,
+      saleId: this.extractObjectId(device.sale?._id) || '',
+      customerName: device.customer
+        ? `${device.customer.firstname} ${device.customer.lastname}`
+        : '',
+      customerPhone: device.customer?.phone || '',
+      productName: device.product?.name || '',
+      agentName: device.sale?.agentName || '',
+      createdDate: this.formatDate(device.createdAt),
+      updatedDate: this.formatDate(device.updatedAt),
+    }));
 
     const headers = [
       'Device ID',
@@ -370,16 +514,57 @@ export class ExportService {
     return {
       csvData: csvRows.join('\n'),
       actualCount: devicesData.length,
+      jsonData,
     };
   }
 
   private async exportComprehensive(
     filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number }> {
+  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
     const pipeline = this.buildComprehensiveAggregationPipeline(filters);
 
     const results = await this.prisma.sales.aggregateRaw({ pipeline });
     const comprehensiveData = this.extractAggregationResults(results);
+
+    // Build JSON data array
+    const jsonData = comprehensiveData.map((record) => ({
+      saleId: this.extractObjectId(record?._id) || '',
+      transactionDate: this.formatDate(
+        record.transactionDate || record.createdAt,
+      ),
+      saleStatus: record.status || '',
+      agentName: record.agentName || '',
+      agentCategory: record.agent?.category || '',
+      installerName: record.installerName || '',
+      customerId: this.extractObjectId(record.customer?._id) || '',
+      customerName: record.customer
+        ? `${record.customer.firstname} ${record.customer.lastname}`
+        : '',
+      customerPhone: record.customer?.phone || '',
+      customerEmail: record.customer?.email || '',
+      customerType: record.customer?.type || '',
+      customerStatus: record.customer?.status || '',
+      installationAddress: record.customer?.installationAddress || '',
+      state: record.customer?.state || '',
+      lga: record.customer?.lga || '',
+      latitude: record.customer?.latitude || null,
+      longitude: record.customer?.longitude || null,
+      productName: record.product?.name || '',
+      serialNumber: record.devices?.[0]?.serialNumber || '',
+      deviceStatus: record.devices?.[0]?.installationStatus || '',
+      paymentMode: record.saleItems?.[0]?.paymentMode || '',
+      totalPrice: record.totalPrice || 0,
+      totalPaid: record.totalPaid || 0,
+      monthlyPayment: record.totalMonthlyPayment || 0,
+      remainingInstallments: record.remainingInstallments || 0,
+      paymentStatus: record.lastPayment?.paymentStatus || '',
+      lastPaymentDate: this.formatDate(record.lastPayment?.paymentDate),
+      lastPaymentAmount: record.lastPayment?.amount || 0,
+      paymentMethod: record.lastPayment?.paymentMethod || '',
+      tokenCount: record.devices?.[0]?.tokenCount || 0,
+      installationStatus: record.devices?.[0]?.installationStatus || '',
+      createdDate: this.formatDate(record.createdAt),
+    }));
 
     const headers = [
       'Sale ID',
@@ -465,6 +650,7 @@ export class ExportService {
     return {
       csvData: csvRows.join('\n'),
       actualCount: comprehensiveData.length,
+      jsonData,
     };
   }
 
@@ -520,7 +706,7 @@ export class ExportService {
           as: 'product',
         },
       },
-      // NEW: Lookup payments with payment analytics
+      // Lookup payments with payment analytics
       {
         $lookup: {
           from: 'payments',
@@ -528,7 +714,7 @@ export class ExportService {
           pipeline: [
             {
               $match: {
-                $expr: { $eq: ['$saleId', '$saleId'] },
+                $expr: { $eq: ['$saleId', '$$saleId'] },
                 paymentStatus: 'COMPLETED',
               },
             },
@@ -612,7 +798,11 @@ export class ExportService {
           totalSpent: { $sum: '$sales.totalPrice' },
           assignedAgent: {
             $let: {
-              vars: { agent: { $arrayElemAt: ['$assignedAgents', 0] } },
+              vars: {
+                agent: {
+                  $arrayElemAt: ['$assignedAgents', 0],
+                },
+              },
               in: {
                 $concat: [
                   { $ifNull: ['$$agent.user.firstname', ''] },
