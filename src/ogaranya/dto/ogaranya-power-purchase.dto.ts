@@ -60,3 +60,14 @@ export class DevicePaymentDto {
   @IsNotEmpty()
   paymentDate: string;
 }
+
+
+export class SerialNumberDto {
+  @ApiProperty({
+    description: 'Device serial number',
+    example: 'SN123456789',
+  })
+  @IsString()
+  @IsNotEmpty()
+  serialNumber: string;
+}

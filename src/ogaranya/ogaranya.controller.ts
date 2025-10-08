@@ -10,14 +10,12 @@ import {
   Inject,
   forwardRef,
   BadRequestException,
-  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiParam,
   ApiBody,
-  ApiQuery,
 } from '@nestjs/swagger';
 import { OgaranyaService } from './ogaranya.service';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
@@ -26,6 +24,7 @@ import { PaymentService } from 'src/payment/payment.service';
 import {
   DevicePaymentDto,
   PowerPurchaseDto,
+  SerialNumberDto,
 } from './dto/ogaranya-power-purchase.dto';
 
 @ApiTags('Ogaranya')
@@ -58,22 +57,23 @@ export class OgaranyaController {
   }
 
   @UseGuards(ApiAuthGuard)
-  @Get('device')
+  @Post('device')
   @ApiOperation({
     summary: 'Get device information by serial number',
     description:
       'Fetch device details including customer name, amount, and address using device serial number',
   })
-  @ApiQuery({
-    name: 'serialNumber',
-    description: 'Device serial number (e.g., SR27/SR/2501200001)',
-    example: 'SR27/SR/2501200001',
-  })
-  async getDeviceInformation(@Query('serialNumber') serialNumber: string) {
+  @ApiBody({ type: SerialNumberDto })
+  async getDeviceInformation(@Body() body: SerialNumberDto) {
+    const { serialNumber } = body;
+
     if (!serialNumber) {
       throw new BadRequestException('Serial number is required');
     }
-    return await this.ogaranyaService.getDeviceInformation(serialNumber);
+
+    const decodedSerial = decodeURIComponent(serialNumber);
+
+    return await this.ogaranyaService.getDeviceInformation(decodedSerial);
   }
 
   @UseGuards(ApiAuthGuard)
