@@ -9,12 +9,24 @@ import {
   UseGuards,
   Inject,
   forwardRef,
+  BadRequestException,
+  Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiBody,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { OgaranyaService } from './ogaranya.service';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 import { ApiAuthGuard } from '../auth/guards/api-auth.guard';
 import { PaymentService } from 'src/payment/payment.service';
+import {
+  DevicePaymentDto,
+  PowerPurchaseDto,
+} from './dto/ogaranya-power-purchase.dto';
 
 @ApiTags('Ogaranya')
 @Controller('ogaranya')
@@ -43,6 +55,85 @@ export class OgaranyaController {
     return await this.ogaranyaService.getCustomerByPaymentReference(
       paymentReference,
     );
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Get('device')
+  @ApiOperation({
+    summary: 'Get device information by serial number',
+    description:
+      'Fetch device details including customer name, amount, and address using device serial number',
+  })
+  @ApiQuery({
+    name: 'serialNumber',
+    description: 'Device serial number (e.g., SR27/SR/2501200001)',
+    example: 'SR27/SR/2501200001',
+  })
+  async getDeviceInformation(@Query('serialNumber') serialNumber: string) {
+    if (!serialNumber) {
+      throw new BadRequestException('Serial number is required');
+    }
+    return await this.ogaranyaService.getDeviceInformation(serialNumber);
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Post('device/report-payment')
+  @ApiOperation({
+    summary: 'Report successful payment against device serial number',
+    description:
+      'Record a payment made for a device and update sale payment status',
+  })
+  @ApiBody({ type: DevicePaymentDto })
+  @HttpCode(HttpStatus.OK)
+  async recordDevicePayment(@Body() devicePaymentDto: DevicePaymentDto) {
+    try {
+      const result =
+        await this.ogaranyaService.recordDevicePayment(devicePaymentDto);
+
+      if (result.paymentData) {
+        await this.paymentService.handlePostPayment(result.paymentData);
+      }
+
+      return {
+        status: 'success',
+        data: {
+          message: result.message || 'Payment processed successfully',
+        },
+      };
+    } catch (error) {
+      console.error('Device payment error:', error);
+      return {
+        status: 'failed',
+        message: error.message || 'Payment recording failed',
+      };
+    }
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Post('device/power-purchase')
+  @ApiOperation({
+    summary: 'Purchase power and generate token for device',
+    description:
+      'Purchase power for a specified number of days and generate token. Updates installment status and payment records.',
+  })
+  @ApiBody({ type: PowerPurchaseDto })
+  @HttpCode(HttpStatus.OK)
+  async purchasePower(@Body() powerPurchaseDto: PowerPurchaseDto) {
+    try {
+      const result = await this.ogaranyaService.purchasePower(powerPurchaseDto);
+
+      return {
+        status: 'success',
+        message: 'Power purchased successfully',
+        data: result,
+      };
+    } catch (error) {
+      console.error('Power purchase error:', error);
+      return {
+        status: 'failed',
+        message: error.message || 'Power purchase failed',
+      };
+    }
   }
 
   @UseGuards(ApiAuthGuard)

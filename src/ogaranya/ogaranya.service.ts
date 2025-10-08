@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,11 +11,20 @@ import ft from 'node-fetch';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentGateway,
+  PaymentMethod,
+  PaymentMode,
   PaymentStatus,
+  Prisma,
   WalletTransactionStatus,
 } from '@prisma/client';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 import { formatPhoneNumber } from 'src/utils/helpers.util';
+import {
+  DevicePaymentDto,
+  PowerPurchaseDto,
+} from './dto/ogaranya-power-purchase.dto';
+import { PaymentService } from 'src/payment/payment.service';
+import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 
 @Injectable()
 export class OgaranyaService {
@@ -27,6 +38,9 @@ export class OgaranyaService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly openPayGo: OpenPayGoService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
   ) {
     // Updated configuration based on new documentation
     this.baseUrl =
@@ -297,6 +311,390 @@ export class OgaranyaService {
       paymentReference: paymentReference,
       paymentStatus: payment.paymentStatus,
       customerTransactions: sale.payment,
+    };
+  }
+
+  async getDeviceInformation(serialNumber: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { serialNumber },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: true,
+                saleItems: {
+                  include: {
+                    product: true,
+                  },
+                },
+              },
+            },
+            product: true,
+          },
+        },
+      },
+    });
+
+    if (!device) {
+      throw new NotFoundException(
+        `Device with serial number ${serialNumber} not found`,
+      );
+    }
+
+    if (!device.saleItems || device.saleItems.length === 0) {
+      throw new BadRequestException(
+        `Device ${serialNumber} is not attached to any sale`,
+      );
+    }
+
+    const saleItem = device.saleItems[0];
+    const sale = saleItem.sale;
+    const customer = sale.customer;
+
+    const address = this.formatCustomerAddress(customer);
+    const amount = sale.totalPrice;
+
+    return {
+      serialNumber: device.serialNumber,
+      customer: {
+        name: `${customer.firstname} ${customer.lastname}`.trim(),
+        address,
+        phone: customer.phone,
+        email: customer.email,
+      },
+      amount,
+      saleId: sale.id,
+      productName: saleItem.product.name,
+      installationStatus: device.installationStatus,
+      installationLocation: device.installationLocation,
+      totalInstallments: sale.totalInstallmentDuration,
+      remainingInstallments: sale.remainingInstallments,
+      saleStatus: sale.status,
+      totalPaid: sale.totalPaid,
+      remainingBalance: sale.totalPrice - sale.totalPaid,
+    };
+  }
+
+  async recordDevicePayment(devicePaymentDto: DevicePaymentDto) {
+    const { serialNumber, amount, orderReference, paymentDate } =
+      devicePaymentDto;
+
+    const device = await this.prisma.device.findUnique({
+      where: { serialNumber },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: true,
+                saleItems: {
+                  include: {
+                    product: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!device) {
+      throw new NotFoundException(
+        `Device with serial number ${serialNumber} not found`,
+      );
+    }
+
+    if (!device.saleItems || device.saleItems.length === 0) {
+      throw new BadRequestException(
+        `Device ${serialNumber} is not attached to any sale`,
+      );
+    }
+
+    if (!device.isTokenable) {
+      throw new BadRequestException(
+        `Device ${serialNumber} is not tokenable.`,
+      );
+    }
+
+    const sale = device.saleItems[0].sale;
+    const remainingBalance = sale.totalPrice - sale.totalPaid;
+
+    if (amount > remainingBalance + 0.01) {
+      throw new BadRequestException(
+        `Payment amount (₦${amount}) exceeds remaining balance (₦${remainingBalance})`,
+      );
+    }
+
+    // Check for duplicate payment
+    const existingPayment = await this.prisma.payment.findFirst({
+      where: {
+        OR: [
+          { ogaranyaOrderRef: orderReference },
+          { transactionRef: orderReference },
+        ],
+      },
+    });
+
+    if (
+      existingPayment &&
+      existingPayment.paymentStatus === PaymentStatus.COMPLETED
+    ) {
+      return {
+        message: 'Payment already processed',
+        duplicate: true,
+        serialNumber,
+        saleId: sale.id,
+      };
+    }
+
+    // Create or update payment record
+    let payment;
+    if (existingPayment) {
+      payment = await this.prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: {
+          paymentStatus: PaymentStatus.COMPLETED,
+          paymentDate,
+          amount,
+        },
+      });
+    } else {
+      payment = await this.prisma.payment.create({
+        data: {
+          saleId: sale.id,
+          amount,
+          transactionRef: orderReference,
+          paymentStatus: PaymentStatus.COMPLETED,
+          paymentMethod: PaymentMethod.ONLINE,
+          paymentDate,
+          ogaranyaOrderRef: orderReference,
+          notes: `Payment for device ${serialNumber}`,
+        },
+      });
+    }
+
+    return {
+      message: 'Payment verified and processed successfully',
+      saleId: sale.id,
+      amountPaid: amount,
+      paymentDate: paymentDate,
+      paymentData: payment,
+    };
+  }
+
+  async purchasePower(powerPurchaseDto: PowerPurchaseDto) {
+    const { serialNumber, amount, orderReference } = powerPurchaseDto;
+
+    // Validate amount
+    if (amount < 1) {
+      throw new BadRequestException('Amount must be at least ₦1');
+    }
+
+    // Find device and validate
+    const device = await this.prisma.device.findUnique({
+      where: { serialNumber },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                customer: true,
+                saleItems: {
+                  include: {
+                    product: true,
+                    devices: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!device) {
+      throw new NotFoundException(
+        `Device with serial number ${serialNumber} not found`,
+      );
+    }
+
+    if (!device.saleItems || device.saleItems.length === 0) {
+      throw new BadRequestException(
+        `Device ${serialNumber} is not attached to any sale`,
+      );
+    }
+
+    const saleItem = device.saleItems[0];
+    const sale = saleItem.sale;
+
+    if (!device.isTokenable) {
+      throw new BadRequestException(
+        `Device ${serialNumber} is not tokenable. This device cannot generate tokens.`,
+      );
+    }
+
+    // Validate amount against remaining balance
+    const remainingBalance = sale.totalPrice - sale.totalPaid;
+
+    if (amount > remainingBalance + 0.01) {
+      throw new BadRequestException(
+        `Payment amount (₦${amount}) exceeds remaining balance (₦${remainingBalance.toFixed(2)})`,
+      );
+    }
+
+    // Check for duplicate order reference
+    const existingPayment = await this.prisma.payment.findFirst({
+      where: {
+        OR: [
+          { ogaranyaOrderRef: orderReference },
+          { transactionRef: orderReference },
+        ],
+      },
+    });
+
+    if (
+      existingPayment &&
+      existingPayment.paymentStatus === PaymentStatus.COMPLETED
+    ) {
+      throw new BadRequestException(
+        `Order reference ${orderReference} has already been processed`,
+      );
+    }
+
+    // Create payment record
+    const payment = await this.prisma.payment.create({
+      data: {
+        saleId: sale.id,
+        amount,
+        transactionRef: orderReference,
+        paymentStatus: PaymentStatus.COMPLETED,
+        paymentMethod: PaymentMethod.ONLINE,
+        paymentDate: new Date(),
+        ogaranyaOrderRef: orderReference,
+        notes: `Power purchase via Ogaranya`,
+      },
+    });
+
+    // Calculate installment progress using same logic as payment service
+    const installmentInfo = this.paymentService.calculateInstallmentProgress(
+      sale,
+      amount,
+    );
+
+    await this.prisma.sales.update({
+      where: { id: sale.id },
+      data: {
+        totalPaid: {
+          increment: amount,
+        },
+        remainingInstallments: installmentInfo.newRemainingDuration,
+        status: installmentInfo.newStatus,
+      },
+    });
+
+    let tokenData = null;
+    let tokenGenerated = false;
+    let tokenDuration = 0;
+
+    // Determine token duration based on payment mode
+    if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
+      // For one-off payments, token is forever
+      tokenDuration = -1;
+    } else {
+      // For installment, convert months to days
+      tokenDuration =
+        installmentInfo.monthsCovered === -1
+          ? -1
+          : installmentInfo.monthsCovered * 30;
+    }
+
+    try {
+      tokenData = await this.openPayGo.generateToken(
+        device as Prisma.DeviceCreateInput,
+        tokenDuration,
+        Number(device.count),
+      );
+
+      await this.prisma.tokens.create({
+        data: {
+          deviceId: device.id,
+          token: String(tokenData.finalToken),
+          duration: tokenDuration,
+          tokenReleased: true,
+        },
+      });
+
+      await this.prisma.device.update({
+        where: { id: device.id },
+        data: { count: String(tokenData.newCount) },
+      });
+
+      tokenGenerated = true;
+
+      // Add to queue
+      // await this.notificationService.sendTokenToCustomer(
+      //   sale.customer,
+      //   deviceTokens,
+      // );
+    } catch (error) {
+      console.error('Token generation failed:', error);
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          notes: `Power purchase - Token generation failed: ${error.message}`,
+        },
+      });
+    }
+
+    // Get updated sale
+    const updatedSale = await this.prisma.sales.findUnique({
+      where: { id: sale.id },
+    });
+
+    return {
+      serialNumber: device.serialNumber,
+      ...(tokenGenerated && {
+        token: tokenData.finalToken,
+        tokenMessage: `Load this token on your device: ${tokenData.finalToken}`,
+      }),
+      durationDays:
+        tokenDuration === -1 ? 'Unlimited (Forever)' : tokenDuration,
+      totalPaid: updatedSale.totalPaid,
+      remainingBalance: updatedSale.totalPrice - updatedSale.totalPaid,
+      saleId: sale.id,
+      paymentId: payment.id,
+      saleStatus: updatedSale.status,
+      remainingInstallments: updatedSale.remainingInstallments,
+      message: tokenGenerated
+        ? `Payment successful! Token generated for ${tokenDuration === -1 ? 'unlimited' : tokenDuration + ' days'}`
+        : 'Payment successful! Token will be generated once device is ready.',
+      paymentData: {
+        id: payment.id,
+        transactionRef: payment.transactionRef,
+        amount: payment.amount,
+        paymentStatus: payment.paymentStatus,
+        paymentDate: payment.paymentDate,
+        paymentMethod: payment.paymentMethod,
+        ogaranyaOrderId: payment.ogaranyaOrderId,
+        ogaranyaOrderRef: payment.ogaranyaOrderRef,
+        ogaranyaSmsNumber: payment.ogaranyaSmsNumber,
+        ogaranyaSmsMessage: payment.ogaranyaSmsMessage,
+        notes: payment.notes,
+        saleId: payment.saleId,
+      },
+      customerInfo: {
+        name: `${sale.customer.firstname} ${sale.customer.lastname}`,
+        phone: sale.customer.phone,
+        email: sale.customer.email,
+      },
+      deviceStatus: {
+        installed: device.installationStatus === 'installed',
+        gpsVerified: device.gpsVerified,
+        tokenable: device.isTokenable,
+        tokenGenerated,
+      },
     };
   }
 
@@ -585,5 +983,67 @@ export class OgaranyaService {
     return addressParts.length > 0
       ? addressParts.join(', ')
       : 'Address not provided';
+  }
+
+  private async calculateDaysFromAmount(
+    serialNumber: string,
+    amount: number,
+  ): Promise<{ days: number; dailyRate: number; calculationMethod: string }> {
+    // Get device and associated sale to understand pricing
+    const device = await this.prisma.device.findUnique({
+      where: { serialNumber },
+      include: {
+        saleItems: {
+          include: {
+            sale: true,
+          },
+        },
+      },
+    });
+
+    if (!device || !device.saleItems || device.saleItems.length === 0) {
+      // Default fallback: 1 day per ₦100
+      const dailyRate = 100;
+      const days = Math.floor(amount / dailyRate);
+      return {
+        days: Math.max(1, days),
+        dailyRate,
+        calculationMethod: 'Default rate: ₦100/day',
+      };
+    }
+
+    const sale = device.saleItems[0].sale;
+
+    // Method 1: Calculate from monthly payment (preferred)
+    if (sale.totalMonthlyPayment > 0) {
+      const dailyRate = sale.totalMonthlyPayment / 30; // Assuming 30 days per month
+      const days = Math.floor(amount / dailyRate);
+      return {
+        days: Math.max(1, days),
+        dailyRate,
+        calculationMethod: `Based on monthly payment: ₦${sale.totalMonthlyPayment.toFixed(2)}/month`,
+      };
+    }
+
+    // Method 2: Calculate from total sale (if one-off payment)
+    if (sale.totalInstallmentDuration === 0 && sale.totalPrice > 0) {
+      // Assume sale covers 365 days (1 year) for one-off purchases
+      const dailyRate = sale.totalPrice / 365;
+      const days = Math.floor(amount / dailyRate);
+      return {
+        days: Math.max(1, days),
+        dailyRate,
+        calculationMethod: `Based on total price (annual): ₦${sale.totalPrice.toFixed(2)}/year`,
+      };
+    }
+
+    // Method 3: Fallback - default rate
+    const dailyRate = 100; // ₦100 per day
+    const days = Math.floor(amount / dailyRate);
+    return {
+      days: Math.max(1, days),
+      dailyRate,
+      calculationMethod: 'Default rate: ₦100/day',
+    };
   }
 }

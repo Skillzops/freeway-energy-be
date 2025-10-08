@@ -1037,7 +1037,7 @@ export class PaymentService {
     }
   }
 
-  private calculateInstallmentProgress(sale: any, paymentAmount: number) {
+  calculateInstallmentProgress(sale: any, paymentAmount: number) {
     const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
     const newTotalPaid = currentTotalPaid + paymentAmount;
     const totalPrice = sale.totalPrice;
