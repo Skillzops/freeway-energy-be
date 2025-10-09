@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString } from 'class-validator';
 
 export class PowerPurchaseDto {
   @ApiProperty({
@@ -52,6 +52,7 @@ export class DevicePaymentDto {
   })
   @IsString()
   @IsNotEmpty()
+  @IsDateString()
   paymentDate: string;
 }
 

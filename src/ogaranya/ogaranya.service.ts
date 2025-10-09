@@ -386,8 +386,10 @@ export class OgaranyaService {
       serialNumber,
       amount: paidAmount,
       orderReference,
-      paymentDate,
+      paymentDate: pDate,
     } = devicePaymentDto;
+
+    const paymentDate = new Date(pDate).toISOString();
 
     const amount = parseFloat(paidAmount);
     if (isNaN(amount) || amount <= 0) {
