@@ -377,8 +377,17 @@ export class OgaranyaService {
   }
 
   async recordDevicePayment(devicePaymentDto: DevicePaymentDto) {
-    const { serialNumber, amount, orderReference, paymentDate } =
-      devicePaymentDto;
+    const {
+      serialNumber,
+      amount: paidAmount,
+      orderReference,
+      paymentDate,
+    } = devicePaymentDto;
+
+    const amount = parseFloat(paidAmount);
+    if (isNaN(amount) || amount <= 0) {
+      throw new BadRequestException('Invalid amount');
+    }
 
     const device = await this.prisma.device.findUnique({
       where: { serialNumber },
@@ -485,11 +494,15 @@ export class OgaranyaService {
   }
 
   async purchasePower(powerPurchaseDto: PowerPurchaseDto) {
-    const { serialNumber, amount, orderReference } = powerPurchaseDto;
+    const {
+      serialNumber,
+      amount: paidAmount,
+      orderReference,
+    } = powerPurchaseDto;
 
-    // Validate amount
-    if (amount < 1) {
-      throw new BadRequestException('Amount must be at least ₦1');
+    const amount = parseFloat(paidAmount);
+    if (isNaN(amount) || amount <= 1) {
+      throw new BadRequestException('Invalid amount');
     }
 
     // Find device and validate

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsNotEmpty, Min } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class PowerPurchaseDto {
   @ApiProperty({
@@ -10,13 +10,10 @@ export class PowerPurchaseDto {
   @IsNotEmpty()
   serialNumber: string;
 
-  @ApiProperty({
-    description: 'Payment amount',
-    example: 5000,
-  })
-  @IsNumber()
-  @Min(0)
-  amount: number;
+  @ApiProperty({ description: 'Amount paid as a string (e.g., "1000")' })
+  @IsNotEmpty()
+  @IsString()
+  amount: string;
 
   @ApiProperty({
     description: 'Order reference from Ogaranya',
@@ -36,13 +33,10 @@ export class DevicePaymentDto {
   @IsNotEmpty()
   serialNumber: string;
 
-  @ApiProperty({
-    description: 'Payment amount',
-    example: 5000,
-  })
-  @IsNumber()
-  @Min(0)
-  amount: number;
+  @ApiProperty({ description: 'Amount paid as a string (e.g., "1000")' })
+  @IsNotEmpty()
+  @IsString()
+  amount: string;
 
   @ApiProperty({
     description: 'Order reference from Ogaranya',
@@ -60,7 +54,6 @@ export class DevicePaymentDto {
   @IsNotEmpty()
   paymentDate: string;
 }
-
 
 export class SerialNumberDto {
   @ApiProperty({
