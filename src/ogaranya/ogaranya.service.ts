@@ -377,6 +377,7 @@ export class OgaranyaService {
       remainingInstallments: sale.remainingInstallments,
       saleStatus: sale.status,
       totalPaid: sale.totalPaid,
+      installmentAmount: sale.totalMonthlyPayment,
       remainingBalance: sale.totalPrice - sale.totalPaid,
     };
   }
