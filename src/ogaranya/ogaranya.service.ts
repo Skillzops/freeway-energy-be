@@ -315,8 +315,13 @@ export class OgaranyaService {
   }
 
   async getDeviceInformation(serialNumber: string) {
-    const device = await this.prisma.device.findUnique({
-      where: { serialNumber },
+    const device = await this.prisma.device.findFirst({
+      where: {
+        serialNumber: {
+          equals: serialNumber,
+          mode: 'insensitive',
+        },
+      },
       include: {
         saleItems: {
           include: {
@@ -389,8 +394,13 @@ export class OgaranyaService {
       throw new BadRequestException('Invalid amount');
     }
 
-    const device = await this.prisma.device.findUnique({
-      where: { serialNumber },
+    const device = await this.prisma.device.findFirst({
+      where: {
+        serialNumber: {
+          equals: serialNumber,
+          mode: 'insensitive',
+        },
+      },
       include: {
         saleItems: {
           include: {
@@ -506,8 +516,13 @@ export class OgaranyaService {
     }
 
     // Find device and validate
-    const device = await this.prisma.device.findUnique({
-      where: { serialNumber },
+    const device = await this.prisma.device.findFirst({
+      where: {
+        serialNumber: {
+          equals: serialNumber,
+          mode: 'insensitive',
+        },
+      },
       include: {
         saleItems: {
           include: {
