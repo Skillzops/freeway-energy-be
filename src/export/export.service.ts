@@ -1,16 +1,1794 @@
+// import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+// import { PrismaService } from '../prisma/prisma.service';
+// import { ExportDataQueryDto, ExportType } from './dto/export-query.dto';
+
+// export interface ExportResult {
+//   data: string;
+//   jsonData?: any[];
+//   totalRecords: number;
+//   allRecordsCount?: number;
+//   currentPage?: number;
+//   totalPages?: number;
+//   exportType: string;
+//   filters: ExportDataQueryDto;
+//   generatedAt: Date;
+//   fileSize: number;
+//   summary?: any;
+// }
+
+// @Injectable()
+// export class ExportService {
+//   private readonly logger = new Logger(ExportService.name);
+//   private readonly MAX_RECORDS_PER_REQUEST = 10000;
+
+//   constructor(private readonly prisma: PrismaService) {}
+
+//   async exportData(filters: ExportDataQueryDto): Promise<ExportResult> {
+//     this.validateFilters(filters);
+
+//     const startTime = Date.now();
+//     this.logger.log(`Starting ${filters.exportType} export`, { filters });
+
+//     let csvData: string;
+//     let actualCount: number;
+//     let jsonData: any[];
+//     let summary: any;
+//     let allRecordsCount: number;
+//     let currentPage: number;
+//     let totalPages: number;
+
+//     switch (filters.exportType) {
+//       case ExportType.DEBT_REPORT:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           summary,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportDebtReport(filters));
+//         break;
+//       case ExportType.RENEWAL_REPORT:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           summary,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportRenewalReport(filters));
+//         break;
+//       case ExportType.WEEKLY_SUMMARY:
+//         ({ csvData, actualCount, jsonData, summary } =
+//           await this.exportWeeklySummary(filters));
+//         break;
+//       case ExportType.MONTHLY_SUMMARY:
+//         ({ csvData, actualCount, jsonData, summary } =
+//           await this.exportMonthlySummary(filters));
+//         break;
+//       case ExportType.SALES:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportSales(filters));
+//         break;
+//       case ExportType.CUSTOMERS:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportCustomers(filters));
+//         break;
+//       case ExportType.PAYMENTS:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportPayments(filters));
+//         break;
+//       case ExportType.DEVICES:
+//         ({
+//           csvData,
+//           actualCount,
+//           jsonData,
+//           allRecordsCount,
+//           currentPage,
+//           totalPages,
+//         } = await this.exportDevices(filters));
+//         break;
+//       default:
+//         throw new BadRequestException(
+//           `Invalid export type: ${filters.exportType}`,
+//         );
+//     }
+
+//     const endTime = Date.now();
+//     this.logger.log(
+//       `Export completed in ${endTime - startTime}ms. Records: ${actualCount}`,
+//     );
+
+//     return {
+//       data: csvData,
+//       jsonData,
+//       totalRecords: actualCount,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//       exportType: filters.exportType,
+//       filters,
+//       generatedAt: new Date(),
+//       fileSize: Buffer.byteLength(csvData, 'utf8'),
+//       summary,
+//     };
+//   }
+
+//   // ==================== DEBT REPORT ====================
+//   private async exportDebtReport(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     summary: any;
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const pipeline: any[] = [
+//       {
+//         $match: {
+//           status: { $in: ['IN_INSTALLMENT', 'COMPLETED'] },
+//           deletedAt: null,
+//           ...(filters.customerId && {
+//             customerId: { $oid: filters.customerId },
+//           }),
+//           ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+//           ...(filters.salesStatus && { status: filters.salesStatus }),
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'customers',
+//           localField: 'customerId',
+//           foreignField: '_id',
+//           as: 'customer',
+//         },
+//       },
+//       { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+//       {
+//         $lookup: {
+//           from: 'agents',
+//           localField: 'agentId',
+//           foreignField: '_id',
+//           as: 'agent',
+//         },
+//       },
+//       { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+//       {
+//         $lookup: {
+//           from: 'sales_items',
+//           localField: '_id',
+//           foreignField: 'saleId',
+//           as: 'saleItems',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'payments',
+//           let: { saleId: '$_id' },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: { $eq: ['$saleId', '$$saleId'] },
+//                 paymentStatus: 'COMPLETED',
+//               },
+//             },
+//             { $sort: { paymentDate: 1 } },
+//           ],
+//           as: 'payments',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           outstandingBalance: { $subtract: ['$totalPrice', '$totalPaid'] },
+//           paymentCount: { $size: '$payments' },
+//           firstPayment: { $arrayElemAt: ['$payments', 0] },
+//           lastPayment: { $arrayElemAt: ['$payments', -1] },
+//           saleItem: { $arrayElemAt: ['$saleItems', 0] },
+//           monthsSinceSale: {
+//             $floor: {
+//               $divide: [
+//                 {
+//                   $subtract: [
+//                     new Date(),
+//                     { $ifNull: ['$transactionDate', '$createdAt'] },
+//                   ],
+//                 },
+//                 1000 * 60 * 60 * 24 * 30,
+//               ],
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $addFields: {
+//           isInstallment: { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+//           expectedMonthlyPayments: {
+//             $cond: {
+//               if: { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+//               then: {
+//                 $max: [
+//                   0,
+//                   {
+//                     $min: [
+//                       '$monthsSinceSale',
+//                       {
+//                         $subtract: [
+//                           { $ifNull: ['$totalInstallmentDuration', 0] },
+//                           1,
+//                         ],
+//                       },
+//                     ],
+//                   },
+//                 ],
+//               },
+//               else: 0,
+//             },
+//           },
+//           actualMonthlyPayments: {
+//             $cond: {
+//               if: { $gt: [{ $size: '$payments' }, 0] },
+//               then: { $subtract: [{ $size: '$payments' }, 1] },
+//               else: 0,
+//             },
+//           },
+//           daysSinceLastPayment: {
+//             $cond: {
+//               if: { $gt: [{ $size: '$payments' }, 0] },
+//               then: {
+//                 $floor: {
+//                   $divide: [
+//                     { $subtract: [new Date(), '$lastPayment.paymentDate'] },
+//                     1000 * 60 * 60 * 24,
+//                   ],
+//                 },
+//               },
+//               else: {
+//                 $floor: {
+//                   $divide: [
+//                     { $subtract: [new Date(), '$createdAt'] },
+//                     1000 * 60 * 60 * 24,
+//                   ],
+//                 },
+//               },
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $addFields: {
+//           missedPayments: {
+//             $max: [
+//               0,
+//               { $subtract: ['$expectedMonthlyPayments', '$actualMonthlyPayments'] },
+//             ],
+//           },
+//           expectedAmountPaid: {
+//             $add: [
+//               { $ifNull: ['$installmentStartingPrice', 0] },
+//               {
+//                 $multiply: [
+//                   { $ifNull: ['$totalMonthlyPayment', 0] },
+//                   '$expectedMonthlyPayments',
+//                 ],
+//               },
+//             ],
+//           },
+//           isOverdue: {
+//             $and: [
+//               { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+//               { $gt: ['$outstandingBalance', 0] },
+//               {
+//                 $or: [
+//                   {
+//                     $gt: [
+//                       {
+//                         $subtract: [
+//                           '$expectedMonthlyPayments',
+//                           '$actualMonthlyPayments',
+//                         ],
+//                       },
+//                       0,
+//                     ],
+//                   },
+//                   { $gt: ['$daysSinceLastPayment', 35] },
+//                 ],
+//               },
+//             ],
+//           },
+//           paymentDeficit: {
+//             $max: [
+//               0,
+//               {
+//                 $subtract: [
+//                   {
+//                     $add: [
+//                       { $ifNull: ['$installmentStartingPrice', 0] },
+//                       {
+//                         $multiply: [
+//                           { $ifNull: ['$totalMonthlyPayment', 0] },
+//                           '$expectedMonthlyPayments',
+//                         ],
+//                       },
+//                     ],
+//                   },
+//                   '$totalPaid',
+//                 ],
+//               },
+//             ],
+//           },
+//           accurateRemainingMonths: {
+//             $cond: {
+//               if: { $gt: ['$totalMonthlyPayment', 0] },
+//               then: {
+//                 $ceil: {
+//                   $divide: ['$outstandingBalance', '$totalMonthlyPayment'],
+//                 },
+//               },
+//               else: 0,
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $match: {
+//           outstandingBalance: { $gt: 0 },
+//           ...(filters.state && {
+//             'customer.state': new RegExp(filters.state, 'i'),
+//           }),
+//           ...(filters.lga && {
+//             'customer.lga': new RegExp(filters.lga, 'i'),
+//           }),
+//           ...(filters.overdueDays && {
+//             daysSinceLastPayment: { $gte: filters.overdueDays },
+//           }),
+//         },
+//       },
+//     ];
+
+//     // Get total count before pagination
+//     const countPipeline = [...pipeline, { $count: 'total' }];
+//     const countResult = await this.prisma.sales.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     // Sort before pagination
+//     pipeline.push({
+//       $sort: { missedPayments: -1, daysSinceLastPayment: -1 },
+//     });
+
+//     // Apply pagination
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     if (filters.page && filters.limit) {
+//       pipeline.push({ $skip: (currentPage - 1) * limit }, { $limit: limit });
+//     }
+
+//     const results = await this.prisma.sales.aggregateRaw({ pipeline });
+//     const debtData = this.extractAggregationResults(results);
+
+//     // Calculate summary
+//     const totalOutstandingDebt = debtData.reduce(
+//       (sum, sale) => sum + (sale.outstandingBalance || 0),
+//       0,
+//     );
+//     const totalCustomersInDebt = new Set(
+//       debtData.map((sale) => this.extractObjectId(sale.customer?._id)),
+//     ).size;
+//     const overdueCount = debtData.filter((sale) => sale.isOverdue).length;
+
+//     const summary = {
+//       totalOutstandingDebt: parseFloat(totalOutstandingDebt.toFixed(2)),
+//       totalCustomersInDebt,
+//       totalSalesWithDebt: debtData.length,
+//       overdueCount,
+//       generatedAt: new Date().toISOString(),
+//     };
+
+//     // Process JSON data
+//     const jsonData = debtData.map((sale) => {
+//       const nextPaymentDueDate = this.calculateNextPaymentDueDate(sale);
+//       const daysPastDue = nextPaymentDueDate
+//         ? Math.max(
+//             0,
+//             Math.floor(
+//               (new Date().getTime() - nextPaymentDueDate.getTime()) /
+//                 (1000 * 60 * 60 * 24),
+//             ),
+//           )
+//         : 0;
+
+//       return {
+//         customerId: this.extractObjectId(sale.customer?._id) || '',
+//         customerName: sale.customer
+//           ? `${sale.customer.firstname} ${sale.customer.lastname}`
+//           : '',
+//         customerPhone: sale.customer?.phone || '',
+//         customerEmail: sale.customer?.email || '',
+//         saleId: this.extractObjectId(sale._id) || '',
+//         transactionDate: this.formatDate(
+//           sale.transactionDate || sale.createdAt,
+//         ),
+//         totalPrice: sale.totalPrice || 0,
+//         totalPaid: sale.totalPaid || 0,
+//         outstandingBalance: parseFloat(
+//           (sale.outstandingBalance || 0).toFixed(2),
+//         ),
+//         monthlyPayment: sale.totalMonthlyPayment || 0,
+//         initialPayment: sale.installmentStartingPrice || 0,
+//         totalInstallmentMonths: sale.totalInstallmentDuration || 0,
+//         remainingInstallments: sale.remainingInstallments || 0,
+//         accurateRemainingMonths: sale.accurateRemainingMonths || 0,
+//         totalPaymentsMade: sale.paymentCount || 0,
+//         expectedPaymentsByNow: sale.expectedMonthlyPayments || 0,
+//         actualMonthlyPaymentsMade: sale.actualMonthlyPayments || 0,
+//         missedPayments: sale.missedPayments || 0,
+//         expectedAmountPaidByNow: parseFloat(
+//           (sale.expectedAmountPaid || 0).toFixed(2),
+//         ),
+//         actualAmountPaid: sale.totalPaid || 0,
+//         paymentDeficit: parseFloat((sale.paymentDeficit || 0).toFixed(2)),
+//         isOverdue: sale.isOverdue || false,
+//         daysSinceLastPayment: sale.daysSinceLastPayment || 0,
+//         nextPaymentDueDate: nextPaymentDueDate
+//           ? this.formatDate(nextPaymentDueDate)
+//           : '',
+//         daysPastDue,
+//         lastPaymentDate: this.formatDate(sale.lastPayment?.paymentDate),
+//         lastPaymentAmount: sale.lastPayment?.amount || 0,
+//         status: sale.status || '',
+//         agentName: sale.agentName || '',
+//         state: sale.customer?.state || '',
+//         lga: sale.customer?.lga || '',
+//       };
+//     });
+
+//     // Build CSV
+//     const headers = [
+//       'Customer ID',
+//       'Customer Name',
+//       'Customer Phone',
+//       'Customer Email',
+//       'Sale ID',
+//       'Transaction Date',
+//       'Total Price',
+//       'Total Paid',
+//       'Outstanding Balance',
+//       'Monthly Payment',
+//       'Initial Payment',
+//       'Total Installment Months',
+//       'Remaining Installments',
+//       'Accurate Remaining Months',
+//       'Total Payments Made',
+//       'Expected Payments By Now',
+//       'Actual Monthly Payments',
+//       'Missed Payments',
+//       'Expected Amount Paid By Now',
+//       'Actual Amount Paid',
+//       'Payment Deficit',
+//       'Is Overdue',
+//       'Days Since Last Payment',
+//       'Next Payment Due Date',
+//       'Days Past Due',
+//       'Last Payment Date',
+//       'Last Payment Amount',
+//       'Status',
+//       'Agent Name',
+//       'State',
+//       'LGA',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const item of jsonData) {
+//       const row = Object.values(item).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const summaryRows = [
+//       'DEBT REPORT SUMMARY',
+//       `Generated At: ${new Date().toLocaleString()}`,
+//       `Total Outstanding Debt: NGN ${summary.totalOutstandingDebt.toLocaleString()}`,
+//       `Total Customers in Debt: ${summary.totalCustomersInDebt}`,
+//       `Total Sales with Outstanding Balance: ${summary.totalSalesWithDebt}`,
+//       `Overdue Payments: ${summary.overdueCount}`,
+//       `Total Records: ${allRecordsCount}`,
+//       `Page ${currentPage} of ${totalPages}`,
+//       '',
+//       '',
+//     ];
+
+//     const finalCsv = summaryRows.join('\n') + '\n' + csvRows.join('\n');
+
+//     return {
+//       csvData: finalCsv,
+//       actualCount: debtData.length,
+//       jsonData,
+//       summary,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== RENEWAL REPORT ====================
+//   private async exportRenewalReport(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     summary: any;
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const overdueDays = filters.overdueDays || 35;
+
+//     const pipeline: any[] = [
+//       {
+//         $match: {
+//           status: 'IN_INSTALLMENT',
+//           deletedAt: null,
+//           ...(filters.customerId && {
+//             customerId: { $oid: filters.customerId },
+//           }),
+//           ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'customers',
+//           localField: 'customerId',
+//           foreignField: '_id',
+//           as: 'customer',
+//         },
+//       },
+//       { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+//       {
+//         $lookup: {
+//           from: 'agents',
+//           localField: 'agentId',
+//           foreignField: '_id',
+//           as: 'agent',
+//         },
+//       },
+//       { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+//       {
+//         $lookup: {
+//           from: 'sales_items',
+//           localField: '_id',
+//           foreignField: 'saleId',
+//           as: 'saleItems',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'payments',
+//           let: { saleId: '$_id' },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: { $eq: ['$saleId', '$$saleId'] },
+//                 paymentStatus: 'COMPLETED',
+//               },
+//             },
+//             { $sort: { paymentDate: 1 } },
+//           ],
+//           as: 'payments',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           paymentCount: { $size: '$payments' },
+//           lastPayment: { $arrayElemAt: ['$payments', -1] },
+//           outstandingBalance: { $subtract: ['$totalPrice', '$totalPaid'] },
+//           saleItem: { $arrayElemAt: ['$saleItems', 0] },
+//           monthsSinceSale: {
+//             $floor: {
+//               $divide: [
+//                 {
+//                   $subtract: [
+//                     new Date(),
+//                     { $ifNull: ['$transactionDate', '$createdAt'] },
+//                   ],
+//                 },
+//                 1000 * 60 * 60 * 24 * 30,
+//               ],
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $addFields: {
+//           expectedMonthlyPayments: {
+//             $max: [
+//               0,
+//               {
+//                 $min: [
+//                   '$monthsSinceSale',
+//                   {
+//                     $subtract: [
+//                       { $ifNull: ['$totalInstallmentDuration', 0] },
+//                       1,
+//                     ],
+//                   },
+//                 ],
+//               },
+//             ],
+//           },
+//           actualMonthlyPayments: {
+//             $cond: {
+//               if: { $gt: [{ $size: '$payments' }, 0] },
+//               then: { $subtract: [{ $size: '$payments' }, 1] },
+//               else: 0,
+//             },
+//           },
+//           daysSinceLastPayment: {
+//             $cond: {
+//               if: { $gt: [{ $size: '$payments' }, 0] },
+//               then: {
+//                 $floor: {
+//                   $divide: [
+//                     { $subtract: [new Date(), '$lastPayment.paymentDate'] },
+//                     1000 * 60 * 60 * 24,
+//                   ],
+//                 },
+//               },
+//               else: {
+//                 $floor: {
+//                   $divide: [
+//                     { $subtract: [new Date(), '$createdAt'] },
+//                     1000 * 60 * 60 * 24,
+//                   ],
+//                 },
+//               },
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $addFields: {
+//           missedPayments: {
+//             $max: [
+//               0,
+//               {
+//                 $subtract: [
+//                   '$expectedMonthlyPayments',
+//                   '$actualMonthlyPayments',
+//                 ],
+//               },
+//             ],
+//           },
+//         },
+//       },
+//       {
+//         $match: {
+//           daysSinceLastPayment: { $gt: overdueDays },
+//           outstandingBalance: { $gt: 0 },
+//           ...(filters.state && {
+//             'customer.state': new RegExp(filters.state, 'i'),
+//           }),
+//           ...(filters.lga && {
+//             'customer.lga': new RegExp(filters.lga, 'i'),
+//           }),
+//         },
+//       },
+//     ];
+
+//     // Get total count
+//     const countPipeline = [...pipeline, { $count: 'total' }];
+//     const countResult = await this.prisma.sales.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     // Sort before pagination
+//     pipeline.push({ $sort: { missedPayments: -1, daysSinceLastPayment: -1 } });
+
+//     // Apply pagination
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     if (filters.page && filters.limit) {
+//       pipeline.push({ $skip: (currentPage - 1) * limit }, { $limit: limit });
+//     }
+
+//     const results = await this.prisma.sales.aggregateRaw({ pipeline });
+//     const renewalData = this.extractAggregationResults(results);
+
+//     // Summary
+//     const totalDefaulters = renewalData.length;
+//     const totalMissedPayments = renewalData.reduce(
+//       (sum, sale) => sum + (sale.missedPayments || 0),
+//       0,
+//     );
+
+//     const summary = {
+//       totalDefaulters,
+//       totalMissedPayments,
+//       overdueDaysThreshold: overdueDays,
+//       generatedAt: new Date().toISOString(),
+//     };
+
+//     // Process JSON data
+//     const jsonData = renewalData.map((sale) => {
+//       const missedPayments = sale.missedPayments || 0;
+//       const monthlyPayment = sale.totalMonthlyPayment || 0;
+
+//       return {
+//         customerId: this.extractObjectId(sale.customer?._id) || '',
+//         customerName: sale.customer
+//           ? `${sale.customer.firstname} ${sale.customer.lastname}`
+//           : '',
+//         customerPhone: sale.customer?.phone || '',
+//         saleId: this.extractObjectId(sale._id) || '',
+//         monthlyPayment,
+//         lastPaymentDate: this.formatDate(sale.lastPayment?.paymentDate),
+//         daysSinceLastPayment: sale.daysSinceLastPayment || 0,
+//         monthsDefaulted: Math.floor((sale.daysSinceLastPayment || 0) / 30),
+//         missedPayments,
+//         expectedPaymentAmount: monthlyPayment * missedPayments,
+//         outstandingBalance: parseFloat(
+//           (sale.outstandingBalance || 0).toFixed(2),
+//         ),
+//         agentName: sale.agentName || '',
+//         state: sale.customer?.state || '',
+//         lga: sale.customer?.lga || '',
+//       };
+//     });
+
+//     // Build CSV
+//     const headers = [
+//       'Customer ID',
+//       'Customer Name',
+//       'Customer Phone',
+//       'Sale ID',
+//       'Monthly Payment',
+//       'Last Payment Date',
+//       'Days Since Last Payment',
+//       'Months Defaulted',
+//       'Missed Payments',
+//       'Expected Payment Amount',
+//       'Outstanding Balance',
+//       'Agent Name',
+//       'State',
+//       'LGA',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const item of jsonData) {
+//       const row = Object.values(item).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const summaryRows = [
+//       'RENEWAL PAYMENT DEFAULTERS REPORT',
+//       `Generated At: ${new Date().toLocaleString()}`,
+//       `Overdue Threshold: ${overdueDays} days`,
+//       `Total Defaulters: ${summary.totalDefaulters}`,
+//       `Total Missed Payments: ${summary.totalMissedPayments}`,
+//       `Total Records: ${allRecordsCount}`,
+//       `Page ${currentPage} of ${totalPages}`,
+//       '',
+//       '',
+//     ];
+
+//     const finalCsv = summaryRows.join('\n') + '\n' + csvRows.join('\n');
+
+//     return {
+//       csvData: finalCsv,
+//       actualCount: renewalData.length,
+//       jsonData,
+//       summary,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== WEEKLY SUMMARY ====================
+//   private async exportWeeklySummary(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     summary: any;
+//   }> {
+//     const endDate = filters.endDate || new Date();
+//     const startDate =
+//       filters.startDate ||
+//       new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+//     // New sales pipeline
+//     const newSalesPipeline = [
+//       {
+//         $match: {
+//           createdAt: {
+//             $gte: { $date: startDate.toISOString() },
+//             $lte: { $date: endDate.toISOString() },
+//           },
+//           deletedAt: null,
+//           ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'sales_items',
+//           localField: '_id',
+//           foreignField: 'saleId',
+//           as: 'saleItems',
+//         },
+//       },
+//       { $unwind: { path: '$saleItems', preserveNullAndEmptyArrays: true } },
+//       {
+//         $group: {
+//           _id: null,
+//           totalSales: { $sum: 1 },
+//           totalCashSales: {
+//             $sum: {
+//               $cond: [{ $eq: ['$saleItems.paymentMode', 'ONE_OFF'] }, 1, 0],
+//             },
+//           },
+//           totalInstallmentSales: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ['$saleItems.paymentMode', 'INSTALLMENT'] },
+//                 1,
+//                 0,
+//               ],
+//             },
+//           },
+//           totalRevenue: { $sum: '$totalPrice' },
+//           totalCashRevenue: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ['$saleItems.paymentMode', 'ONE_OFF'] },
+//                 '$totalPrice',
+//                 0,
+//               ],
+//             },
+//           },
+//           totalInstallmentRevenue: {
+//             $sum: {
+//               $cond: [
+//                 { $eq: ['$saleItems.paymentMode', 'INSTALLMENT'] },
+//                 '$totalPrice',
+//                 0,
+//               ],
+//             },
+//           },
+//         },
+//       },
+//     ];
+
+//     // Renewals pipeline
+//     const renewalsPipeline = [
+//       {
+//         $match: {
+//           paymentDate: {
+//             $gte: { $date: startDate.toISOString() },
+//             $lte: { $date: endDate.toISOString() },
+//           },
+//           paymentStatus: 'COMPLETED',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'sales',
+//           localField: 'saleId',
+//           foreignField: '_id',
+//           as: 'sale',
+//         },
+//       },
+//       { $unwind: '$sale' },
+//       ...(filters.agentId
+//         ? [{ $match: { 'sale.agentId': { $oid: filters.agentId } } }]
+//         : []),
+//       {
+//         $lookup: {
+//           from: 'payments',
+//           let: { saleId: '$sale._id' },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: { $eq: ['$saleId', '$$saleId'] },
+//                 paymentStatus: 'COMPLETED',
+//               },
+//             },
+//             { $sort: { paymentDate: 1 } },
+//           ],
+//           as: 'allPayments',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           paymentIndex: { $indexOfArray: ['$allPayments._id', '$_id'] },
+//         },
+//       },
+//       {
+//         $match: {
+//           'sale.status': { $in: ['IN_INSTALLMENT', 'COMPLETED'] },
+//           paymentIndex: { $gt: 0 },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: null,
+//           totalRenewals: { $sum: 1 },
+//           totalRenewalAmount: { $sum: '$amount' },
+//         },
+//       },
+//     ];
+
+//     const newSalesResults = await this.prisma.sales.aggregateRaw({
+//       pipeline: newSalesPipeline,
+//     });
+//     const renewalsResults = await this.prisma.payment.aggregateRaw({
+//       pipeline: renewalsPipeline,
+//     });
+
+//     const newSalesData = this.extractAggregationResults(newSalesResults)[0] || {
+//       totalSales: 0,
+//       totalCashSales: 0,
+//       totalInstallmentSales: 0,
+//       totalRevenue: 0,
+//       totalCashRevenue: 0,
+//       totalInstallmentRevenue: 0,
+//     };
+
+//     const renewalsData = this.extractAggregationResults(renewalsResults)[0] || {
+//       totalRenewals: 0,
+//       totalRenewalAmount: 0,
+//     };
+
+//     const summary = {
+//       periodStart: startDate.toISOString(),
+//       periodEnd: endDate.toISOString(),
+//       newSales: {
+//         totalCount: newSalesData.totalSales || 0,
+//         cashSalesCount: newSalesData.totalCashSales || 0,
+//         installmentSalesCount: newSalesData.totalInstallmentSales || 0,
+//         totalRevenue: parseFloat((newSalesData.totalRevenue || 0).toFixed(2)),
+//         cashRevenue: parseFloat(
+//           (newSalesData.totalCashRevenue || 0).toFixed(2),
+//         ),
+//         installmentRevenue: parseFloat(
+//           (newSalesData.totalInstallmentRevenue || 0).toFixed(2),
+//         ),
+//       },
+//       renewals: {
+//         totalCount: renewalsData.totalRenewals || 0,
+//         totalAmount: parseFloat(
+//           (renewalsData.totalRenewalAmount || 0).toFixed(2),
+//         ),
+//       },
+//       grandTotal: {
+//         totalRevenue: parseFloat(
+//           (
+//             (newSalesData.totalRevenue || 0) +
+//             (renewalsData.totalRenewalAmount || 0)
+//           ).toFixed(2),
+//         ),
+//       },
+//     };
+
+//     const jsonData = [summary];
+
+//     const csvRows = [
+//       'WEEKLY SUMMARY REPORT',
+//       `Period: ${this.formatDate(startDate)} to ${this.formatDate(endDate)}`,
+//       `Generated At: ${new Date().toLocaleString()}`,
+//       '',
+//       'NEW SALES',
+//       `Total New Sales,${summary.newSales.totalCount}`,
+//       `Cash Sales (Quantity),${summary.newSales.cashSalesCount}`,
+//       `Installment Sales (Quantity),${summary.newSales.installmentSalesCount}`,
+//       `Total Revenue,NGN ${summary.newSales.totalRevenue.toLocaleString()}`,
+//       `Cash Sales Revenue,NGN ${summary.newSales.cashRevenue.toLocaleString()}`,
+//       `Installment Sales Revenue,NGN ${summary.newSales.installmentRevenue.toLocaleString()}`,
+//       '',
+//       'RENEWALS/REACTIVATIONS',
+//       `Total Renewals,${summary.renewals.totalCount}`,
+//       `Total Amount Paid,NGN ${summary.renewals.totalAmount.toLocaleString()}`,
+//       '',
+//       'GRAND TOTAL',
+//       `Combined Revenue,NGN ${summary.grandTotal.totalRevenue.toLocaleString()}`,
+//     ];
+
+//     return {
+//       csvData: csvRows.join('\n'),
+//       actualCount: 1,
+//       jsonData,
+//       summary,
+//     };
+//   }
+
+//   // ==================== MONTHLY SUMMARY ====================
+//   private async exportMonthlySummary(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     summary: any;
+//   }> {
+//     const endDate = filters.endDate || new Date();
+//     const startDate =
+//       filters.startDate ||
+//       new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+//     const result = await this.exportWeeklySummary({
+//       ...filters,
+//       startDate,
+//       endDate,
+//       exportType: ExportType.MONTHLY_SUMMARY,
+//     });
+
+//     result.csvData = result.csvData.replace(
+//       'WEEKLY SUMMARY REPORT',
+//       'MONTHLY SUMMARY REPORT',
+//     );
+
+//     return result;
+//   }
+
+//   // ==================== SALES EXPORT ====================
+//   private async exportSales(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const pipeline = this.buildSalesAggregationPipeline(filters);
+
+//     // Get count
+//     const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+//     const countResult = await this.prisma.sales.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     const results = await this.prisma.sales.aggregateRaw({ pipeline });
+//     const salesData = this.extractAggregationResults(results);
+
+//     const jsonData = salesData.map((sale) => {
+//       const paymentCount = sale.paymentCount || 0;
+//       const outstandingBalance = (sale.totalPrice || 0) - (sale.totalPaid || 0);
+//       const lastPaymentDate = sale.lastPayment?.paymentDate;
+//       const daysSinceLastPayment = lastPaymentDate
+//         ? Math.floor(
+//             (new Date().getTime() -
+//               new Date(lastPaymentDate.$date || lastPaymentDate).getTime()) /
+//               (1000 * 60 * 60 * 24),
+//           )
+//         : null;
+
+//       return {
+//         saleId: this.extractObjectId(sale._id) || '',
+//         transactionDate: this.formatDate(
+//           sale.transactionDate || sale.createdAt,
+//         ),
+//         status: sale.status || '',
+//         agentName: sale.agentName || '',
+//         customerName: sale.customer
+//           ? `${sale.customer.firstname} ${sale.customer.lastname}`
+//           : '',
+//         customerPhone: sale.customer?.phone || '',
+//         productName: sale.product?.name || '',
+//         serialNumber: sale.devices?.[0]?.serialNumber || '',
+//         paymentMode: sale.saleItems?.[0]?.paymentMode || '',
+//         totalPrice: sale.totalPrice || 0,
+//         totalPaid: sale.totalPaid || 0,
+//         outstandingBalance: parseFloat(outstandingBalance.toFixed(2)),
+//         monthlyPayment: sale.totalMonthlyPayment || 0,
+//         remainingInstallments: sale.remainingInstallments || 0,
+//         paymentCount,
+//         lastPaymentDate: this.formatDate(lastPaymentDate),
+//         daysSinceLastPayment: daysSinceLastPayment?.toString() || 'N/A',
+//         state: sale.customer?.state || '',
+//         lga: sale.customer?.lga || '',
+//       };
+//     });
+
+//     const headers = [
+//       'Sale ID',
+//       'Transaction Date',
+//       'Status',
+//       'Agent Name',
+//       'Customer Name',
+//       'Customer Phone',
+//       'Product Name',
+//       'Serial Number',
+//       'Payment Mode',
+//       'Total Price',
+//       'Total Paid',
+//       'Outstanding Balance',
+//       'Monthly Payment',
+//       'Remaining Installments',
+//       'Payment Count',
+//       'Last Payment Date',
+//       'Days Since Last Payment',
+//       'State',
+//       'LGA',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const sale of jsonData) {
+//       const row = Object.values(sale).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     return {
+//       csvData: csvRows.join('\n'),
+//       actualCount: salesData.length,
+//       jsonData,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== CUSTOMERS EXPORT ====================
+//   private async exportCustomers(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const pipeline = this.buildCustomersAggregationPipeline(filters);
+
+//     // Get count
+//     const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+//     const countResult = await this.prisma.customer.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     const results = await this.prisma.customer.aggregateRaw({ pipeline });
+//     const customersData = this.extractAggregationResults(results);
+
+//     const jsonData = customersData.map((customer) => ({
+//       customerId: this.extractObjectId(customer._id) || '',
+//       firstName: customer.firstname || '',
+//       lastName: customer.lastname || '',
+//       email: customer.email || '',
+//       phone: customer.phone || '',
+//       state: customer.state || '',
+//       lga: customer.lga || '',
+//       totalSales: customer.salesCount || 0,
+//       totalSpent: customer.totalSpent || 0,
+//       outstandingDebt: customer.outstandingDebt || 0,
+//       createdDate: this.formatDate(customer.createdAt),
+//     }));
+
+//     const headers = [
+//       'Customer ID',
+//       'First Name',
+//       'Last Name',
+//       'Email',
+//       'Phone',
+//       'State',
+//       'LGA',
+//       'Total Sales',
+//       'Total Spent',
+//       'Outstanding Debt',
+//       'Created Date',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const customer of jsonData) {
+//       const row = Object.values(customer).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     return {
+//       csvData: csvRows.join('\n'),
+//       actualCount: customersData.length,
+//       jsonData,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== PAYMENTS EXPORT ====================
+//   private async exportPayments(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const pipeline = this.buildPaymentsAggregationPipeline(filters);
+
+//     // Get count
+//     const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+//     const countResult = await this.prisma.payment.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     const results = await this.prisma.payment.aggregateRaw({ pipeline });
+//     const paymentsData = this.extractAggregationResults(results);
+
+//     const jsonData = paymentsData.map((payment) => ({
+//       paymentId: this.extractObjectId(payment._id) || '',
+//       transactionReference: payment.transactionRef || '',
+//       amount: payment.amount || 0,
+//       status: payment.paymentStatus || '',
+//       method: payment.paymentMethod || '',
+//       paymentDate: this.formatDate(payment.paymentDate),
+//       customerName: payment.customer
+//         ? `${payment.customer.firstname} ${payment.customer.lastname}`
+//         : '',
+//       customerPhone: payment.customer?.phone || '',
+//       agentName: payment.sale?.agentName || '',
+//     }));
+
+//     const headers = [
+//       'Payment ID',
+//       'Transaction Reference',
+//       'Amount',
+//       'Status',
+//       'Method',
+//       'Payment Date',
+//       'Customer Name',
+//       'Customer Phone',
+//       'Agent Name',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const payment of jsonData) {
+//       const row = Object.values(payment).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     return {
+//       csvData: csvRows.join('\n'),
+//       actualCount: paymentsData.length,
+//       jsonData,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== DEVICES EXPORT ====================
+//   private async exportDevices(
+//     filters: ExportDataQueryDto,
+//   ): Promise<{
+//     csvData: string;
+//     actualCount: number;
+//     jsonData: any[];
+//     allRecordsCount: number;
+//     currentPage: number;
+//     totalPages: number;
+//   }> {
+//     const pipeline = this.buildDevicesAggregationPipeline(filters);
+
+//     // Get count
+//     const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+//     const countResult = await this.prisma.device.aggregateRaw({
+//       pipeline: countPipeline,
+//     });
+//     const allRecordsCount =
+//       this.extractAggregationResults(countResult)[0]?.total || 0;
+
+//     const results = await this.prisma.device.aggregateRaw({ pipeline });
+//     const devicesData = this.extractAggregationResults(results);
+
+//     const jsonData = devicesData.map((device) => ({
+//       serialNumber: device.serialNumber || '',
+//       installationStatus: device.installationStatus || '',
+//       customerName: device.customer
+//         ? `${device.customer.firstname} ${device.customer.lastname}`
+//         : '',
+//       customerPhone: device.customer?.phone || '',
+//       productName: device.product?.name || '',
+//       agentName: device.sale?.agentName || '',
+//       createdDate: this.formatDate(device.createdAt),
+//     }));
+
+//     const headers = [
+//       'Serial Number',
+//       'Installation Status',
+//       'Customer Name',
+//       'Customer Phone',
+//       'Product Name',
+//       'Agent Name',
+//       'Created Date',
+//     ];
+
+//     const csvRows = [headers.join(',')];
+//     for (const device of jsonData) {
+//       const row = Object.values(device).map((val) => this.escapeCSV(val));
+//       csvRows.push(row.join(','));
+//     }
+
+//     const currentPage = filters.page || 1;
+//     const limit = filters.limit || allRecordsCount;
+//     const totalPages = Math.ceil(allRecordsCount / limit);
+
+//     return {
+//       csvData: csvRows.join('\n'),
+//       actualCount: devicesData.length,
+//       jsonData,
+//       allRecordsCount,
+//       currentPage,
+//       totalPages,
+//     };
+//   }
+
+//   // ==================== PIPELINE BUILDERS ====================
+//   private buildSalesAggregationPipeline(filters: ExportDataQueryDto): any[] {
+//     const pipeline: any[] = [];
+
+//     const matchStage = this.buildSalesMatchStage(filters);
+//     if (Object.keys(matchStage).length > 0) {
+//       pipeline.push({ $match: matchStage });
+//     }
+
+//     pipeline.push(
+//       {
+//         $lookup: {
+//           from: 'customers',
+//           localField: 'customerId',
+//           foreignField: '_id',
+//           as: 'customer',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'agents',
+//           localField: 'agentId',
+//           foreignField: '_id',
+//           as: 'agent',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'sales_items',
+//           localField: '_id',
+//           foreignField: 'saleId',
+//           as: 'saleItems',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'devices',
+//           localField: 'saleItems.deviceIDs',
+//           foreignField: '_id',
+//           as: 'devices',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'products',
+//           localField: 'saleItems.productId',
+//           foreignField: '_id',
+//           as: 'product',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'payments',
+//           let: { saleId: '$_id' },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: { $eq: ['$saleId', '$saleId'] },
+//                 paymentStatus: 'COMPLETED',
+//               },
+//             },
+//             { $sort: { paymentDate: -1 } },
+//           ],
+//           as: 'payments',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           customer: { $arrayElemAt: ['$customer', 0] },
+//           agent: { $arrayElemAt: ['$agent', 0] },
+//           product: { $arrayElemAt: ['$product', 0] },
+//           paymentCount: { $size: '$payments' },
+//           lastPayment: { $arrayElemAt: ['$payments', 0] },
+//         },
+//       },
+//     );
+
+//     // Sort before pagination
+//     pipeline.push({ $sort: { createdAt: -1 } });
+
+//     // Apply pagination
+//     if (filters.page && filters.limit) {
+//       const skip = (filters.page - 1) * filters.limit;
+//       pipeline.push({ $skip: skip }, { $limit: filters.limit });
+//     }
+
+//     return pipeline;
+//   }
+
+//   private buildCustomersAggregationPipeline(
+//     filters: ExportDataQueryDto,
+//   ): any[] {
+//     const pipeline: any[] = [];
+
+//     const matchStage = this.buildCustomersMatchStage(filters);
+//     if (Object.keys(matchStage).length > 0) {
+//       pipeline.push({ $match: matchStage });
+//     }
+
+//     pipeline.push(
+//       {
+//         $lookup: {
+//           from: 'sales',
+//           localField: '_id',
+//           foreignField: 'customerId',
+//           as: 'sales',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           salesCount: { $size: '$sales' },
+//           totalSpent: { $sum: '$sales.totalPaid' },
+//           outstandingDebt: {
+//             $sum: {
+//               $map: {
+//                 input: '$sales',
+//                 as: 'sale',
+//                 in: { $subtract: ['$sale.totalPrice', '$sale.totalPaid'] },
+//               },
+//             },
+//           },
+//         },
+//       },
+//     );
+
+//     if (filters.hasOutstandingDebt) {
+//       pipeline.push({ $match: { outstandingDebt: { $gt: 0 } } });
+//     }
+
+//     // Sort before pagination
+//     pipeline.push({ $sort: { createdAt: -1 } });
+
+//     // Apply pagination
+//     if (filters.page && filters.limit) {
+//       const skip = (filters.page - 1) * filters.limit;
+//       pipeline.push({ $skip: skip }, { $limit: filters.limit });
+//     }
+
+//     return pipeline;
+//   }
+
+//   private buildPaymentsAggregationPipeline(filters: ExportDataQueryDto): any[] {
+//     const pipeline: any[] = [];
+
+//     const matchStage = this.buildPaymentsMatchStage(filters);
+//     if (Object.keys(matchStage).length > 0) {
+//       pipeline.push({ $match: matchStage });
+//     }
+
+//     pipeline.push(
+//       {
+//         $lookup: {
+//           from: 'sales',
+//           localField: 'saleId',
+//           foreignField: '_id',
+//           as: 'sale',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           sale: { $arrayElemAt: ['$sale', 0] },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'customers',
+//           localField: 'sale.customerId',
+//           foreignField: '_id',
+//           as: 'customer',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           customer: { $arrayElemAt: ['$customer', 0] },
+//         },
+//       },
+//     );
+
+//     // Sort before pagination
+//     pipeline.push({ $sort: { paymentDate: -1 } });
+
+//     // Apply pagination
+//     if (filters.page && filters.limit) {
+//       const skip = (filters.page - 1) * filters.limit;
+//       pipeline.push({ $skip: skip }, { $limit: filters.limit });
+//     }
+
+//     return pipeline;
+//   }
+
+//   private buildDevicesAggregationPipeline(filters: ExportDataQueryDto): any[] {
+//     const pipeline: any[] = [];
+
+//     const matchStage = this.buildDevicesMatchStage(filters);
+//     if (Object.keys(matchStage).length > 0) {
+//       pipeline.push({ $match: matchStage });
+//     }
+
+//     pipeline.push(
+//       {
+//         $lookup: {
+//           from: 'sales_items',
+//           localField: '_id',
+//           foreignField: 'deviceIDs',
+//           as: 'saleItems',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'sales',
+//           localField: 'saleItems.saleId',
+//           foreignField: '_id',
+//           as: 'sale',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'customers',
+//           localField: 'sale.customerId',
+//           foreignField: '_id',
+//           as: 'customer',
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: 'products',
+//           localField: 'saleItems.productId',
+//           foreignField: '_id',
+//           as: 'product',
+//         },
+//       },
+//       {
+//         $addFields: {
+//           sale: { $arrayElemAt: ['$sale', 0] },
+//           customer: { $arrayElemAt: ['$customer', 0] },
+//           product: { $arrayElemAt: ['$product', 0] },
+//         },
+//       },
+//     );
+
+//     // Sort before pagination
+//     pipeline.push({ $sort: { createdAt: -1 } });
+
+//     // Apply pagination
+//     if (filters.page && filters.limit) {
+//       const skip = (filters.page - 1) * filters.limit;
+//       pipeline.push({ $skip: skip }, { $limit: filters.limit });
+//     }
+
+//     return pipeline;
+//   }
+
+//   // ==================== MATCH STAGE BUILDERS ====================
+//   private buildSalesMatchStage(filters: ExportDataQueryDto): any {
+//     const match: any = { deletedAt: null };
+
+//     if (filters.startDate || filters.endDate) {
+//       match.createdAt = {};
+//       if (filters.startDate)
+//         match.createdAt.$gte = { $date: filters.startDate.toISOString() };
+//       if (filters.endDate)
+//         match.createdAt.$lte = { $date: filters.endDate.toISOString() };
+//     }
+
+//     if (filters.salesStatus) match.status = filters.salesStatus;
+//     if (filters.customerId) match.customerId = { $oid: filters.customerId };
+//     if (filters.agentId) match.agentId = { $oid: filters.agentId };
+
+//     return match;
+//   }
+
+//   private buildCustomersMatchStage(filters: ExportDataQueryDto): any {
+//     const match: any = { deletedAt: null };
+
+//     if (filters.customerId) match._id = { $oid: filters.customerId };
+//     if (filters.state) match.state = new RegExp(filters.state, 'i');
+//     if (filters.lga) match.lga = new RegExp(filters.lga, 'i');
+
+//     return match;
+//   }
+
+//   private buildPaymentsMatchStage(filters: ExportDataQueryDto): any {
+//     const match: any = { deletedAt: null };
+
+//     if (filters.paymentMethod) match.paymentMethod = filters.paymentMethod;
+
+//     if (filters.startDate || filters.endDate) {
+//       match.paymentDate = {};
+//       if (filters.startDate)
+//         match.paymentDate.$gte = { $date: filters.startDate.toISOString() };
+//       if (filters.endDate)
+//         match.paymentDate.$lte = { $date: filters.endDate.toISOString() };
+//     }
+
+//     return match;
+//   }
+
+//   private buildDevicesMatchStage(filters: ExportDataQueryDto): any {
+//     const match: any = {};
+
+//     if (filters.startDate || filters.endDate) {
+//       match.createdAt = {};
+//       if (filters.startDate)
+//         match.createdAt.$gte = { $date: filters.startDate.toISOString() };
+//       if (filters.endDate)
+//         match.createdAt.$lte = { $date: filters.endDate.toISOString() };
+//     }
+
+//     return match;
+//   }
+
+//   // ==================== UTILITY METHODS ====================
+//   private validateFilters(filters: ExportDataQueryDto): void {
+//     if (!filters.exportType) {
+//       throw new BadRequestException('Export type is required');
+//     }
+
+//     if (filters.page && filters.page < 1) {
+//       throw new BadRequestException('Page must be greater than 0');
+//     }
+
+//     if (filters.limit && (filters.limit < 1 || filters.limit > 5000)) {
+//       throw new BadRequestException('Limit must be between 1 and 5000');
+//     }
+
+//     if (
+//       filters.startDate &&
+//       filters.endDate &&
+//       filters.startDate > filters.endDate
+//     ) {
+//       throw new BadRequestException('Start date must be before end date');
+//     }
+//   }
+
+//   private extractAggregationResults(results: any): any[] {
+//     return Array.isArray(results)
+//       ? results
+//       : (results as any)?.result || Object.values(results)[0] || [];
+//   }
+
+//   private escapeCSV(value: any): string {
+//     if (value === null || value === undefined) return '';
+
+//     const stringValue = String(value);
+
+//     if (
+//       stringValue.includes(',') ||
+//       stringValue.includes('"') ||
+//       stringValue.includes('\n')
+//     ) {
+//       return `"${stringValue.replace(/"/g, '""')}"`;
+//     }
+
+//     return stringValue;
+//   }
+
+//   private formatDate(date: any): string {
+//     if (!date) return '';
+
+//     try {
+//       const dateObj = date.$date ? new Date(date.$date) : new Date(date);
+//       const day = dateObj.getDate().toString().padStart(2, '0');
+//       const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+//       const year = dateObj.getFullYear();
+//       return `${day}/${month}/${year}`;
+//     } catch {
+//       return '';
+//     }
+//   }
+
+//   private extractObjectId(id: any): string {
+//     if (!id) return '';
+//     if (typeof id === 'string') return id;
+//     if (typeof id === 'object' && id.$oid) return id.$oid;
+//     if (typeof id === 'object' && id._bsontype === 'ObjectID')
+//       return id.toString();
+//     return String(id);
+//   }
+
+//   private calculateNextPaymentDueDate(sale: any): Date | null {
+//     if (sale.lastPayment?.paymentDate) {
+//       const lastPayDate = new Date(
+//         sale.lastPayment.paymentDate.$date || sale.lastPayment.paymentDate,
+//       );
+//       const nextDue = new Date(lastPayDate);
+//       nextDue.setMonth(nextDue.getMonth() + 1);
+//       return nextDue;
+//     } else if (sale.transactionDate) {
+//       const transDate = new Date(
+//         sale.transactionDate.$date || sale.transactionDate,
+//       );
+//       const nextDue = new Date(transDate);
+//       nextDue.setMonth(nextDue.getMonth() + 1);
+//       return nextDue;
+//     }
+//     return null;
+//   }
+// }
+
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExportDataQueryDto } from './dto/export-query.dto';
+import { ExportDataQueryDto, ExportType } from './dto/export-query.dto';
 
 export interface ExportResult {
-  data: string; // CSV content
-  jsonData?: any[]; // Raw data array for JSON format
+  data: string;
+  jsonData?: any[];
   totalRecords: number;
-  estimatedCount?: number;
+  allRecordsCount?: number;
+  currentPage?: number;
+  totalPages?: number;
   exportType: string;
   filters: ExportDataQueryDto;
   generatedAt: Date;
   fileSize: number;
+  summary?: any;
 }
 
 @Injectable()
@@ -26,37 +1804,84 @@ export class ExportService {
     const startTime = Date.now();
     this.logger.log(`Starting ${filters.exportType} export`, { filters });
 
-    const estimatedCount = await this.estimateRecordCount(filters);
-
-    if (estimatedCount > this.MAX_RECORDS_PER_REQUEST) {
-      throw new BadRequestException(
-        `Export would return ${estimatedCount} records. Maximum allowed is ${this.MAX_RECORDS_PER_REQUEST}. Please narrow your filters or use pagination.`,
-      );
-    }
-
     let csvData: string;
     let actualCount: number;
     let jsonData: any[];
+    let summary: any;
+    let allRecordsCount: number;
+    let currentPage: number;
+    let totalPages: number;
 
     switch (filters.exportType) {
-      case 'sales':
-        ({ csvData, actualCount, jsonData } = await this.exportSales(filters));
+      case ExportType.DEBT_REPORT:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          summary,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportDebtReport(filters));
         break;
-      case 'customers':
-        ({ csvData, actualCount, jsonData } =
-          await this.exportCustomers(filters));
+      case ExportType.RENEWAL_REPORT:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          summary,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportRenewalReport(filters));
         break;
-      case 'payments':
-        ({ csvData, actualCount, jsonData } =
-          await this.exportPayments(filters));
+      case ExportType.WEEKLY_SUMMARY:
+        ({ csvData, actualCount, jsonData, summary } =
+          await this.exportWeeklySummary(filters));
         break;
-      case 'devices':
-        ({ csvData, actualCount, jsonData } =
-          await this.exportDevices(filters));
+      case ExportType.MONTHLY_SUMMARY:
+        ({ csvData, actualCount, jsonData, summary } =
+          await this.exportMonthlySummary(filters));
         break;
-      case 'comprehensive':
-        ({ csvData, actualCount, jsonData } =
-          await this.exportComprehensive(filters));
+      case ExportType.SALES:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportSales(filters));
+        break;
+      case ExportType.CUSTOMERS:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportCustomers(filters));
+        break;
+      case ExportType.PAYMENTS:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportPayments(filters));
+        break;
+      case ExportType.DEVICES:
+        ({
+          csvData,
+          actualCount,
+          jsonData,
+          allRecordsCount,
+          currentPage,
+          totalPages,
+        } = await this.exportDevices(filters));
         break;
       default:
         throw new BadRequestException(
@@ -73,48 +1898,1016 @@ export class ExportService {
       data: csvData,
       jsonData,
       totalRecords: actualCount,
-      estimatedCount,
+      allRecordsCount,
+      currentPage,
+      totalPages,
       exportType: filters.exportType,
       filters,
       generatedAt: new Date(),
       fileSize: Buffer.byteLength(csvData, 'utf8'),
+      summary,
     };
   }
 
-  private async exportSales(
-    filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
+  // ==================== DEBT REPORT ====================
+  // ANSWERS: Yes, this calculates debt INDIVIDUALLY for each sale record
+  // If customer has 2 sales, both appear as separate rows in the report
+  private async exportDebtReport(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    summary: any;
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
+    const pipeline: any[] = [
+      {
+        $match: {
+          status: { $in: ['IN_INSTALLMENT', 'COMPLETED'] },
+          deletedAt: null,
+          ...(filters.customerId && {
+            customerId: { $oid: filters.customerId },
+          }),
+          ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+          ...(filters.salesStatus && { status: filters.salesStatus }),
+        },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'agents',
+          localField: 'agentId',
+          foreignField: '_id',
+          as: 'agent',
+        },
+      },
+      { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: 1 } },
+          ],
+          as: 'payments',
+        },
+      },
+      {
+        $addFields: {
+          outstandingBalance: { $subtract: ['$totalPrice', '$totalPaid'] },
+          paymentCount: { $size: '$payments' },
+          firstPayment: { $arrayElemAt: ['$payments', 0] },
+          lastPayment: { $arrayElemAt: ['$payments', -1] },
+          saleItem: { $arrayElemAt: ['$saleItems', 0] },
+        },
+      },
+      {
+        $addFields: {
+          monthsSinceSale: {
+            $floor: {
+              $divide: [
+                {
+                  $subtract: [
+                    new Date(),
+                    {
+                      $toDate: {
+                        $ifNull: ['$transactionDate', '$createdAt'],
+                      },
+                    },
+                  ],
+                },
+                2592000000,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          isInstallment: { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+          // Expected monthly payments based on time elapsed
+          expectedMonthlyPayments: {
+            $cond: {
+              if: { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+              then: {
+                $max: [
+                  0,
+                  {
+                    $min: [
+                      '$monthsSinceSale',
+                      {
+                        $subtract: [
+                          { $ifNull: ['$totalInstallmentDuration', 0] },
+                          1, // Subtract 1 for initial payment
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              else: 0,
+            },
+          },
+          // Actual monthly payments (excluding initial)
+          actualMonthlyPayments: {
+            $cond: {
+              if: { $gt: [{ $size: '$payments' }, 0] },
+              then: { $subtract: [{ $size: '$payments' }, 1] },
+              else: 0,
+            },
+          },
+          // Days since last payment - SAFE VERSION
+          daysSinceLastPayment: {
+            $cond: {
+              if: { $gt: [{ $size: '$payments' }, 0] },
+              then: {
+                $floor: {
+                  $divide: [
+                    {
+                      $subtract: [
+                        new Date(),
+                        { $toDate: '$lastPayment.paymentDate' },
+                      ],
+                    },
+                    86400000,
+                  ],
+                },
+              },
+              else: {
+                $floor: {
+                  $divide: [
+                    {
+                      $subtract: [new Date(), { $toDate: '$createdAt' }],
+                    },
+                    86400000,
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Missed payments
+          missedPayments: {
+            $max: [
+              0,
+              {
+                $subtract: [
+                  '$expectedMonthlyPayments',
+                  '$actualMonthlyPayments',
+                ],
+              },
+            ],
+          },
+          // Expected amount paid by now
+          expectedAmountPaid: {
+            $add: [
+              { $ifNull: ['$installmentStartingPrice', 0] },
+              {
+                $multiply: [
+                  { $ifNull: ['$totalMonthlyPayment', 0] },
+                  '$expectedMonthlyPayments',
+                ],
+              },
+            ],
+          },
+          // Is overdue determination
+          isOverdue: {
+            $and: [
+              { $eq: ['$saleItem.paymentMode', 'INSTALLMENT'] },
+              { $gt: ['$outstandingBalance', 0] },
+              {
+                $or: [
+                  {
+                    $gt: [
+                      {
+                        $subtract: [
+                          '$expectedMonthlyPayments',
+                          '$actualMonthlyPayments',
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                  { $gt: ['$daysSinceLastPayment', 35] },
+                ],
+              },
+            ],
+          },
+          // Payment deficit
+          paymentDeficit: {
+            $max: [
+              0,
+              {
+                $subtract: [
+                  {
+                    $add: [
+                      { $ifNull: ['$installmentStartingPrice', 0] },
+                      {
+                        $multiply: [
+                          { $ifNull: ['$totalMonthlyPayment', 0] },
+                          '$expectedMonthlyPayments',
+                        ],
+                      },
+                    ],
+                  },
+                  '$totalPaid',
+                ],
+              },
+            ],
+          },
+          // Accurate remaining months
+          accurateRemainingMonths: {
+            $cond: {
+              if: { $gt: ['$totalMonthlyPayment', 0] },
+              then: {
+                $ceil: {
+                  $divide: ['$outstandingBalance', '$totalMonthlyPayment'],
+                },
+              },
+              else: 0,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          outstandingBalance: { $gt: 0 },
+          ...(filters.state && {
+            'customer.state': new RegExp(filters.state, 'i'),
+          }),
+          ...(filters.lga && {
+            'customer.lga': new RegExp(filters.lga, 'i'),
+          }),
+          ...(filters.overdueDays && {
+            daysSinceLastPayment: { $gte: filters.overdueDays },
+          }),
+        },
+      },
+    ];
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.prisma.sales.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
+
+    // Sort before pagination
+    pipeline.push({
+      $sort: { missedPayments: -1, daysSinceLastPayment: -1 },
+    });
+
+    // Apply pagination
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+    const totalPages = Math.ceil(allRecordsCount / limit);
+
+    if (filters.page && filters.limit) {
+      pipeline.push({ $skip: (currentPage - 1) * limit }, { $limit: limit });
+    }
+
+    const results = await this.prisma.sales.aggregateRaw({
+      pipeline,
+      options: { allowDiskUse: true },
+    });
+    const debtData = this.extractAggregationResults(results);
+
+    // Calculate summary - NOTE: This aggregates across ALL sales (even multiple per customer)
+    const totalOutstandingDebt = debtData.reduce(
+      (sum, sale) => sum + (sale.outstandingBalance || 0),
+      0,
+    );
+    const totalCustomersInDebt = new Set(
+      debtData.map((sale) => this.extractObjectId(sale.customer?._id)),
+    ).size;
+    const overdueCount = debtData.filter((sale) => sale.isOverdue).length;
+
+    const summary = {
+      totalOutstandingDebt: parseFloat(totalOutstandingDebt.toFixed(2)),
+      totalCustomersInDebt, // Unique customers
+      totalSalesWithDebt: debtData.length, // Total sale records
+      overdueCount,
+      generatedAt: new Date().toISOString(),
+    };
+
+    // Process JSON data
+    const jsonData = debtData.map((sale) => {
+      const nextPaymentDueDate = this.calculateNextPaymentDueDate(sale);
+      const daysPastDue = nextPaymentDueDate
+        ? Math.max(
+            0,
+            Math.floor(
+              (new Date().getTime() - nextPaymentDueDate.getTime()) / 86400000,
+            ),
+          )
+        : 0;
+
+      return {
+        customerId: this.extractObjectId(sale.customer?._id) || '',
+        customerName: sale.customer
+          ? `${sale.customer.firstname} ${sale.customer.lastname}`
+          : '',
+        customerPhone: sale.customer?.phone || '',
+        customerEmail: sale.customer?.email || '',
+        saleId: this.extractObjectId(sale._id) || '',
+        transactionDate: this.formatDate(
+          sale.transactionDate || sale.createdAt,
+        ),
+        totalPrice: sale.totalPrice || 0,
+        totalPaid: sale.totalPaid || 0,
+        outstandingBalance: parseFloat(
+          (sale.outstandingBalance || 0).toFixed(2),
+        ),
+        monthlyPayment: sale.totalMonthlyPayment || 0,
+        initialPayment: sale.installmentStartingPrice || 0,
+        totalInstallmentMonths: sale.totalInstallmentDuration || 0,
+        remainingInstallments: sale.remainingInstallments || 0,
+        accurateRemainingMonths: sale.accurateRemainingMonths || 0,
+        totalPaymentsMade: sale.paymentCount || 0,
+        expectedPaymentsByNow: sale.expectedMonthlyPayments || 0,
+        actualMonthlyPaymentsMade: sale.actualMonthlyPayments || 0,
+        missedPayments: sale.missedPayments || 0,
+        expectedAmountPaidByNow: parseFloat(
+          (sale.expectedAmountPaid || 0).toFixed(2),
+        ),
+        actualAmountPaid: sale.totalPaid || 0,
+        paymentDeficit: parseFloat((sale.paymentDeficit || 0).toFixed(2)),
+        isOverdue: sale.isOverdue || false,
+        daysSinceLastPayment: sale.daysSinceLastPayment || 0,
+        nextPaymentDueDate: nextPaymentDueDate
+          ? this.formatDate(nextPaymentDueDate)
+          : '',
+        daysPastDue,
+        lastPaymentDate: this.formatDate(sale.lastPayment?.paymentDate),
+        lastPaymentAmount: sale.lastPayment?.amount || 0,
+        status: sale.status || '',
+        agentName: sale.agentName || '',
+        state: sale.customer?.state || '',
+        lga: sale.customer?.lga || '',
+      };
+    });
+
+    // Build CSV
+    const headers = [
+      'Customer ID',
+      'Customer Name',
+      'Customer Phone',
+      'Customer Email',
+      'Sale ID',
+      'Transaction Date',
+      'Total Price',
+      'Total Paid',
+      'Outstanding Balance',
+      'Monthly Payment',
+      'Initial Payment',
+      'Total Installment Months',
+      'Remaining Installments',
+      'Accurate Remaining Months',
+      'Total Payments Made',
+      'Expected Payments By Now',
+      'Actual Monthly Payments',
+      'Missed Payments',
+      'Expected Amount Paid By Now',
+      'Actual Amount Paid',
+      'Payment Deficit',
+      'Is Overdue',
+      'Days Since Last Payment',
+      'Next Payment Due Date',
+      'Days Past Due',
+      'Last Payment Date',
+      'Last Payment Amount',
+      'Status',
+      'Agent Name',
+      'State',
+      'LGA',
+    ];
+
+    const csvRows = [headers.join(',')];
+    for (const item of jsonData) {
+      const row = Object.values(item).map((val) => this.escapeCSV(val));
+      csvRows.push(row.join(','));
+    }
+
+    const summaryRows = [
+      'DEBT REPORT SUMMARY',
+      `Generated At: ${new Date().toLocaleString()}`,
+      `Total Outstanding Debt: NGN ${summary.totalOutstandingDebt.toLocaleString()}`,
+      `Total Customers in Debt: ${summary.totalCustomersInDebt}`,
+      `Total Sales with Outstanding Balance: ${summary.totalSalesWithDebt}`,
+      `Overdue Payments: ${summary.overdueCount}`,
+      `Total Records: ${allRecordsCount}`,
+      `Page ${currentPage} of ${totalPages}`,
+      '',
+      '',
+    ];
+
+    const finalCsv = summaryRows.join('\n') + '\n' + csvRows.join('\n');
+
+    return {
+      csvData: finalCsv,
+      actualCount: debtData.length,
+      jsonData,
+      summary,
+      allRecordsCount,
+      currentPage,
+      totalPages,
+    };
+  }
+
+  // ==================== RENEWAL REPORT ====================
+  // ANSWERS: Yes, this properly uses totalInstallmentDuration and totalMonthlyPayment
+  // to calculate expected vs actual payments
+  private async exportRenewalReport(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    summary: any;
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
+    const overdueDays = filters.overdueDays || 35;
+
+    const pipeline: any[] = [
+      {
+        $match: {
+          status: 'IN_INSTALLMENT',
+          deletedAt: null,
+          ...(filters.customerId && {
+            customerId: { $oid: filters.customerId },
+          }),
+          ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+        },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'agents',
+          localField: 'agentId',
+          foreignField: '_id',
+          as: 'agent',
+        },
+      },
+      { $unwind: { path: '$agent', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: 1 } },
+          ],
+          as: 'payments',
+        },
+      },
+      {
+        $addFields: {
+          paymentCount: { $size: '$payments' },
+          lastPayment: { $arrayElemAt: ['$payments', -1] },
+          outstandingBalance: { $subtract: ['$totalPrice', '$totalPaid'] },
+          saleItem: { $arrayElemAt: ['$saleItems', 0] },
+        },
+      },
+      {
+        $addFields: {
+          monthsSinceSale: {
+            $floor: {
+              $divide: [
+                {
+                  $subtract: [
+                    new Date(),
+                    {
+                      $toDate: {
+                        $ifNull: ['$transactionDate', '$createdAt'],
+                      },
+                    },
+                  ],
+                },
+                2592000000, // milliseconds in 30 days
+              ],
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Expected payments based on totalInstallmentDuration
+          expectedMonthlyPayments: {
+            $max: [
+              0,
+              {
+                $min: [
+                  '$monthsSinceSale',
+                  {
+                    $subtract: [
+                      { $ifNull: ['$totalInstallmentDuration', 0] },
+                      1,
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          actualMonthlyPayments: {
+            $cond: {
+              if: { $gt: [{ $size: '$payments' }, 0] },
+              then: { $subtract: [{ $size: '$payments' }, 1] },
+              else: 0,
+            },
+          },
+          daysSinceLastPayment: {
+            $cond: {
+              if: { $gt: [{ $size: '$payments' }, 0] },
+              then: {
+                $floor: {
+                  $divide: [
+                    {
+                      $subtract: [
+                        new Date(),
+                        { $toDate: '$lastPayment.paymentDate' },
+                      ],
+                    },
+                    86400000,
+                  ],
+                },
+              },
+              else: {
+                $floor: {
+                  $divide: [
+                    {
+                      $subtract: [new Date(), { $toDate: '$createdAt' }],
+                    },
+                    86400000,
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          missedPayments: {
+            $max: [
+              0,
+              {
+                $subtract: [
+                  '$expectedMonthlyPayments',
+                  '$actualMonthlyPayments',
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        $match: {
+          daysSinceLastPayment: { $gt: overdueDays },
+          outstandingBalance: { $gt: 0 },
+          ...(filters.state && {
+            'customer.state': new RegExp(filters.state, 'i'),
+          }),
+          ...(filters.lga && {
+            'customer.lga': new RegExp(filters.lga, 'i'),
+          }),
+        },
+      },
+    ];
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.prisma.sales.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
+
+    // Sort before pagination
+    pipeline.push({ $sort: { missedPayments: -1, daysSinceLastPayment: -1 } });
+
+    // Apply pagination
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+    const totalPages = Math.ceil(allRecordsCount / limit);
+
+    if (filters.page && filters.limit) {
+      pipeline.push({ $skip: (currentPage - 1) * limit }, { $limit: limit });
+    }
+
+    const results = await this.prisma.sales.aggregateRaw({
+      pipeline,
+      options: { allowDiskUse: true },
+    });
+    const renewalData = this.extractAggregationResults(results);
+
+    // Summary
+    const totalDefaulters = renewalData.length;
+    const totalMissedPayments = renewalData.reduce(
+      (sum, sale) => sum + (sale.missedPayments || 0),
+      0,
+    );
+
+    const summary = {
+      totalDefaulters,
+      totalMissedPayments,
+      overdueDaysThreshold: overdueDays,
+      generatedAt: new Date().toISOString(),
+    };
+
+    // Process JSON data
+    const jsonData = renewalData.map((sale) => {
+      const missedPayments = sale.missedPayments || 0;
+      const monthlyPayment = sale.totalMonthlyPayment || 0;
+
+      return {
+        customerId: this.extractObjectId(sale.customer?._id) || '',
+        customerName: sale.customer
+          ? `${sale.customer.firstname} ${sale.customer.lastname}`
+          : '',
+        customerPhone: sale.customer?.phone || '',
+        saleId: this.extractObjectId(sale._id) || '',
+        monthlyPayment,
+        lastPaymentDate: this.formatDate(sale.lastPayment?.paymentDate),
+        daysSinceLastPayment: sale.daysSinceLastPayment || 0,
+        monthsDefaulted: Math.floor((sale.daysSinceLastPayment || 0) / 30),
+        missedPayments,
+        expectedPaymentAmount: monthlyPayment * missedPayments,
+        outstandingBalance: parseFloat(
+          (sale.outstandingBalance || 0).toFixed(2),
+        ),
+        agentName: sale.agentName || '',
+        state: sale.customer?.state || '',
+        lga: sale.customer?.lga || '',
+      };
+    });
+
+    // Build CSV
+    const headers = [
+      'Customer ID',
+      'Customer Name',
+      'Customer Phone',
+      'Sale ID',
+      'Monthly Payment',
+      'Last Payment Date',
+      'Days Since Last Payment',
+      'Months Defaulted',
+      'Missed Payments',
+      'Expected Payment Amount',
+      'Outstanding Balance',
+      'Agent Name',
+      'State',
+      'LGA',
+    ];
+
+    const csvRows = [headers.join(',')];
+    for (const item of jsonData) {
+      const row = Object.values(item).map((val) => this.escapeCSV(val));
+      csvRows.push(row.join(','));
+    }
+
+    const summaryRows = [
+      'RENEWAL PAYMENT DEFAULTERS REPORT',
+      `Generated At: ${new Date().toLocaleString()}`,
+      `Overdue Threshold: ${overdueDays} days`,
+      `Total Defaulters: ${summary.totalDefaulters}`,
+      `Total Missed Payments: ${summary.totalMissedPayments}`,
+      `Total Records: ${allRecordsCount}`,
+      `Page ${currentPage} of ${totalPages}`,
+      '',
+      '',
+    ];
+
+    const finalCsv = summaryRows.join('\n') + '\n' + csvRows.join('\n');
+
+    return {
+      csvData: finalCsv,
+      actualCount: renewalData.length,
+      jsonData,
+      summary,
+      allRecordsCount,
+      currentPage,
+      totalPages,
+    };
+  }
+
+  // ==================== WEEKLY SUMMARY ====================
+  private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    summary: any;
+  }> {
+    const endDate = filters.endDate || new Date();
+    const startDate =
+      filters.startDate ||
+      new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const newSalesPipeline = [
+      {
+        $match: {
+          createdAt: {
+            $gte: { $date: startDate.toISOString() },
+            $lte: { $date: endDate.toISOString() },
+          },
+          deletedAt: null,
+          ...(filters.agentId && { agentId: { $oid: filters.agentId } }),
+        },
+      },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      { $unwind: { path: '$saleItems', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: null,
+          totalSales: { $sum: 1 },
+          totalCashSales: {
+            $sum: {
+              $cond: [{ $eq: ['$saleItems.paymentMode', 'ONE_OFF'] }, 1, 0],
+            },
+          },
+          totalInstallmentSales: {
+            $sum: {
+              $cond: [{ $eq: ['$saleItems.paymentMode', 'INSTALLMENT'] }, 1, 0],
+            },
+          },
+          totalRevenue: { $sum: '$totalPrice' },
+          totalCashRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ['$saleItems.paymentMode', 'ONE_OFF'] },
+                '$totalPrice',
+                0,
+              ],
+            },
+          },
+          totalInstallmentRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ['$saleItems.paymentMode', 'INSTALLMENT'] },
+                '$totalPrice',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    const renewalsPipeline = [
+      {
+        $match: {
+          paymentDate: {
+            $gte: { $date: startDate.toISOString() },
+            $lte: { $date: endDate.toISOString() },
+          },
+          paymentStatus: 'COMPLETED',
+        },
+      },
+      {
+        $lookup: {
+          from: 'sales',
+          localField: 'saleId',
+          foreignField: '_id',
+          as: 'sale',
+        },
+      },
+      { $unwind: '$sale' },
+      ...(filters.agentId
+        ? [{ $match: { 'sale.agentId': { $oid: filters.agentId } } }]
+        : []),
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$sale._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: 1 } },
+          ],
+          as: 'allPayments',
+        },
+      },
+      {
+        $addFields: {
+          paymentIndex: { $indexOfArray: ['$allPayments._id', '$_id'] },
+        },
+      },
+      {
+        $match: {
+          'sale.status': { $in: ['IN_INSTALLMENT', 'COMPLETED'] },
+          paymentIndex: { $gt: 0 },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalRenewals: { $sum: 1 },
+          totalRenewalAmount: { $sum: '$amount' },
+        },
+      },
+    ];
+
+    const newSalesResults = await this.prisma.sales.aggregateRaw({
+      pipeline: newSalesPipeline,
+    });
+    const renewalsResults = await this.prisma.payment.aggregateRaw({
+      pipeline: renewalsPipeline,
+    });
+
+    const newSalesData = this.extractAggregationResults(newSalesResults)[0] || {
+      totalSales: 0,
+      totalCashSales: 0,
+      totalInstallmentSales: 0,
+      totalRevenue: 0,
+      totalCashRevenue: 0,
+      totalInstallmentRevenue: 0,
+    };
+
+    const renewalsData = this.extractAggregationResults(renewalsResults)[0] || {
+      totalRenewals: 0,
+      totalRenewalAmount: 0,
+    };
+
+    const summary = {
+      periodStart: startDate.toISOString(),
+      periodEnd: endDate.toISOString(),
+      newSales: {
+        totalCount: newSalesData.totalSales || 0,
+        cashSalesCount: newSalesData.totalCashSales || 0,
+        installmentSalesCount: newSalesData.totalInstallmentSales || 0,
+        totalRevenue: parseFloat((newSalesData.totalRevenue || 0).toFixed(2)),
+        cashRevenue: parseFloat(
+          (newSalesData.totalCashRevenue || 0).toFixed(2),
+        ),
+        installmentRevenue: parseFloat(
+          (newSalesData.totalInstallmentRevenue || 0).toFixed(2),
+        ),
+      },
+      renewals: {
+        totalCount: renewalsData.totalRenewals || 0,
+        totalAmount: parseFloat(
+          (renewalsData.totalRenewalAmount || 0).toFixed(2),
+        ),
+      },
+      grandTotal: {
+        totalRevenue: parseFloat(
+          (
+            (newSalesData.totalRevenue || 0) +
+            (renewalsData.totalRenewalAmount || 0)
+          ).toFixed(2),
+        ),
+      },
+    };
+
+    const jsonData = [summary];
+
+    const csvRows = [
+      'WEEKLY SUMMARY REPORT',
+      `Period: ${this.formatDate(startDate)} to ${this.formatDate(endDate)}`,
+      `Generated At: ${new Date().toLocaleString()}`,
+      '',
+      'NEW SALES',
+      `Total New Sales,${summary.newSales.totalCount}`,
+      `Cash Sales (Quantity),${summary.newSales.cashSalesCount}`,
+      `Installment Sales (Quantity),${summary.newSales.installmentSalesCount}`,
+      `Total Revenue,NGN ${summary.newSales.totalRevenue.toLocaleString()}`,
+      `Cash Sales Revenue,NGN ${summary.newSales.cashRevenue.toLocaleString()}`,
+      `Installment Sales Revenue,NGN ${summary.newSales.installmentRevenue.toLocaleString()}`,
+      '',
+      'RENEWALS/REACTIVATIONS',
+      `Total Renewals,${summary.renewals.totalCount}`,
+      `Total Amount Paid,NGN ${summary.renewals.totalAmount.toLocaleString()}`,
+      '',
+      'GRAND TOTAL',
+      `Combined Revenue,NGN ${summary.grandTotal.totalRevenue.toLocaleString()}`,
+    ];
+
+    return {
+      csvData: csvRows.join('\n'),
+      actualCount: 1,
+      jsonData,
+      summary,
+    };
+  }
+
+  private async exportMonthlySummary(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    summary: any;
+  }> {
+    const endDate = filters.endDate || new Date();
+    const startDate =
+      filters.startDate ||
+      new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+    const result = await this.exportWeeklySummary({
+      ...filters,
+      startDate,
+      endDate,
+      exportType: ExportType.MONTHLY_SUMMARY,
+    });
+
+    result.csvData = result.csvData.replace(
+      'WEEKLY SUMMARY REPORT',
+      'MONTHLY SUMMARY REPORT',
+    );
+
+    return result;
+  }
+
+  private async exportSales(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
     const pipeline = this.buildSalesAggregationPipeline(filters);
 
-    const results = await this.prisma.sales.aggregateRaw({ pipeline });
+    const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+    const countResult = await this.prisma.sales.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
+
+    const results = await this.prisma.sales.aggregateRaw({
+      pipeline,
+      options: { allowDiskUse: true },
+    });
     const salesData = this.extractAggregationResults(results);
 
-    // Build JSON data array
     const jsonData = salesData.map((sale) => {
       const paymentCount = sale.paymentCount || 0;
-      const hasMadeRepayments = paymentCount > 1;
       const outstandingBalance = (sale.totalPrice || 0) - (sale.totalPaid || 0);
       const lastPaymentDate = sale.lastPayment?.paymentDate;
       const daysSinceLastPayment = lastPaymentDate
         ? Math.floor(
-            (new Date().getTime() - new Date(lastPaymentDate).getTime()) /
-              (1000 * 60 * 60 * 24),
+            (new Date().getTime() -
+              new Date(lastPaymentDate.$date || lastPaymentDate).getTime()) /
+              86400000,
           )
         : null;
-
-      let paymentStatus = 'No Payments';
-      if (paymentCount > 0) {
-        if (outstandingBalance <= 0) {
-          paymentStatus = 'Fully Paid';
-        } else if (sale.status === 'IN_INSTALLMENT') {
-          paymentStatus =
-            daysSinceLastPayment && daysSinceLastPayment > 35
-              ? 'Overdue'
-              : 'Active';
-        } else {
-          paymentStatus = 'Partial Payment';
-        }
-      }
 
       return {
         saleId: this.extractObjectId(sale._id) || '',
@@ -123,13 +2916,10 @@ export class ExportService {
         ),
         status: sale.status || '',
         agentName: sale.agentName || '',
-        agentCategory: sale.agent?.category || '',
         customerName: sale.customer
           ? `${sale.customer.firstname} ${sale.customer.lastname}`
           : '',
         customerPhone: sale.customer?.phone || '',
-        customerEmail: sale.customer?.email || '',
-        customerType: sale.customer?.type || '',
         productName: sale.product?.name || '',
         serialNumber: sale.devices?.[0]?.serialNumber || '',
         paymentMode: sale.saleItems?.[0]?.paymentMode || '',
@@ -139,18 +2929,10 @@ export class ExportService {
         monthlyPayment: sale.totalMonthlyPayment || 0,
         remainingInstallments: sale.remainingInstallments || 0,
         paymentCount,
-        hasMadeRepayments,
         lastPaymentDate: this.formatDate(lastPaymentDate),
-        lastPaymentAmount: sale.lastPayment?.amount || 0,
-        averagePaymentAmount: parseFloat(
-          sale.averagePaymentAmount?.toFixed(2) || '0',
-        ),
         daysSinceLastPayment: daysSinceLastPayment?.toString() || 'N/A',
-        paymentStatus,
-        location: sale.customer?.installationAddress || '',
         state: sale.customer?.state || '',
         lga: sale.customer?.lga || '',
-        createdDate: this.formatDate(sale.createdAt),
       };
     });
 
@@ -159,11 +2941,8 @@ export class ExportService {
       'Transaction Date',
       'Status',
       'Agent Name',
-      'Agent Category',
       'Customer Name',
       'Customer Phone',
-      'Customer Email',
-      'Customer Type',
       'Product Name',
       'Serial Number',
       'Payment Mode',
@@ -173,122 +2952,64 @@ export class ExportService {
       'Monthly Payment',
       'Remaining Installments',
       'Payment Count',
-      'Has Made Repayments',
       'Last Payment Date',
-      'Last Payment Amount',
-      'Average Payment Amount',
       'Days Since Last Payment',
-      'Payment Status',
-      'Location',
       'State',
       'LGA',
-      'Created Date',
     ];
 
     const csvRows = [headers.join(',')];
-
-    for (const sale of salesData) {
-      const paymentCount = sale.paymentCount || 0;
-      const hasMadeRepayments = paymentCount > 1;
-      const outstandingBalance = (sale.totalPrice || 0) - (sale.totalPaid || 0);
-      const lastPaymentDate = sale.lastPayment?.paymentDate;
-      const daysSinceLastPayment = lastPaymentDate
-        ? Math.floor(
-            (new Date().getTime() - new Date(lastPaymentDate).getTime()) /
-              (1000 * 60 * 60 * 24),
-          )
-        : null;
-
-      let paymentStatus = 'No Payments';
-      if (paymentCount > 0) {
-        if (outstandingBalance <= 0) {
-          paymentStatus = 'Fully Paid';
-        } else if (sale.status === 'IN_INSTALLMENT') {
-          paymentStatus =
-            daysSinceLastPayment && daysSinceLastPayment > 35
-              ? 'Overdue'
-              : 'Active';
-        } else {
-          paymentStatus = 'Partial Payment';
-        }
-      }
-
-      const row = [
-        this.escapeCSV(this.extractObjectId(sale._id) || ''),
-        this.escapeCSV(this.formatDate(sale.transactionDate || sale.createdAt)),
-        this.escapeCSV(sale.status || ''),
-        this.escapeCSV(sale.agentName || ''),
-        this.escapeCSV(sale.agent?.category || ''),
-        this.escapeCSV(
-          sale.customer
-            ? `${sale.customer.firstname} ${sale.customer.lastname}`
-            : '',
-        ),
-        this.escapeCSV(sale.customer?.phone || ''),
-        this.escapeCSV(sale.customer?.email || ''),
-        this.escapeCSV(sale.customer?.type || ''),
-        this.escapeCSV(sale.product?.name || ''),
-        this.escapeCSV(sale.devices?.[0]?.serialNumber || ''),
-        this.escapeCSV(sale.saleItems?.[0]?.paymentMode || ''),
-        this.escapeCSV(sale.totalPrice?.toString() || '0'),
-        this.escapeCSV(sale.totalPaid?.toString() || '0'),
-        this.escapeCSV(outstandingBalance.toFixed(2)),
-        this.escapeCSV(sale.totalMonthlyPayment?.toString() || '0'),
-        this.escapeCSV(sale.remainingInstallments?.toString() || '0'),
-        this.escapeCSV(paymentCount.toString()),
-        this.escapeCSV(hasMadeRepayments ? 'Yes' : 'No'),
-        this.escapeCSV(this.formatDate(lastPaymentDate)),
-        this.escapeCSV(sale.lastPayment?.amount?.toString() || '0'),
-        this.escapeCSV(sale.averagePaymentAmount?.toFixed(2) || '0'),
-        this.escapeCSV(daysSinceLastPayment?.toString() || 'N/A'),
-        this.escapeCSV(paymentStatus),
-        this.escapeCSV(sale.customer?.installationAddress || ''),
-        this.escapeCSV(sale.customer?.state || ''),
-        this.escapeCSV(sale.customer?.lga || ''),
-        this.escapeCSV(this.formatDate(sale.createdAt)),
-      ];
+    for (const sale of jsonData) {
+      const row = Object.values(sale).map((val) => this.escapeCSV(val));
       csvRows.push(row.join(','));
     }
+
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+    const totalPages = Math.ceil(allRecordsCount / limit);
 
     return {
       csvData: csvRows.join('\n'),
       actualCount: salesData.length,
       jsonData,
+      allRecordsCount,
+      currentPage,
+      totalPages,
     };
   }
 
-  private async exportCustomers(
-    filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
+  private async exportCustomers(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
     const pipeline = this.buildCustomersAggregationPipeline(filters);
+
+    const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+    const countResult = await this.prisma.customer.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
 
     const results = await this.prisma.customer.aggregateRaw({ pipeline });
     const customersData = this.extractAggregationResults(results);
 
-    // Build JSON data array
     const jsonData = customersData.map((customer) => ({
       customerId: this.extractObjectId(customer._id) || '',
       firstName: customer.firstname || '',
       lastName: customer.lastname || '',
       email: customer.email || '',
       phone: customer.phone || '',
-      alternatePhone: customer.alternatePhone || '',
-      gender: customer.gender || '',
-      status: customer.status || '',
-      type: customer.type || '',
-      installationAddress: customer.installationAddress || '',
       state: customer.state || '',
       lga: customer.lga || '',
-      location: customer.location || '',
-      latitude: customer.latitude || null,
-      longitude: customer.longitude || null,
-      idType: customer.idType || '',
-      idNumber: customer.idNumber || '',
       totalSales: customer.salesCount || 0,
       totalSpent: customer.totalSpent || 0,
-      assignedAgent: customer.assignedAgent || '',
+      outstandingDebt: customer.outstandingDebt || 0,
       createdDate: this.formatDate(customer.createdAt),
-      updatedDate: this.formatDate(customer.updatedAt),
     }));
 
     const headers = [
@@ -297,71 +3018,56 @@ export class ExportService {
       'Last Name',
       'Email',
       'Phone',
-      'Alternate Phone',
-      'Gender',
-      'Status',
-      'Type',
-      'Installation Address',
       'State',
       'LGA',
-      'Location',
-      'Latitude',
-      'Longitude',
-      'ID Type',
-      'ID Number',
       'Total Sales',
       'Total Spent',
-      'Assigned Agent',
+      'Outstanding Debt',
       'Created Date',
-      'Updated Date',
     ];
 
     const csvRows = [headers.join(',')];
-
-    for (const customer of customersData) {
-      const row = [
-        this.escapeCSV(this.extractObjectId(customer._id) || ''),
-        this.escapeCSV(customer.firstname || ''),
-        this.escapeCSV(customer.lastname || ''),
-        this.escapeCSV(customer.email || ''),
-        this.escapeCSV(customer.phone || ''),
-        this.escapeCSV(customer.alternatePhone || ''),
-        this.escapeCSV(customer.gender || ''),
-        this.escapeCSV(customer.status || ''),
-        this.escapeCSV(customer.type || ''),
-        this.escapeCSV(customer.installationAddress || ''),
-        this.escapeCSV(customer.state || ''),
-        this.escapeCSV(customer.lga || ''),
-        this.escapeCSV(customer.location || ''),
-        this.escapeCSV(customer.latitude?.toString() || ''),
-        this.escapeCSV(customer.longitude?.toString() || ''),
-        this.escapeCSV(customer.idType || ''),
-        this.escapeCSV(customer.idNumber || ''),
-        this.escapeCSV(customer.salesCount?.toString() || '0'),
-        this.escapeCSV(customer.totalSpent?.toString() || '0'),
-        this.escapeCSV(customer.assignedAgent || ''),
-        this.escapeCSV(this.formatDate(customer.createdAt)),
-        this.escapeCSV(this.formatDate(customer.updatedAt)),
-      ];
+    for (const customer of jsonData) {
+      const row = Object.values(customer).map((val) => this.escapeCSV(val));
       csvRows.push(row.join(','));
     }
+
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+
+    console.log({ limit, ff: filters.limit, allRecordsCount });
+    const totalPages = Math.ceil(allRecordsCount / limit);
 
     return {
       csvData: csvRows.join('\n'),
       actualCount: customersData.length,
       jsonData,
+      allRecordsCount,
+      currentPage,
+      totalPages,
     };
   }
 
-  private async exportPayments(
-    filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
+  private async exportPayments(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
     const pipeline = this.buildPaymentsAggregationPipeline(filters);
+
+    const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+    const countResult = await this.prisma.payment.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
 
     const results = await this.prisma.payment.aggregateRaw({ pipeline });
     const paymentsData = this.extractAggregationResults(results);
 
-    // Build JSON data array
     const jsonData = paymentsData.map((payment) => ({
       paymentId: this.extractObjectId(payment._id) || '',
       transactionReference: payment.transactionRef || '',
@@ -369,15 +3075,11 @@ export class ExportService {
       status: payment.paymentStatus || '',
       method: payment.paymentMethod || '',
       paymentDate: this.formatDate(payment.paymentDate),
-      saleId: this.extractObjectId(payment.sale?._id) || '',
       customerName: payment.customer
         ? `${payment.customer.firstname} ${payment.customer.lastname}`
         : '',
       customerPhone: payment.customer?.phone || '',
       agentName: payment.sale?.agentName || '',
-      gateway: payment.sale?.paymentGateway || '',
-      notes: payment.notes || '',
-      createdDate: this.formatDate(payment.createdAt),
     }));
 
     const headers = [
@@ -387,69 +3089,54 @@ export class ExportService {
       'Status',
       'Method',
       'Payment Date',
-      'Sale ID',
       'Customer Name',
       'Customer Phone',
       'Agent Name',
-      'Gateway',
-      'Notes',
-      'Created Date',
     ];
 
     const csvRows = [headers.join(',')];
-
-    for (const payment of paymentsData) {
-      const row = [
-        this.escapeCSV(this.extractObjectId(payment._id) || ''),
-        this.escapeCSV(payment.transactionRef || ''),
-        this.escapeCSV(payment.amount?.toString() || '0'),
-        this.escapeCSV(payment.paymentStatus || ''),
-        this.escapeCSV(payment.paymentMethod || ''),
-        this.escapeCSV(this.formatDate(payment.paymentDate)),
-        this.escapeCSV(this.extractObjectId(payment.sale?._id) || ''),
-        this.escapeCSV(
-          payment.customer
-            ? `${payment.customer.firstname} ${payment.customer.lastname}`
-            : '',
-        ),
-        this.escapeCSV(payment.customer?.phone || ''),
-        this.escapeCSV(payment.sale?.agentName || ''),
-        this.escapeCSV(payment.sale?.paymentGateway || ''),
-        this.escapeCSV(payment.notes || ''),
-        this.escapeCSV(this.formatDate(payment.createdAt)),
-      ];
+    for (const payment of jsonData) {
+      const row = Object.values(payment).map((val) => this.escapeCSV(val));
       csvRows.push(row.join(','));
     }
+
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+    const totalPages = Math.ceil(allRecordsCount / limit);
 
     return {
       csvData: csvRows.join('\n'),
       actualCount: paymentsData.length,
       jsonData,
+      allRecordsCount,
+      currentPage,
+      totalPages,
     };
   }
 
-  private async exportDevices(
-    filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
+  private async exportDevices(filters: ExportDataQueryDto): Promise<{
+    csvData: string;
+    actualCount: number;
+    jsonData: any[];
+    allRecordsCount: number;
+    currentPage: number;
+    totalPages: number;
+  }> {
     const pipeline = this.buildDevicesAggregationPipeline(filters);
+
+    const countPipeline = [...pipeline.slice(0, -2), { $count: 'total' }];
+    const countResult = await this.prisma.device.aggregateRaw({
+      pipeline: countPipeline,
+    });
+    const allRecordsCount =
+      this.extractAggregationResults(countResult)[0]?.total || 0;
 
     const results = await this.prisma.device.aggregateRaw({ pipeline });
     const devicesData = this.extractAggregationResults(results);
 
-    // Build JSON data array
     const jsonData = devicesData.map((device) => ({
-      deviceId: this.extractObjectId(device._id) || '',
       serialNumber: device.serialNumber || '',
-      hardwareModel: device.hardwareModel || '',
-      firmwareVersion: device.firmwareVersion || '',
       installationStatus: device.installationStatus || '',
-      installationLocation: device.installationLocation || '',
-      installationLatitude: device.installationLatitude || '',
-      installationLongitude: device.installationLongitude || '',
-      isTokenable: device.isTokenable || false,
-      isUsed: device.isUsed || false,
-      tokenCount: device.tokenCount || 0,
-      saleId: this.extractObjectId(device.sale?._id) || '',
       customerName: device.customer
         ? `${device.customer.firstname} ${device.customer.lastname}`
         : '',
@@ -457,214 +3144,46 @@ export class ExportService {
       productName: device.product?.name || '',
       agentName: device.sale?.agentName || '',
       createdDate: this.formatDate(device.createdAt),
-      updatedDate: this.formatDate(device.updatedAt),
     }));
 
     const headers = [
-      'Device ID',
       'Serial Number',
-      'Hardware Model',
-      'Firmware Version',
       'Installation Status',
-      'Installation Location',
-      'Installation Latitude',
-      'Installation Longitude',
-      'Is Tokenable',
-      'Is Used',
-      'Token Count',
-      'Sale ID',
       'Customer Name',
       'Customer Phone',
       'Product Name',
       'Agent Name',
       'Created Date',
-      'Updated Date',
     ];
 
     const csvRows = [headers.join(',')];
-
-    for (const device of devicesData) {
-      const row = [
-        this.escapeCSV(this.extractObjectId(device._id) || ''),
-        this.escapeCSV(device.serialNumber || ''),
-        this.escapeCSV(device.hardwareModel || ''),
-        this.escapeCSV(device.firmwareVersion || ''),
-        this.escapeCSV(device.installationStatus || ''),
-        this.escapeCSV(device.installationLocation || ''),
-        this.escapeCSV(device.installationLatitude || ''),
-        this.escapeCSV(device.installationLongitude || ''),
-        this.escapeCSV(device.isTokenable?.toString() || 'false'),
-        this.escapeCSV(device.isUsed?.toString() || 'false'),
-        this.escapeCSV(device.tokenCount?.toString() || '0'),
-        this.escapeCSV(this.extractObjectId(device.sale?._id) || ''),
-        this.escapeCSV(
-          device.customer
-            ? `${device.customer.firstname} ${device.customer.lastname}`
-            : '',
-        ),
-        this.escapeCSV(device.customer?.phone || ''),
-        this.escapeCSV(device.product?.name || ''),
-        this.escapeCSV(device.sale?.agentName || ''),
-        this.escapeCSV(this.formatDate(device.createdAt)),
-        this.escapeCSV(this.formatDate(device.updatedAt)),
-      ];
+    for (const device of jsonData) {
+      const row = Object.values(device).map((val) => this.escapeCSV(val));
       csvRows.push(row.join(','));
     }
+
+    const currentPage = filters.page || 1;
+    const limit = filters.limit || allRecordsCount;
+    const totalPages = Math.ceil(allRecordsCount / limit);
 
     return {
       csvData: csvRows.join('\n'),
       actualCount: devicesData.length,
       jsonData,
+      allRecordsCount,
+      currentPage,
+      totalPages,
     };
   }
 
-  private async exportComprehensive(
-    filters: ExportDataQueryDto,
-  ): Promise<{ csvData: string; actualCount: number; jsonData: any[] }> {
-    const pipeline = this.buildComprehensiveAggregationPipeline(filters);
-
-    const results = await this.prisma.sales.aggregateRaw({ pipeline });
-    const comprehensiveData = this.extractAggregationResults(results);
-
-    // Build JSON data array
-    const jsonData = comprehensiveData.map((record) => ({
-      saleId: this.extractObjectId(record?._id) || '',
-      transactionDate: this.formatDate(
-        record.transactionDate || record.createdAt,
-      ),
-      saleStatus: record.status || '',
-      agentName: record.agentName || '',
-      agentCategory: record.agent?.category || '',
-      installerName: record.installerName || '',
-      customerId: this.extractObjectId(record.customer?._id) || '',
-      customerName: record.customer
-        ? `${record.customer.firstname} ${record.customer.lastname}`
-        : '',
-      customerPhone: record.customer?.phone || '',
-      customerEmail: record.customer?.email || '',
-      customerType: record.customer?.type || '',
-      customerStatus: record.customer?.status || '',
-      installationAddress: record.customer?.installationAddress || '',
-      state: record.customer?.state || '',
-      lga: record.customer?.lga || '',
-      latitude: record.customer?.latitude || null,
-      longitude: record.customer?.longitude || null,
-      productName: record.product?.name || '',
-      serialNumber: record.devices?.[0]?.serialNumber || '',
-      deviceStatus: record.devices?.[0]?.installationStatus || '',
-      paymentMode: record.saleItems?.[0]?.paymentMode || '',
-      totalPrice: record.totalPrice || 0,
-      totalPaid: record.totalPaid || 0,
-      monthlyPayment: record.totalMonthlyPayment || 0,
-      remainingInstallments: record.remainingInstallments || 0,
-      paymentStatus: record.lastPayment?.paymentStatus || '',
-      lastPaymentDate: this.formatDate(record.lastPayment?.paymentDate),
-      lastPaymentAmount: record.lastPayment?.amount || 0,
-      paymentMethod: record.lastPayment?.paymentMethod || '',
-      tokenCount: record.devices?.[0]?.tokenCount || 0,
-      installationStatus: record.devices?.[0]?.installationStatus || '',
-      createdDate: this.formatDate(record.createdAt),
-    }));
-
-    const headers = [
-      'Sale ID',
-      'Transaction Date',
-      'Sale Status',
-      'Agent Name',
-      'Agent Category',
-      'Installer Name',
-      'Customer ID',
-      'Customer Name',
-      'Customer Phone',
-      'Customer Email',
-      'Customer Type',
-      'Customer Status',
-      'Installation Address',
-      'State',
-      'LGA',
-      'Latitude',
-      'Longitude',
-      'Product Name',
-      'Serial Number',
-      'Device Status',
-      'Payment Mode',
-      'Total Price',
-      'Total Paid',
-      'Monthly Payment',
-      'Remaining Installments',
-      'Payment Status',
-      'Last Payment Date',
-      'Last Payment Amount',
-      'Payment Method',
-      'Token Count',
-      'Installation Status',
-      'Created Date',
-    ];
-
-    const csvRows = [headers.join(',')];
-
-    for (const record of comprehensiveData) {
-      const row = [
-        this.escapeCSV(this.extractObjectId(record?._id) || ''),
-        this.escapeCSV(
-          this.formatDate(record.transactionDate || record.createdAt),
-        ),
-        this.escapeCSV(record.status || ''),
-        this.escapeCSV(record.agentName || ''),
-        this.escapeCSV(record.agent?.category || ''),
-        this.escapeCSV(record.installerName || ''),
-        this.escapeCSV(this.extractObjectId(record.customer?._id) || ''),
-        this.escapeCSV(
-          record.customer
-            ? `${record.customer.firstname} ${record.customer.lastname}`
-            : '',
-        ),
-        this.escapeCSV(record.customer?.phone || ''),
-        this.escapeCSV(record.customer?.email || ''),
-        this.escapeCSV(record.customer?.type || ''),
-        this.escapeCSV(record.customer?.status || ''),
-        this.escapeCSV(record.customer?.installationAddress || ''),
-        this.escapeCSV(record.customer?.state || ''),
-        this.escapeCSV(record.customer?.lga || ''),
-        this.escapeCSV(record.customer?.latitude?.toString() || ''),
-        this.escapeCSV(record.customer?.longitude?.toString() || ''),
-        this.escapeCSV(record.product?.name || ''),
-        this.escapeCSV(record.devices?.[0]?.serialNumber || ''),
-        this.escapeCSV(record.devices?.[0]?.installationStatus || ''),
-        this.escapeCSV(record.saleItems?.[0]?.paymentMode || ''),
-        this.escapeCSV(record.totalPrice?.toString() || '0'),
-        this.escapeCSV(record.totalPaid?.toString() || '0'),
-        this.escapeCSV(record.totalMonthlyPayment?.toString() || '0'),
-        this.escapeCSV(record.remainingInstallments?.toString() || '0'),
-        this.escapeCSV(record.lastPayment?.paymentStatus || ''),
-        this.escapeCSV(this.formatDate(record.lastPayment?.paymentDate)),
-        this.escapeCSV(record.lastPayment?.amount?.toString() || '0'),
-        this.escapeCSV(record.lastPayment?.paymentMethod || ''),
-        this.escapeCSV(record.devices?.[0]?.tokenCount?.toString() || '0'),
-        this.escapeCSV(record.devices?.[0]?.installationStatus || ''),
-        this.escapeCSV(this.formatDate(record.createdAt)),
-      ];
-      csvRows.push(row.join(','));
-    }
-
-    return {
-      csvData: csvRows.join('\n'),
-      actualCount: comprehensiveData.length,
-      jsonData,
-    };
-  }
-
-  // Add aggregation pipeline builders
   private buildSalesAggregationPipeline(filters: ExportDataQueryDto): any[] {
     const pipeline: any[] = [];
 
-    // Match stage
     const matchStage = this.buildSalesMatchStage(filters);
     if (Object.keys(matchStage).length > 0) {
       pipeline.push({ $match: matchStage });
     }
 
-    // Lookup stages
     pipeline.push(
       {
         $lookup: {
@@ -706,7 +3225,6 @@ export class ExportService {
           as: 'product',
         },
       },
-      // Lookup payments with payment analytics
       {
         $lookup: {
           from: 'payments',
@@ -714,13 +3232,11 @@ export class ExportService {
           pipeline: [
             {
               $match: {
-                $expr: { $eq: ['$saleId', '$$saleId'] },
+                $expr: { $eq: ['$saleId', '$saleId'] },
                 paymentStatus: 'COMPLETED',
               },
             },
-            {
-              $sort: { paymentDate: -1 },
-            },
+            { $sort: { paymentDate: -1 } },
           ],
           as: 'payments',
         },
@@ -730,29 +3246,18 @@ export class ExportService {
           customer: { $arrayElemAt: ['$customer', 0] },
           agent: { $arrayElemAt: ['$agent', 0] },
           product: { $arrayElemAt: ['$product', 0] },
-          // Payment analytics
           paymentCount: { $size: '$payments' },
           lastPayment: { $arrayElemAt: ['$payments', 0] },
-          averagePaymentAmount: {
-            $cond: {
-              if: { $gt: [{ $size: '$payments' }, 0] },
-              then: {
-                $divide: [{ $sum: '$payments.amount' }, { $size: '$payments' }],
-              },
-              else: 0,
-            },
-          },
         },
       },
     );
 
-    // Pagination
+    pipeline.push({ $sort: { createdAt: -1 } });
+
     if (filters.page && filters.limit) {
       const skip = (filters.page - 1) * filters.limit;
       pipeline.push({ $skip: skip }, { $limit: filters.limit });
     }
-
-    pipeline.push({ $sort: { createdAt: -1 } });
 
     return pipeline;
   }
@@ -777,38 +3282,28 @@ export class ExportService {
         },
       },
       {
-        $lookup: {
-          from: 'agent_customers',
-          localField: '_id',
-          foreignField: 'customerId',
-          as: 'assignments',
-        },
-      },
-      {
-        $lookup: {
-          from: 'agents',
-          localField: 'assignments.agentId',
-          foreignField: '_id',
-          as: 'assignedAgents',
-        },
-      },
-      {
         $addFields: {
           salesCount: { $size: '$sales' },
-          totalSpent: { $sum: '$sales.totalPrice' },
-          assignedAgent: {
-            $let: {
-              vars: {
-                agent: {
-                  $arrayElemAt: ['$assignedAgents', 0],
-                },
+          totalSpent: {
+            $sum: {
+              $map: {
+                input: '$sales',
+                as: 'sale',
+                in: { $ifNull: ['$$sale.totalPaid', 0] },
               },
-              in: {
-                $concat: [
-                  { $ifNull: ['$$agent.user.firstname', ''] },
-                  ' ',
-                  { $ifNull: ['$$agent.user.lastname', ''] },
-                ],
+            },
+          },
+          outstandingDebt: {
+            $sum: {
+              $map: {
+                input: '$sales',
+                as: 'sale',
+                in: {
+                  $subtract: [
+                    { $ifNull: ['$$sale.totalPrice', 0] },
+                    { $ifNull: ['$$sale.totalPaid', 0] },
+                  ],
+                },
               },
             },
           },
@@ -816,12 +3311,17 @@ export class ExportService {
       },
     );
 
-    if (filters.page && filters.limit) {
-      const skip = (filters.page - 1) * filters.limit;
-      pipeline.push({ $skip: skip }, { $limit: filters.limit });
+    if (filters.hasOutstandingDebt) {
+      pipeline.push({ $match: { outstandingDebt: { $gt: 0 } } });
     }
 
     pipeline.push({ $sort: { createdAt: -1 } });
+
+    // ✅ FIX: Apply limit even without page
+    if (filters.limit) {
+      const skip = filters.page ? (filters.page - 1) * filters.limit : 0;
+      pipeline.push({ $skip: skip }, { $limit: filters.limit });
+    }
 
     return pipeline;
   }
@@ -863,12 +3363,12 @@ export class ExportService {
       },
     );
 
+    pipeline.push({ $sort: { paymentDate: -1 } });
+
     if (filters.page && filters.limit) {
       const skip = (filters.page - 1) * filters.limit;
       pipeline.push({ $skip: skip }, { $limit: filters.limit });
     }
-
-    pipeline.push({ $sort: { createdAt: -1 } });
 
     return pipeline;
   }
@@ -915,101 +3415,33 @@ export class ExportService {
         },
       },
       {
-        $lookup: {
-          from: 'token',
-          localField: '_id',
-          foreignField: 'deviceId',
-          as: 'tokens',
-        },
-      },
-      {
         $addFields: {
           sale: { $arrayElemAt: ['$sale', 0] },
           customer: { $arrayElemAt: ['$customer', 0] },
           product: { $arrayElemAt: ['$product', 0] },
-          tokenCount: { $size: '$tokens' },
         },
       },
     );
+
+    pipeline.push({ $sort: { createdAt: -1 } });
 
     if (filters.page && filters.limit) {
       const skip = (filters.page - 1) * filters.limit;
       pipeline.push({ $skip: skip }, { $limit: filters.limit });
     }
 
-    pipeline.push({ $sort: { createdAt: -1 } });
-
     return pipeline;
   }
 
-  private buildComprehensiveAggregationPipeline(
-    filters: ExportDataQueryDto,
-  ): any[] {
-    const pipeline = this.buildSalesAggregationPipeline(filters);
-
-    // Add additional lookups for comprehensive data
-    pipeline.splice(
-      -2,
-      0, // Insert before sort and pagination
-      {
-        $lookup: {
-          from: 'payments',
-          localField: '_id',
-          foreignField: 'saleId',
-          as: 'payments',
-        },
-      },
-      {
-        $addFields: {
-          lastPayment: {
-            $let: {
-              vars: {
-                sortedPayments: {
-                  $sortArray: {
-                    input: '$payments',
-                    sortBy: { paymentDate: -1 },
-                  },
-                },
-              },
-              in: { $arrayElemAt: ['$$sortedPayments', 0] },
-            },
-          },
-        },
-      },
-    );
-
-    return pipeline;
-  }
-
-  // Add match stage builders for each type
   private buildSalesMatchStage(filters: ExportDataQueryDto): any {
-    const match: any = {};
+    const match: any = { deletedAt: null };
 
     if (filters.startDate || filters.endDate) {
-      match.$or = [
-        {
-          transactionDate: {
-            $ne: null,
-            ...(filters.startDate && {
-              $gte: { $date: filters.startDate.toISOString() },
-            }),
-            ...(filters.endDate && {
-              $lte: { $date: filters.endDate.toISOString() },
-            }),
-          },
-        },
-        {
-          transactionDate: null,
-          createdAt: {
-            ...(filters.startDate && {
-              $gte: { $date: filters.startDate.toISOString() },
-            }),
-            ...(filters.endDate && {
-              $lte: { $date: filters.endDate.toISOString() },
-            }),
-          },
-        },
-      ];
+      match.createdAt = {};
+      if (filters.startDate)
+        match.createdAt.$gte = { $date: filters.startDate.toISOString() };
+      if (filters.endDate)
+        match.createdAt.$lte = { $date: filters.endDate.toISOString() };
     }
 
     if (filters.salesStatus) match.status = filters.salesStatus;
@@ -1020,38 +3452,19 @@ export class ExportService {
   }
 
   private buildCustomersMatchStage(filters: ExportDataQueryDto): any {
-    const match: any = {};
+    const match: any = { deletedAt: null };
 
     if (filters.customerId) match._id = { $oid: filters.customerId };
-    if (filters.customerStatus) match.status = filters.customerStatus;
-    if (filters.customerType) match.type = filters.customerType;
-    if (filters.customerState)
-      match.state = new RegExp(filters.customerState, 'i');
-    if (filters.customerLga) match.lga = new RegExp(filters.customerLga, 'i');
-
-    if (filters.createdStartDate || filters.createdEndDate) {
-      match.createdAt = {};
-      if (filters.createdStartDate)
-        match.createdAt.$gte = {
-          $date: filters.createdStartDate.toISOString(),
-        };
-      if (filters.createdEndDate)
-        match.createdAt.$lte = { $date: filters.createdEndDate.toISOString() };
-    }
+    if (filters.state) match.state = new RegExp(filters.state, 'i');
+    if (filters.lga) match.lga = new RegExp(filters.lga, 'i');
 
     return match;
   }
 
   private buildPaymentsMatchStage(filters: ExportDataQueryDto): any {
-    const match: any = {};
+    const match: any = { deletedAt: null };
 
-    if (filters.paymentStatus) match.paymentStatus = filters.paymentStatus;
     if (filters.paymentMethod) match.paymentMethod = filters.paymentMethod;
-    if (filters.minAmount || filters.maxAmount) {
-      match.amount = {};
-      if (filters.minAmount) match.amount.$gte = filters.minAmount;
-      if (filters.maxAmount) match.amount.$lte = filters.maxAmount;
-    }
 
     if (filters.startDate || filters.endDate) {
       match.paymentDate = {};
@@ -1067,91 +3480,15 @@ export class ExportService {
   private buildDevicesMatchStage(filters: ExportDataQueryDto): any {
     const match: any = {};
 
-    if (filters.serialNumber)
-      match.serialNumber = new RegExp(filters.serialNumber, 'i');
-
-    if (filters.createdStartDate || filters.createdEndDate) {
+    if (filters.startDate || filters.endDate) {
       match.createdAt = {};
-      if (filters.createdStartDate)
-        match.createdAt.$gte = {
-          $date: filters.createdStartDate.toISOString(),
-        };
-      if (filters.createdEndDate)
-        match.createdAt.$lte = { $date: filters.createdEndDate.toISOString() };
+      if (filters.startDate)
+        match.createdAt.$gte = { $date: filters.startDate.toISOString() };
+      if (filters.endDate)
+        match.createdAt.$lte = { $date: filters.endDate.toISOString() };
     }
 
     return match;
-  }
-
-  private async estimateRecordCount(
-    filters: ExportDataQueryDto,
-  ): Promise<number> {
-    try {
-      let pipeline: any[];
-
-      switch (filters.exportType) {
-        case 'sales':
-          pipeline = [
-            { $match: this.buildSalesMatchStage(filters) },
-            { $count: 'total' },
-          ];
-          break;
-        case 'customers':
-          pipeline = [
-            { $match: this.buildCustomersMatchStage(filters) },
-            { $count: 'total' },
-          ];
-          break;
-        case 'payments':
-          pipeline = [
-            { $match: this.buildPaymentsMatchStage(filters) },
-            { $count: 'total' },
-          ];
-          break;
-        case 'devices':
-          pipeline = [
-            { $match: this.buildDevicesMatchStage(filters) },
-            { $count: 'total' },
-          ];
-          break;
-        default:
-          pipeline = [
-            { $match: this.buildSalesMatchStage(filters) },
-            { $count: 'total' },
-          ];
-      }
-
-      const collection = this.getCollectionForExportType(filters.exportType);
-      const result = await collection.aggregateRaw({ pipeline });
-      const resultArray = this.extractAggregationResults(result);
-
-      return resultArray[0]?.total || 0;
-    } catch (error) {
-      this.logger.warn('Failed to estimate count', error);
-      return 0;
-    }
-  }
-
-  private getCollectionForExportType(exportType: string) {
-    switch (exportType) {
-      case 'sales':
-      case 'comprehensive':
-        return this.prisma.sales;
-      case 'customers':
-        return this.prisma.customer;
-      case 'payments':
-        return this.prisma.payment;
-      case 'devices':
-        return this.prisma.device;
-      default:
-        return this.prisma.sales;
-    }
-  }
-
-  private extractAggregationResults(results: any): any[] {
-    return Array.isArray(results)
-      ? results
-      : (results as any)?.result || Object.values(results)[0] || [];
   }
 
   private validateFilters(filters: ExportDataQueryDto): void {
@@ -1174,6 +3511,12 @@ export class ExportService {
     ) {
       throw new BadRequestException('Start date must be before end date');
     }
+  }
+
+  private extractAggregationResults(results: any): any[] {
+    return Array.isArray(results)
+      ? results
+      : (results as any)?.result || Object.values(results)[0] || [];
   }
 
   private escapeCSV(value: any): string {
@@ -1213,5 +3556,24 @@ export class ExportService {
     if (typeof id === 'object' && id._bsontype === 'ObjectID')
       return id.toString();
     return String(id);
+  }
+
+  private calculateNextPaymentDueDate(sale: any): Date | null {
+    if (sale.lastPayment?.paymentDate) {
+      const lastPayDate = new Date(
+        sale.lastPayment.paymentDate.$date || sale.lastPayment.paymentDate,
+      );
+      const nextDue = new Date(lastPayDate);
+      nextDue.setMonth(nextDue.getMonth() + 1);
+      return nextDue;
+    } else if (sale.transactionDate) {
+      const transDate = new Date(
+        sale.transactionDate.$date || sale.transactionDate,
+      );
+      const nextDue = new Date(transDate);
+      nextDue.setMonth(nextDue.getMonth() + 1);
+      return nextDue;
+    }
+    return null;
   }
 }

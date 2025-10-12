@@ -202,7 +202,7 @@ export class ListCustomersQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Filter for users created in the last 7 days e.g `true` or `1`',
+      'Filter for customers created in the last 7 days e.g `true` or `1`',
     type: Boolean,
     example: 'true',
   })
@@ -210,6 +210,37 @@ export class ListCustomersQueryDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === '1')
   isNew?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter for customers rejected',
+    type: Boolean,
+    example: 'true',
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === '1')
+  isRejected?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter for customers approved',
+    type: Boolean,
+    example: 'true',
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === '1')
+  isApproved?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter for pending customers (awaiting approval)',
+    type: Boolean,
+    example: 'true',
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === '1')
+  isPending?: boolean;
 }
 
 export class ListAgentCustomersQueryDto extends OmitType(

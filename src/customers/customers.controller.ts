@@ -21,7 +21,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from '../auth/guards/roles.guard';
-import { ActionEnum, SubjectEnum, User } from '@prisma/client';
+import { ActionEnum, AgentCategory, SubjectEnum, User } from '@prisma/client';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -38,20 +38,22 @@ import { GetSessionUser } from '../auth/decorators/getUser';
 import { UserEntity } from '../users/entity/user.entity';
 import { ListCustomersQueryDto } from './dto/list-customers.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import {
+  ApproveCustomerDto,
+  BulkApproveCustomersDto,
+} from './dto/customer-approval.dto';
+import { AuthService } from 'src/auth/auth.service';
 
 @SkipThrottle()
 @ApiTags('Customers')
 @Controller('customers')
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly authService: AuthService,
+  ) {}
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
-      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
-    ],
-  })
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access_token')
   @ApiHeader({
     name: 'Authorization',
@@ -92,6 +94,16 @@ export class CustomersController {
     },
     @GetSessionUser('id') requestUserId: string,
   ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Agents },
+        { action: ActionEnum.read, subject: SubjectEnum.Agents },
+        { action: ActionEnum.manage, subject: SubjectEnum.Customers },
+        { action: ActionEnum.write, subject: SubjectEnum.Customers },
+      ],
+      agentCategory: AgentCategory.SALES,
+    });
     // Validate files if provided
     if (files?.passportPhoto?.[0]) {
       const passportPhotoValidator = new ParseFilePipeBuilder()
@@ -370,5 +382,80 @@ export class CustomersController {
   @Get(':id/tabs')
   async getCustomerTabs(@Param('id') customerId: string) {
     return this.customersService.getCustomerTabs(customerId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+  })
+  @Post(':id/approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Approve or reject a customer',
+    description:
+      'Admin endpoint to approve or reject customers created by agents. Approved customers become active, rejected customers remain inactive.',
+  })
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Customer ID to approve/reject',
+  })
+  @ApiBody({
+    type: ApproveCustomerDto,
+    description: 'Approval decision with optional rejection reason',
+  })
+  async approveCustomer(
+    @Param('id') customerId: string,
+    @Body() approveDto: ApproveCustomerDto,
+    @GetSessionUser('id') approverUserId: string,
+  ) {
+    return await this.customersService.approveCustomer(
+      customerId,
+      approveDto,
+      approverUserId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.manage}:${SubjectEnum.Customers}`],
+  })
+  @Post('bulk-approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Bulk approve or reject customers',
+    description:
+      'Admin endpoint to approve or reject multiple customers at once.',
+  })
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+  })
+  @ApiBody({
+    type: BulkApproveCustomersDto,
+    description: 'Array of customer IDs and approval decision',
+  })
+  @ApiOkResponse({
+    description: 'Customers approval status updated',
+  })
+  async bulkApproveCustomers(
+    @Body() bulkApproveDto: BulkApproveCustomersDto,
+    @GetSessionUser('id') approverUserId: string,
+  ) {
+    return await this.customersService.bulkApproveCustomers(
+      bulkApproveDto,
+      approverUserId,
+    );
   }
 }

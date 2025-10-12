@@ -13,6 +13,10 @@ import { ListCustomersQueryDto } from './dto/list-customers.dto';
 import { getLastNDaysDate } from '../utils/helpers.util';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import {
+  ApproveCustomerDto,
+  BulkApproveCustomersDto,
+} from './dto/customer-approval.dto';
 
 @Injectable()
 export class CustomersService {
@@ -54,6 +58,13 @@ export class CustomersService {
       // ...rest
     } = createCustomerDto;
 
+    const creator = await this.prisma.user.findUnique({
+      where: { id: requestUserId },
+      include: { agentDetails: true },
+    });
+
+    const isAgentUser = creator?.agentDetails;
+
     if (email) {
       const existingCustomer = await this.prisma.customer.findFirst({
         where: { email },
@@ -93,6 +104,8 @@ export class CustomersService {
         addressType,
         location,
         creatorId: requestUserId,
+        status: isAgentUser ? UserStatus.inactive : UserStatus.active,
+        isApproved: isAgentUser ? false : true,
         ...(alternatePhone && { alternatePhone }),
         ...(gender && { gender }),
         ...(installationAddress && { installationAddress }),
@@ -110,7 +123,11 @@ export class CustomersService {
       },
     });
 
-    return { message: MESSAGES.CREATED };
+    return {
+      message: !isAgentUser
+        ? MESSAGES.CREATED
+        : 'Customer created successfully. Pending admin approval.',
+    };
   }
 
   async customerFilter(
@@ -135,6 +152,9 @@ export class CustomersService {
       createdAt,
       updatedAt,
       isNew,
+      isRejected,
+      isApproved,
+      isPending,
     } = query;
 
     const filterConditions: Prisma.CustomerWhereInput = {
@@ -194,6 +214,23 @@ export class CustomersService {
               },
             }
           : {},
+        isRejected
+          ? {
+              rejectedAt: { not: null },
+              isApproved: false,
+            }
+          : {},
+        isApproved
+          ? {
+              isApproved: false,
+            }
+          : {},
+        isPending
+          ? {
+              isApproved: false,
+              rejectedAt: null,
+            }
+          : {},
         createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
         updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
       ],
@@ -217,12 +254,33 @@ export class CustomersService {
       [sortField || 'createdAt']: sortOrder || 'desc',
     };
 
+    let creatorId;
+
+    if (agent) {
+      const agentUserId = await this.prisma.agent.findUnique({
+        where: { id: agent },
+        select: { userId: true },
+      });
+      if (!agentUserId) {
+        throw new NotFoundException(MESSAGES.USER_NOT_FOUND);
+      }
+      creatorId = agentUserId.userId;
+    }
+
     const result = await this.prisma.customer.findMany({
       skip,
       take,
       where: {
         ...filterConditions,
-        assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+        // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+        ...(agent
+          ? {
+              OR: [
+                { assignedAgents: { some: { agentId: agent } } },
+                ...(creatorId ? [{ creatorId }] : []),
+              ],
+            }
+          : {}),
       },
       orderBy,
       include: {
@@ -446,47 +504,44 @@ export class CustomersService {
   }
 
   async getCustomerStats() {
-    const barredCustomerCount = await this.prisma.customer.count({
-      where: {
-        status: UserStatus.barred,
-      },
-    });
-
-    const newCustomerCount = await this.prisma.customer.count({
-      where: {
-        createdAt: {
-          gte: getLastNDaysDate(7),
-        },
-      },
-    });
-
-    const activeCustomerCount = await this.prisma.customer.count({
-      where: {
-        status: UserStatus.active,
-      },
-    });
-
-    const totalCustomerCount = await this.prisma.customer.count();
-
-    const leadCustomerCount = await this.prisma.customer.count({
-      where: {
-        type: 'lead',
-      },
-    });
-
-    const purchaseCustomerCount = await this.prisma.customer.count({
-      where: {
-        type: 'purchase',
-      },
-    });
-
-    return {
+    const [
+      totalCustomerCount,
+      activeCustomerCount,
       barredCustomerCount,
       newCustomerCount,
-      activeCustomerCount,
-      totalCustomerCount,
       leadCustomerCount,
       purchaseCustomerCount,
+      pendingApprovalCount,
+      rejectedCount,
+      approvedCount,
+    ] = await Promise.all([
+      this.prisma.customer.count(),
+      this.prisma.customer.count({ where: { status: UserStatus.active } }),
+      this.prisma.customer.count({ where: { status: UserStatus.barred } }),
+      this.prisma.customer.count({
+        where: { createdAt: { gte: getLastNDaysDate(7) } },
+      }),
+      this.prisma.customer.count({ where: { type: 'lead' } }),
+      this.prisma.customer.count({ where: { type: 'purchase' } }),
+      this.prisma.customer.count({
+        where: { isApproved: false, rejectedAt: null },
+      }),
+      this.prisma.customer.count({
+        where: { rejectedAt: { not: null }, isApproved: false },
+      }),
+      this.prisma.customer.count({ where: { isApproved: true } }),
+    ]);
+
+    return {
+      totalCustomerCount,
+      activeCustomerCount,
+      barredCustomerCount,
+      newCustomerCount,
+      leadCustomerCount,
+      purchaseCustomerCount,
+      pendingApprovalCount,
+      rejectedCount,
+      approvedCount,
     };
   }
 
@@ -529,5 +584,125 @@ export class CustomersService {
     ];
 
     return tabs;
+  }
+
+  async approveCustomer(
+    customerId: string,
+    approveDto: ApproveCustomerDto,
+    approverUserId: string,
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    if (customer.isApproved) {
+      throw new BadRequestException('Customer is already approved');
+    }
+
+    if (!approveDto.approve && !approveDto.rejectionReason) {
+      throw new BadRequestException(
+        'Rejection reason is required when rejecting a customer',
+      );
+    }
+
+    const updateData: any = {
+      status: approveDto.approve ? UserStatus.active : UserStatus.inactive,
+      updatedAt: new Date(),
+    };
+
+    if (approveDto.approve) {
+      updateData.isApproved = true;
+      updateData.approvedAt = new Date();
+      updateData.approvedBy = approverUserId;
+    } else {
+      updateData.rejectedAt = new Date();
+      updateData.rejectedBy = approverUserId;
+      updateData.rejectionReason = approveDto.rejectionReason;
+    }
+
+    const updatedCustomer = await this.prisma.customer.update({
+      where: { id: customerId },
+      data: updateData,
+      include: {
+        approver: {
+          select: {
+            firstname: true,
+            lastname: true,
+            email: true,
+          },
+        },
+        rejecter: {
+          select: {
+            firstname: true,
+            lastname: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    return {
+      message: approveDto.approve
+        ? 'Customer approved successfully'
+        : 'Customer rejected successfully',
+      customer: updatedCustomer,
+    };
+  }
+
+  async bulkApproveCustomers(
+    bulkApproveDto: BulkApproveCustomersDto,
+    approverUserId: string,
+  ) {
+    if (!bulkApproveDto.approve && !bulkApproveDto.rejectionReason) {
+      throw new BadRequestException(
+        'Rejection reason is required for bulk rejection',
+      );
+    }
+
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        id: { in: bulkApproveDto.customerIds },
+        isApproved: false,
+      },
+    });
+
+    if (customers.length === 0) {
+      throw new BadRequestException(
+        'No pending customers found with the provided IDs',
+      );
+    }
+
+    const updateData: any = {
+      status: bulkApproveDto.approve ? UserStatus.active : UserStatus.inactive,
+      updatedAt: new Date(),
+    };
+
+    if (bulkApproveDto.approve) {
+      updateData.isApproved = true;
+      updateData.approvedAt = new Date();
+      updateData.approvedBy = approverUserId;
+    } else {
+      updateData.rejectedAt = new Date();
+      updateData.rejectedBy = approverUserId;
+      updateData.rejectionReason = bulkApproveDto.rejectionReason;
+    }
+
+    await this.prisma.customer.updateMany({
+      where: {
+        id: { in: customers.map((c) => c.id) },
+      },
+      data: updateData,
+    });
+
+    return {
+      message: bulkApproveDto.approve
+        ? `${customers.length} customers approved successfully`
+        : `${customers.length} customers rejected successfully`,
+      affectedCount: customers.length,
+    };
   }
 }

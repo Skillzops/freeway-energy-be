@@ -10,6 +10,9 @@ import {
   Query,
   ForbiddenException,
   BadRequestException,
+  UseInterceptors,
+  UploadedFiles,
+  ParseFilePipeBuilder,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -17,6 +20,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiExtraModels,
   ApiHeader,
   ApiOkResponse,
@@ -61,6 +65,8 @@ import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { CreateCustomerDto } from 'src/customers/dto/create-customer.dto';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 
 @SkipThrottle()
 @ApiTags('Agents')
