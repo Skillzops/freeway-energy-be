@@ -205,7 +205,6 @@ export class AgentsService {
 
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
@@ -240,6 +239,21 @@ export class AgentsService {
             },
           },
         },
+        sales: {
+          select: {
+            id: true,
+            status: true,
+            saleItems: {
+              select: {
+                devices: {
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       skip,
       take,
@@ -252,11 +266,41 @@ export class AgentsService {
       where: whereConditions,
     });
 
+    const agentsWithStats = await Promise.all(
+      agents.map(async (agent) => {
+        const totalAssignedCustomers = agent.assignedCustomers.length;
+
+        const totalSales = agent.sales.length;
+
+        const totalInventoryInPossession = agent.sales.reduce((sum, sale) => {
+          const deviceCount = sale.saleItems.reduce(
+            (itemSum, item) => itemSum + item.devices.length,
+            0,
+          );
+          return sum + deviceCount;
+        }, 0);
+
+        const ongoingSales = agent.sales.filter(
+          (sale) =>
+            sale.status === SalesStatus.IN_INSTALLMENT ||
+            sale.status === SalesStatus.UNPAID,
+        ).length;
+
+        return {
+          ...agent,
+          user: plainToInstance(UserEntity, agent.user),
+          statistics: {
+            totalRegisteredCustomers: totalAssignedCustomers,
+            totalSales,
+            totalInventoryInPossession,
+            ongoingSales,
+          },
+        };
+      }),
+    );
+
     return {
-      agents: agents.map((agent) => ({
-        ...agent,
-        user: plainToInstance(UserEntity, agent.user),
-      })),
+      agents: agentsWithStats,
       total,
       page,
       limit,
@@ -1565,7 +1609,6 @@ export class AgentsService {
       existingInstallerAccounts: number;
     };
   }> {
-
     // Get all sales with installer names
     const salesWithInstallers = await this.prisma.sales.findMany({
       where: {
@@ -1691,7 +1734,6 @@ export class AgentsService {
         const createdAccount =
           await this.createInstallerAccount(missingAccount);
         created.push(createdAccount);
-
       } catch (error) {
         const errorMsg = `Failed to create installer account for ${missingAccount.installerName}: ${error.message}`;
         errors.push(errorMsg);
@@ -1711,9 +1753,7 @@ export class AgentsService {
     };
   }
 
-  private async createInstallerAccount(
-    missingAccount,
-  ){
+  private async createInstallerAccount(missingAccount) {
     const parsedName = this.parseFullName(missingAccount.installerName);
     const plainPassword = generateRandomPassword(12);
     const hashedPassword = await hashPassword(plainPassword);
@@ -1816,9 +1856,7 @@ export class AgentsService {
     return name.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
-  private async generateInstallerCredentialsFile(
-    accounts
-  ): Promise<string> {
+  private async generateInstallerCredentialsFile(accounts): Promise<string> {
     const fileName = `missing_installer_accounts_${Date.now()}.txt`;
     const filePath = path.join(
       process.cwd(),
@@ -1878,7 +1916,6 @@ export class AgentsService {
         },
       ],
     });
-
 
     return filePath;
   }
