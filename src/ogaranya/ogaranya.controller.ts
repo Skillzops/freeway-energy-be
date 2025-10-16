@@ -11,12 +11,7 @@ import {
   forwardRef,
   BadRequestException,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiParam,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiParam, ApiBody } from '@nestjs/swagger';
 import { OgaranyaService } from './ogaranya.service';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 import { ApiAuthGuard } from '../auth/guards/api-auth.guard';
@@ -26,6 +21,8 @@ import {
   PowerPurchaseDto,
   SerialNumberDto,
 } from './dto/ogaranya-power-purchase.dto';
+import { AgentVerificationDto } from './dto/agent-verification.dto';
+import { InitializeWalletTopUpDto, WalletTopUpDto } from './dto/initialize-wallet-topup.dto';
 
 @ApiTags('Ogaranya')
 @Controller('ogaranya')
@@ -187,5 +184,46 @@ export class OgaranyaController {
     @Param('topupReference') topupReference: string,
   ) {
     return this.ogaranyaService.getWalletTopUpByReference(topupReference);
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Post('wallet-topup')
+  @ApiOperation({
+    summary: 'Top up wallet by top up reference',
+    description: 'Used by Ogaranya to top-up wallet',
+  })
+  @ApiParam({
+    name: 'topupReference',
+    description: 'Short top-up reference (e.g., TOP-ABC123)',
+    example: 'TOP-ABC123',
+  })
+  async walletTopUpByReference(@Body() topupDto: WalletTopUpDto) {
+    return this.ogaranyaService.walletTopUpByReference(topupDto);
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Post('wallet/initialize-topup')
+  @ApiOperation({
+    summary: 'Initialize wallet top-up transaction',
+    description:
+      'Create a pending wallet top-up and initiate payment with Ogaranya',
+  })
+  @ApiBody({ type: InitializeWalletTopUpDto })
+  @HttpCode(HttpStatus.OK)
+  async initializeWalletTopUp(@Body() initializeDto: InitializeWalletTopUpDto) {
+    return await this.ogaranyaService.initializeWalletTopUp(initializeDto);
+  }
+
+  @UseGuards(ApiAuthGuard)
+  @Post('agent/verify')
+  @ApiOperation({
+    summary: 'Verify if an agent exists',
+    description:
+      'Check if an agent exists using phone, email, staffId, or Ogaranya account number',
+  })
+  @ApiBody({ type: AgentVerificationDto })
+  @HttpCode(HttpStatus.OK)
+  async verifyAgent(@Body() verificationDto: AgentVerificationDto) {
+    return await this.ogaranyaService.verifyAgent(verificationDto);
   }
 }

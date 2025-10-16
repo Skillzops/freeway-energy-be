@@ -15,7 +15,9 @@ import {
   PaymentMode,
   PaymentStatus,
   Prisma,
+  UserStatus,
   WalletTransactionStatus,
+  WalletTransactionType,
 } from '@prisma/client';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 import { formatPhoneNumber } from 'src/utils/helpers.util';
@@ -25,6 +27,12 @@ import {
 } from './dto/ogaranya-power-purchase.dto';
 import { PaymentService } from 'src/payment/payment.service';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
+import { AgentVerificationDto } from './dto/agent-verification.dto';
+import {
+  InitializeWalletTopUpDto,
+  WalletTopUpDto,
+} from './dto/initialize-wallet-topup.dto';
+import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 
 @Injectable()
 export class OgaranyaService {
@@ -41,6 +49,7 @@ export class OgaranyaService {
     private readonly openPayGo: OpenPayGoService,
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
+    private readonly referenceGenerator: ReferenceGeneratorService,
   ) {
     // Updated configuration based on new documentation
     this.baseUrl =
@@ -435,9 +444,7 @@ export class OgaranyaService {
     }
 
     if (!device.isTokenable) {
-      throw new BadRequestException(
-        `Device ${serialNumber} is not tokenable.`,
-      );
+      throw new BadRequestException(`Device ${serialNumber} is not tokenable.`);
     }
 
     const sale = device.saleItems[0].sale;
@@ -929,6 +936,218 @@ export class OgaranyaService {
       });
 
       throw new BadRequestException(`Payment failed: ${statusMsg}`);
+    }
+  }
+
+  async verifyAgent(verificationDto: AgentVerificationDto) {
+    const { phone, email, userId } = verificationDto;
+
+    if (!phone && !email && !userId) {
+      throw new BadRequestException(
+        'At least one identifier must be provided (phone, email or userId)',
+      );
+    }
+
+    const agent = await this.prisma.agent.findFirst({
+      where: {
+        ...(userId && { userId }),
+        ...(email && {
+          user: {
+            email: { equals: email, mode: 'insensitive' },
+          },
+        }),
+        ...(phone && {
+          user: {
+            phone: { equals: phone, mode: 'insensitive' },
+          },
+        }),
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+            phone: true,
+            location: true,
+            status: true,
+          },
+        },
+        wallet: {
+          select: {
+            id: true,
+            balance: true,
+            lastSyncAt: true,
+          },
+        },
+      },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found with provided identifiers');
+    }
+
+    if (agent.user.status !== UserStatus.active) {
+      throw new BadRequestException('Agent is not active');
+    }
+
+    const hasWallet = !!agent.wallet;
+
+    return {
+      userId: agent.user.id,
+      firstname: agent.user.firstname,
+      lastname: agent.user.lastname,
+      email: agent.user.email,
+      phone: agent.user.phone,
+      location: agent.user.location,
+      hasWallet,
+      balance: agent.wallet?.balance || 0,
+    };
+  }
+
+  async initializeWalletTopUp(initializeDto: InitializeWalletTopUpDto) {
+    const { agentIdentifier, amount, description } = initializeDto;
+
+    const isValidObjectId = (id: string): boolean => {
+      return /^[0-9a-fA-F]{24}$/.test(id);
+    };
+  
+
+    const agent = await this.prisma.agent.findFirst({
+      where: {
+        OR: [
+          { user: { phone: { equals: agentIdentifier, mode: 'insensitive' } } },
+          { user: { email: { equals: agentIdentifier, mode: 'insensitive' } } },
+          ...(isValidObjectId(agentIdentifier)
+            ? [{ userId: agentIdentifier }]
+            : []),
+        ],
+        deletedAt: { isSet: false },
+      },
+      include: {
+        user: true,
+        wallet: true,
+      },
+    });
+
+    if (!agent) {
+      throw new NotFoundException(
+        `Agent not found with identifier: ${agentIdentifier}`,
+      );
+    }
+
+    let wallet = agent.wallet;
+    if (!wallet) {
+      wallet = await this.prisma.wallet.create({
+        data: {
+          agentId: agent.id,
+          balance: 0,
+        },
+      });
+    }
+
+    const reference = await this.referenceGenerator.generateTopUpReference();
+
+    const previousBalance = wallet.balance;
+
+    await this.prisma.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        agentId: agent.id,
+        type: WalletTransactionType.CREDIT,
+        paymentGateway: 'OGARANYA',
+        amount,
+        previousBalance,
+        newBalance: previousBalance,
+        description: description || `Wallet top-up via Ogaranya`,
+        reference,
+        status: WalletTransactionStatus.PENDING,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Wallet top-up initialized',
+      reference,
+      amount,
+    };
+  }
+
+  async walletTopUpByReference(topupDto: WalletTopUpDto) {
+    const { amount, orderReference, topupReference, statusMsg, payDate } =
+      topupDto;
+
+
+    const paidAmount = parseFloat(amount);
+    const paymentDate = new Date(payDate);
+
+    const walletTransaction = await this.prisma.walletTransaction.findFirst({
+      where: {
+        reference: {
+          equals: topupReference,
+          mode: 'insensitive',
+        },
+      },
+    });
+
+    if (!walletTransaction) {
+      throw new NotFoundException(
+        `Wallet top-up with reference ${topupReference} not found`,
+      );
+    }
+
+    if (walletTransaction.amount != paidAmount) {
+      throw new NotFoundException(
+        `Wallet top-up amount must be ${walletTransaction.amount}`,
+      );
+    }
+
+    if (statusMsg.toLowerCase().includes('success')) {
+      if (walletTransaction.status !== WalletTransactionStatus.COMPLETED) {
+        await this.prisma.walletTransaction.update({
+          where: { id: walletTransaction.id },
+          data: {
+            status: WalletTransactionStatus.COMPLETED,
+            updatedAt: paymentDate,
+            ogaranyaOrderRef: orderReference,
+          },
+        });
+
+        await this.prisma.wallet.update({
+          where: { agentId: walletTransaction.agentId },
+          data: {
+            balance: { increment: paidAmount },
+            lastSyncAt: paymentDate,
+          },
+        });
+
+        return {
+          message: 'Wallet top-up processed successfully',
+          agentId: walletTransaction.agentId,
+          amountCredited: paidAmount,
+          paymentDate: paymentDate.toISOString(),
+        };
+      } else {
+        return {
+          message: 'Wallet top-up already completed',
+          agentId: walletTransaction.agentId,
+          amountCredited: paidAmount,
+          paymentDate: paymentDate.toISOString(),
+        };
+      }
+    } else {
+      await this.prisma.walletTransaction.update({
+        where: { id: walletTransaction.id },
+        data: {
+          status: WalletTransactionStatus.FAILED,
+          errorMessage: `Payment failed: ${statusMsg}`,
+          ogaranyaOrderRef: orderReference,
+          updatedAt: paymentDate,
+        },
+      });
+
+      throw new BadRequestException(`Wallet top-up failed: ${statusMsg}`);
     }
   }
 
