@@ -2,10 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsDateString,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
-  Min,
 } from 'class-validator';
 
 export class InitializeWalletTopUpDto {
@@ -18,15 +16,10 @@ export class InitializeWalletTopUpDto {
   @IsString()
   agentIdentifier: string;
 
-  @ApiProperty({
-    description: 'Top-up amount in Naira',
-    example: 5000,
-    minimum: 100,
-  })
+  @ApiProperty({ description: 'Amount paid as a string (e.g., "1000")' })
   @IsNotEmpty()
-  @IsNumber()
-  @Min(100, { message: 'Minimum top-up amount is ₦100' })
-  amount: number;
+  @IsString()
+  amount: string;
 
   @ApiProperty({
     description: 'Description for the transaction',

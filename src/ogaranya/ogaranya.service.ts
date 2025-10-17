@@ -1009,6 +1009,8 @@ export class OgaranyaService {
   async initializeWalletTopUp(initializeDto: InitializeWalletTopUpDto) {
     const { agentIdentifier, amount, description } = initializeDto;
 
+    const paidAmount = parseFloat(amount);
+
     const isValidObjectId = (id: string): boolean => {
       return /^[0-9a-fA-F]{24}$/.test(id);
     };
@@ -1057,7 +1059,7 @@ export class OgaranyaService {
         agentId: agent.id,
         type: WalletTransactionType.CREDIT,
         paymentGateway: 'OGARANYA',
-        amount,
+        amount: paidAmount,
         previousBalance,
         newBalance: previousBalance,
         description: description || `Wallet top-up via Ogaranya`,
