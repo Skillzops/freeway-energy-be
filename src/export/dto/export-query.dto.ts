@@ -7,35 +7,77 @@ import {
   Max,
   IsString,
   IsDateString,
+  IsBoolean,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { PaymentMethod, PaymentMode, SalesStatus } from '@prisma/client';
 
+/**
+ * Export Types:
+ * 
+ * DEBT_REPORT: Shows individual customer debts with remaining months
+ * RENEWAL_REPORT: Shows customers who haven't paid monthly reactivation (defaulters)
+ * WEEKLY_SUMMARY: New sales + renewals for a week
+ * MONTHLY_SUMMARY: New sales + renewals for a month
+ * SALES: Standard sales export
+ * CUSTOMERS: Customer list with debt summary
+ * PAYMENTS: Payment transaction history
+ * DEVICES: Device installation records
+ */
 export enum ExportType {
-  SALES = 'sales',
-  CUSTOMERS = 'customers',
-  PAYMENTS = 'payments',
-  DEVICES = 'devices',
   DEBT_REPORT = 'debt_report',
   RENEWAL_REPORT = 'renewal_report',
   WEEKLY_SUMMARY = 'weekly_summary',
   MONTHLY_SUMMARY = 'monthly_summary',
+  SALES = 'sales',
+  CUSTOMERS = 'customers',
+  PAYMENTS = 'payments',
+  DEVICES = 'devices',
 }
 
 export class ExportDataQueryDto {
   @ApiProperty({
     enum: ExportType,
-    description: 'Type of data to export',
-    example: 'sales',
+    description: `
+**Export Type Guide:**
+
+**DEBT_REPORT**: View individual customer debts remaining and number of months
+- Shows: Outstanding balance, remaining months, payment history per customer
+- Use for: Tracking individual customer debt status
+- Includes: Total debt summary across all customers
+
+**RENEWAL_REPORT**: See customers who haven't paid monthly reactivations
+- Shows: Customers with overdue installments, days/months defaulted
+- Use for: Identifying payment defaulters
+- Filter by: overdueDays (default: 35)
+
+**WEEKLY_SUMMARY**: Generate weekly reports
+- Shows: Total new sales (stock & cash), total renewals (quantities & amounts)
+- Use for: Weekly performance tracking
+- Includes: Revenue breakdown by payment mode
+
+**MONTHLY_SUMMARY**: Generate monthly reports  
+- Shows: Total new sales (stock & cash), total renewals (quantities & amounts)
+- Use for: Monthly performance tracking
+- Includes: Revenue breakdown by payment mode
+
+**SALES**: Standard sales export
+**CUSTOMERS**: Customer records with debt summary
+**PAYMENTS**: Payment transaction history
+**DEVICES**: Device installation records
+    `,
+    example: ExportType.DEBT_REPORT,
   })
   @IsEnum(ExportType)
   exportType: ExportType;
 
   @ApiPropertyOptional({
-    enum: PaymentMode,
-    description: 'Filter by payment mode (ONE_OFF or INSTALLMENT)',
+    description: 'Filter by specific customer ID',
+    example: '507f1f77bcf86cd799439011',
   })
-  paymentMode?: PaymentMode;
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by agent ID',
@@ -47,7 +89,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     enum: SalesStatus,
-    description: 'Filter by sales status',
+    description: 'Filter by sales status (COMPLETED, IN_INSTALLMENT, UNPAID, CANCELLED)',
   })
   @IsOptional()
   @IsEnum(SalesStatus)
@@ -62,15 +104,16 @@ export class ExportDataQueryDto {
   paymentMethod?: PaymentMethod;
 
   @ApiPropertyOptional({
-    description: 'Filter by customer ID',
-    example: '507f1f77bcf86cd799439011',
+    enum: PaymentMode,
+    description: 'Filter by payment mode (ONE_OFF or INSTALLMENT)',
   })
   @IsOptional()
-  @IsString()
-  customerId?: string;
+  @IsEnum(PaymentMode)
+  paymentMode?: PaymentMode;
 
   @ApiPropertyOptional({
-    description: 'Start date for filtering (ISO 8601 format)',
+    description: 'Start date for filtering (ISO 8601: 2025-01-01)',
+    example: '2025-01-01',
   })
   @IsOptional()
   @IsDateString()
@@ -78,25 +121,8 @@ export class ExportDataQueryDto {
   startDate?: Date;
 
   @ApiPropertyOptional({
-    description: 'Filter by LGA',
-    example: 'Ikeja',
-  })
-  @IsOptional()
-  @IsString()
-  lga?: string;
-
-  @ApiPropertyOptional({
-    enum: ['csv', 'json'],
-    description: 'Response format',
-    example: 'csv',
-    default: 'csv',
-  })
-  @IsOptional()
-  @IsEnum(['csv', 'json'])
-  format?: 'csv' | 'json';
-
-  @ApiPropertyOptional({
-    description: 'End date for filtering (ISO 8601 format)',
+    description: 'End date for filtering (ISO 8601: 2025-12-31)',
+    example: '2025-12-31',
   })
   @IsOptional()
   @IsDateString()
@@ -104,7 +130,7 @@ export class ExportDataQueryDto {
   endDate?: Date;
 
   @ApiPropertyOptional({
-    description: 'Filter by state',
+    description: 'Filter by state (e.g., Lagos, Abuja)',
     example: 'Lagos',
   })
   @IsOptional()
@@ -112,26 +138,38 @@ export class ExportDataQueryDto {
   state?: string;
 
   @ApiPropertyOptional({
-    description:
-      'Filter overdue installments (days since last payment threshold)',
-    example: 35,
+    description: 'Filter by LGA (Local Government Area)',
+    example: 'Ikeja',
   })
+  @IsOptional()
+  @IsString()
+  lga?: string;
+
+  @ApiPropertyOptional({
+    description: `
+**Overdue Days Threshold:**
+Minimum number of days since last payment to consider overdue.
+- Default: 35 days
+- Use for: Renewal Report to find defaulters
+- Example: overdueDays=60 finds customers who haven't paid in 60+ days
+    `,
+    example: 35,
+    default: 35,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
   overdueDays?: number;
 
   @ApiPropertyOptional({
-    description: 'Filter customers with outstanding debt only',
+    description: 'Filter customers with outstanding debt only (for CUSTOMERS export)',
+    example: true,
   })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
   hasOutstandingDebt?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Filter sales made in the specified period (new sales)',
-  })
-  isNewSale?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Filter renewal/reactivation payments only',
-  })
-  isRenewal?: boolean;
 
   @ApiPropertyOptional({
     description: 'Page number for pagination',
@@ -145,7 +183,7 @@ export class ExportDataQueryDto {
   page?: number;
 
   @ApiPropertyOptional({
-    description: 'Number of records per page',
+    description: 'Number of records per page (max 5000)',
     example: 100,
     minimum: 1,
     maximum: 5000,
@@ -156,14 +194,14 @@ export class ExportDataQueryDto {
   @Min(1)
   @Max(5000)
   limit?: number;
-}
 
-export class OutstandingPaymentsQueryDto {
   @ApiPropertyOptional({
-    description: 'Days threshold for overdue (default: 35)',
+    enum: ['csv', 'json'],
+    description: 'Response format (csv for download, json for API response)',
+    example: 'csv',
+    default: 'csv',
   })
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  overdueDays?: number;
+  @IsEnum(['csv', 'json'])
+  format?: 'csv' | 'json';
 }
