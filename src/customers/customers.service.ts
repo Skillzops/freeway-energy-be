@@ -316,6 +316,7 @@ export class CustomersService {
     const totalCount = await this.prisma.customer.count({
       where: {
         ...filterConditions,
+        ...(creatorId ? [{ creatorId }] : []),
         assignedAgents: agent ? { some: { agentId: agent } } : undefined,
       },
     });
@@ -330,10 +331,24 @@ export class CustomersService {
   }
 
   async getCustomer(id: string, agent?: string) {
+    let creatorId;
+
+    if (agent) {
+      const agentUserId = await this.prisma.agent.findUnique({
+        where: { id: agent },
+        select: { userId: true },
+      });
+      if (!agentUserId) {
+        throw new NotFoundException(MESSAGES.USER_NOT_FOUND);
+      }
+      creatorId = agentUserId.userId;
+    }
+
     const customer = await this.prisma.customer.findUnique({
       where: {
         id,
         assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+        ...(creatorId ? [{ creatorId }] : []),
       },
       include: {
         creatorDetails: {

@@ -265,8 +265,7 @@ export class AgentsController {
     @GetSessionUser('agent') agent: Agent,
   ) {
     return await this.productsService.getAllProducts(
-      getAgentsProductsDto,
-      agent.id,
+      {...getAgentsProductsDto, agentId: agent.id},
     );
   }
 

@@ -890,7 +890,7 @@ export class PaymentService {
         (device) =>
           device.installationStatus === InstallationStatus.installed &&
           device.gpsVerified &&
-          device.isTokenable 
+          device.isTokenable,
       );
 
       if (installedDevices.length) {
@@ -936,7 +936,7 @@ export class PaymentService {
 
     // Send device tokens via email and SMS
     if (deviceTokens.length) {
-      await this.notificationService.sendTokenToCustomer(
+      await this.notificationService.sendTokenToRecipient(
         sale.customer,
         deviceTokens,
       );

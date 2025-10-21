@@ -509,7 +509,10 @@ export class AuthService {
           throw new ForbiddenException();
         }
         if (!deviceId) return true;
-        await this.validateInstallerAssignment(deviceId, user.agentDetails.id);
+        await this.validateInstallerDeviceAssignment(
+          deviceId,
+          user.agentDetails.id,
+        );
       } else {
         throw new ForbiddenException();
       }
@@ -524,7 +527,6 @@ export class AuthService {
           throw new ForbiddenException();
         }
         return true;
-
       } else {
         throw new ForbiddenException();
       }
@@ -533,36 +535,36 @@ export class AuthService {
     throw new ForbiddenException();
   }
 
-  async validateInstallerAssignment(
+  async validateInstallerDeviceAssignment(
     deviceId: string,
     installerAgentId: string,
   ) {
-    const installerTask = await this.prisma.installerTask.findFirst({
-      where: {
-        installerAgentId,
-        sale: {
-          saleItems: {
-            some: {
-              devices: {
-                some: {
-                  id: deviceId,
+    const device = await this.prisma.device.findUnique({
+      where: { id: deviceId },
+      select: {
+        saleItems: {
+          select: {
+            sale: {
+              select: {
+                installerTasks: {
+                  where: {
+                    installerAgentId,
+                    status: {
+                      in: [TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+                    },
+                  },
                 },
               },
             },
           },
         },
-        status: {
-          in: [TaskStatus.PENDING, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
-        },
       },
     });
 
-    if (!installerTask) {
+    if (!device) {
       throw new ForbiddenException(
         'Device not assigned to this installer or task not active',
       );
     }
-
-    return installerTask;
   }
 }

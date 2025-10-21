@@ -153,10 +153,33 @@
                                       mso-line-height-alt: 21px;
                                     '
                                   >
-                                 We have received your payments for your chosen devices. Here are your tokens:
+                                 Your A4t device tokens are ready. Here are your tokens:
                                     <br /><br />
-                                   {{tokens}}
                                   </h1>
+
+                                  <table
+                                    width="100%"
+                                    cellpadding="10"
+                                    cellspacing="0"
+                                    style="border-collapse: collapse; font-family: Arial, sans-serif; margin-top: 20px;"
+                                  >
+                                    <thead>
+                                      <tr style="background-color: #f3f3f3; text-align: left;">
+                                        <th>Device Serial Number</th>
+                                        <th>Device Key</th>
+                                        <th>Token</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {{#each tokens}}
+                                      <tr>
+                                        <td>{{this.deviceSerialNumber}}</td>
+                                        <td>{{this.deviceKey}}</td>
+                                        <td style="font-weight: bold;">{{this.deviceToken}}</td>
+                                      </tr>
+                                      {{/each}}
+                                    </tbody>
+                                  </table>
                                 </td>
                               </tr>
                             </table>

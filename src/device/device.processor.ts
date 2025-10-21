@@ -4,11 +4,27 @@ import { Job } from 'bullmq';
 import { Injectable } from '@nestjs/common';
 import { DeviceService } from './device.service';
 import { unlinkSync } from 'fs';
+import {
+  Agent,
+  Customer,
+  Device,
+  PaymentMode,
+  SaleItem,
+  Sales,
+  User,
+} from '@prisma/client';
 
 export interface BatchTokenJobData {
   filePath: string;
   uploadedBy?: string;
   jobId: string;
+  device: Device & {
+    saleItems: (SaleItem & {
+      paymentMode: PaymentMode;
+      sale: Sales & { customer: Customer };
+    })[];
+  };
+  agent?: Agent & { user: User };
 }
 
 export interface BatchTokenResult {
@@ -97,6 +113,20 @@ export class DeviceProcessor extends WorkerHost {
 
     if (job.name === 'test-job') {
       console.log(`[PROCESSOR] Processing test job:`, job.data);
+      return {
+        success: true,
+        jobId: job.id!.toString(),
+        devicesProcessed: 0,
+        totalRows: 0,
+        completedAt: new Date().toISOString(),
+        tokens: [],
+      };
+    }
+
+    if (job.name === 'process-device-token-send') {
+      const { device, agent } = job.data;
+      await this.deviceService.processDeviceTokenSend(device, agent);
+
       return {
         success: true,
         jobId: job.id!.toString(),

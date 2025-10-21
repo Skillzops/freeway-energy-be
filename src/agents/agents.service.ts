@@ -1502,7 +1502,11 @@ export class AgentsService {
               saleItems: {
                 include: {
                   product: true,
-                  devices: true,
+                  devices: {
+                    include: {
+                      tokens: true
+                    }
+                  },
                 },
               },
             },

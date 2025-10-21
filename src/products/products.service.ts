@@ -110,7 +110,7 @@ export class ProductsService {
     return product;
   }
 
-  async getAllProducts(getProductsDto: GetProductsDto, agent?: string) {
+  async getAllProducts(getProductsDto: GetProductsDto) {
     const {
       page = 1,
       limit = 10,
@@ -135,7 +135,7 @@ export class ProductsService {
           : {},
         categoryId ? { categoryId } : {},
         agentId
-          ? {
+          ?  {
               assignedAgents: {
                 some: { agentId },
               },
@@ -160,7 +160,7 @@ export class ProductsService {
     const result = await this.prisma.product.findMany({
       where: {
         ...whereConditions,
-        assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+        // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
       },
       skip,
       take,
@@ -181,8 +181,10 @@ export class ProductsService {
     const updatedResults = result.map(this.mapProductToResponseDto);
 
     const total = await this.prisma.product.count({
-      where: whereConditions,
-    });
+      where: {
+        ...whereConditions,
+      },
+    });    
 
     return {
       updatedResults,

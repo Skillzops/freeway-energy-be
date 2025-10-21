@@ -393,11 +393,15 @@ export class SalesService {
                 },
               },
             },
-            devices: true,
+            devices: {
+              include: {
+                tokens: true
+              }
+            },
             SaleRecipient: true,
             product: true,
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { sale: { createdAt: 'desc' } },
           skip,
           take,
         }),
@@ -433,11 +437,15 @@ export class SalesService {
             },
           },
         },
-        devices: true,
+        devices: {
+          include: {
+            tokens: true,
+          },
+        },
         SaleRecipient: true,
         product: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { sale: { createdAt: 'desc' } },
     });
 
     // Filter in memory

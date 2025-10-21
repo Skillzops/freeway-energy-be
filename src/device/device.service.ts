@@ -14,7 +14,17 @@ import { createReadStream, readFileSync } from 'fs';
 import * as csvParser from 'csv-parser';
 import { parse } from 'papaparse';
 import { MESSAGES } from '../constants';
-import { InstallationStatus, PaymentMode, Prisma } from '@prisma/client';
+import {
+  Agent,
+  Customer,
+  Device,
+  InstallationStatus,
+  PaymentMode,
+  Prisma,
+  SaleItem,
+  Sales,
+  User,
+} from '@prisma/client';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -116,19 +126,43 @@ export class DeviceService {
   ) {
     const device = await this.validateDeviceExistsAndReturn({ id: deviceId });
 
+    // Validate current status
+    if (device.installationStatus === InstallationStatus.installed) {
+      throw new BadRequestException(`Device already installed`);
+    }
     // Validate that installer is assigned to this device
-    await this.authService.validateInstallerAssignment(
+    await this.authService.validateInstallerDeviceAssignment(
       deviceId,
       installerAgentId,
     );
 
-    // Validate current status
-    if (
-      device.installationStatus !== InstallationStatus.ready_for_installation
-    ) {
-      throw new BadRequestException(
-        'Device must be in ready_for_installation status to update location',
-      );
+    const agentInstaller = await this.prisma.agentInstallerAssignment.findFirst({
+      where: {
+        installerId: installerAgentId,
+      },
+      select: {
+        agent: {
+          select: {
+            id: true,
+            assignedInstallers: true,
+            assignedAsInstaller: true,
+            user: {
+              select: {
+                firstname: true,
+                lastname: true,
+                phone: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const agent = agentInstaller?.agent
+
+    if (!agent) {
+      throw new NotFoundException(`Installer Agent not found`);
     }
 
     // Update device with location and mark as installed
@@ -160,15 +194,68 @@ export class DeviceService {
       },
     });
 
-    // Check if device has associated sales and generate tokens
-    for (const saleItem of updatedDevice.saleItems) {
-      const sale = saleItem.sale;
-      if (sale && device.isTokenable) {
-        await this.generateAndSendTokensForDevice(device, sale, saleItem);
-      }
-    }
+    console.log({ updatedDevice });
+
+    await this.deviceQueue.add(
+      'process-device-token-send',
+      {
+        device: updatedDevice,
+        agent,
+      },
+      {
+        attempts: 2,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: 10,
+        removeOnFail: 50,
+      },
+    );
 
     return updatedDevice;
+  }
+
+  async processDeviceTokenSend(
+    device: Device & {
+      saleItems: (SaleItem & {
+        paymentMode: PaymentMode;
+        sale: Sales & { customer: Customer };
+      })[];
+    },
+    agent?: Agent & { user: User },
+  ) {
+    const tokensToSend = [];
+
+    if (device.isTokenable) {
+      const saleItem = device.saleItems[0];
+      const sale = saleItem.sale;
+
+      const tokenData = await this.generateAndSendTokensForDevice(
+        device,
+        sale,
+        saleItem.paymentMode,
+      );
+      if (tokenData) tokensToSend.push(tokenData);
+    }
+
+    if (tokensToSend.length > 0) {
+      await this.notificationService.sendTokenToRecipient(
+        // {
+        //   firstname: device.saleItems[0].sale.customer.firstname,
+        //   lastname: device.saleItems[0].sale.customer.lastname,
+        //   phone: device.saleItems[0].sale.customer.phone,
+        //   email: device.saleItems[0].sale.customer.email,
+        // },
+        {
+          firstname: agent.user.firstname,
+          lastname: agent.user.lastname,
+          phone: agent.user.phone,
+          email: agent.user.email,
+        },
+        tokensToSend,
+      );
+    }
   }
 
   async markDevicesReadyForInstallation(saleId: string) {
@@ -887,28 +974,24 @@ export class DeviceService {
   private async generateAndSendTokensForDevice(
     device: any,
     sale: any,
-    saleItem: any,
-  ) {
+    paymentMode: PaymentMode,
+  ): Promise<any> {
     try {
-      // Calculate token duration based on payment mode
       let tokenDuration: number;
 
-      if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
-        tokenDuration = -1; // Forever
+      if (paymentMode === PaymentMode.ONE_OFF) {
+        tokenDuration = -1;
       } else {
-        // Calculate based on installment payments
         const monthsCovered = this.calculateMonthsCoveredBySale(sale);
         tokenDuration = monthsCovered === -1 ? -1 : monthsCovered * 30;
       }
 
-      // Generate token
       const tokenResult = await this.openPayGo.generateToken(
         device,
         tokenDuration,
         Number(device.count),
       );
 
-      // Update device count and mark token as released
       await this.prisma.device.update({
         where: { id: device.id },
         data: {
@@ -916,7 +999,6 @@ export class DeviceService {
         },
       });
 
-      // Save token to database
       await this.prisma.tokens.create({
         data: {
           deviceId: device.id,
@@ -926,25 +1008,17 @@ export class DeviceService {
         },
       });
 
-      // Send token via email and SMS
-      const tokenData = {
+      return {
         deviceSerialNumber: device.serialNumber,
         deviceKey: device.key,
         deviceToken: String(tokenResult.finalToken),
       };
-
-      await this.notificationService.sendTokenToCustomer(sale.customer, [
-        tokenData,
-      ]);
-
-      await this.notificationService.sendTokenToCustomer(sale.customer, [tokenData]);
-
-      console.log(`Token generated and sent for device ${device.serialNumber}`);
     } catch (error) {
       console.error(
         `Failed to generate token for device ${device.serialNumber}:`,
         error,
       );
+      return null;
     }
   }
 
