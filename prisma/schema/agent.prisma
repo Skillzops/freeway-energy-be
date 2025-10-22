@@ -58,6 +58,9 @@ model AgentProduct {
   assigner   User     @relation("ProductAssigner", fields: [assignedBy], references: [id])
 
   @@unique([agentId, productId])
+  @@index([agentId])
+  @@index([productId])
+  
   @@map("agent_products")
 }
 

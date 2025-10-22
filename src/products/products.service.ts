@@ -134,17 +134,34 @@ export class ProductsService {
             }
           : {},
         categoryId ? { categoryId } : {},
-        agentId
-          ?  {
-              assignedAgents: {
-                some: { agentId },
-              },
-            }
-          : {},
+        // agentId
+        //   ?  {
+        //       assignedAgents: {
+        //         some: { agentId },
+        //       },
+        //     }
+        //   : {},
         createdAt ? { createdAt: { gte: new Date(createdAt) } } : {},
         updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
       ],
     };
+
+    if (agentId) {
+      const assignedProductIds = await this.prisma.agentProduct.findMany({
+        where: { agentId },
+        select: { productId: true },
+      });
+
+      const productIds = assignedProductIds.map((p) => p.productId);
+
+      if (!Array.isArray(whereConditions.AND)) {
+        whereConditions.AND = [whereConditions.AND];
+      }
+
+      (whereConditions.AND as Prisma.ProductWhereInput[]).push({
+        id: { in: productIds },
+      });
+    }
 
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
@@ -184,7 +201,7 @@ export class ProductsService {
       where: {
         ...whereConditions,
       },
-    });    
+    });
 
     return {
       updatedResults,

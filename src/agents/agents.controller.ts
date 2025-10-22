@@ -264,9 +264,10 @@ export class AgentsController {
     @Query() getAgentsProductsDto: GetAgentsProductsDto,
     @GetSessionUser('agent') agent: Agent,
   ) {
-    return await this.productsService.getAllProducts(
-      {...getAgentsProductsDto, agentId: agent.id},
-    );
+    return await this.productsService.getAllProducts({
+      ...getAgentsProductsDto,
+      agentId: agent.id,
+    });
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
@@ -346,7 +347,7 @@ export class AgentsController {
     @Query() query: ListAgentCustomersQueryDto,
     @GetSessionUser('agent') agent: Agent,
   ) {
-    return this.customersService.getCustomers(query, agent.id);
+    return this.customersService.getCustomers({ ...query, agentId: agent.id });
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)
