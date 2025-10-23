@@ -136,6 +136,13 @@ export class SaleItemDto {
   installmentStartingPrice?: number;
 
   @ApiProperty({
+    description: 'The installment monthly payment for sale.',
+    example: 200,
+  })
+  @IsNumber()
+  monthlyPayment: number;
+
+  @ApiProperty({
     description: 'An array of device IDs',
     example: ['value1', 'value2', 'value3'],
   })

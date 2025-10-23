@@ -186,6 +186,7 @@ export class SalesService {
             discount: item.discount,
             quantity: item.quantity,
             totalPrice: item.totalPrice,
+            monthlyPayment: item.monthlyPayment,
             miscellaneousPrices: item.miscellaneousPrices,
             installmentDuration: item.installmentDuration,
             installmentStartingPrice: item.installmentStartingPrice,
@@ -803,8 +804,9 @@ export class SalesService {
       processedItem.duration = numberOfMonths;
       // processedItem.installmentTotalPrice = installmentTotalPrice;
       processedItem.installmentTotalPrice = installmentTotalPrice + miscTotal;
-      processedItem.monthlyPayment =
-        (totalWithMargin - installmentTotalPrice) / (numberOfMonths - 1);
+      // processedItem.monthlyPayment =
+      //   (totalWithMargin - installmentTotalPrice) / (numberOfMonths - 1);
+      processedItem.monthlyPayment = saleItem.monthlyPayment;
     }
 
     return processedItem;
