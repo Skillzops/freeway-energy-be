@@ -5,7 +5,7 @@ export interface ProcessedSaleItem extends SaleItemDto {
   duration?: number;
   miscTotal?: number;
   installmentTotalPrice?: number;
-  monthlyPayment?: number;
+  monthlyPayment: number;
   totalPayableAmount?: number;
   batchAllocation?: BatchAllocation[];
 }
