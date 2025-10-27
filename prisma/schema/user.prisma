@@ -22,8 +22,9 @@ model User {
 
   createdApiTokens ApiAuthToken[] @relation("CreatedApiTokens")
 
-  approvedCustomers Customer[] @relation("CustomerApprover")
-  rejectedCustomers Customer[] @relation("CustomerRejecter")
+  approvedCustomers Customer[]         @relation("CustomerApprover")
+  rejectedCustomers Customer[]         @relation("CustomerRejecter")
+  rejectionHistory  RejectionHistory[] @relation("CustomerRejecter")
 
   role         Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
   roleId       String @db.ObjectId

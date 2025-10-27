@@ -10,6 +10,9 @@ import {
   Query,
   ForbiddenException,
   BadRequestException,
+  UseInterceptors,
+  UploadedFiles,
+  ParseFilePipeBuilder,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -17,6 +20,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiExtraModels,
   ApiHeader,
   ApiOkResponse,
@@ -61,6 +65,8 @@ import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { ResubmitCustomerDto } from 'src/customers/dto/customer-approval.dto';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -372,6 +378,100 @@ export class AgentsController {
     @GetSessionUser('agent') agent: Agent,
   ) {
     return this.customersService.getCustomer(id, agent.id);
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiBearerAuth('access_token')
+  @ApiParam({
+    name: 'id',
+    description: 'Customer ID',
+  })
+  @ApiOperation({
+    summary: 'Get customer rejection details',
+    description:
+      'Get rejection reason and history for a rejected customer. Agent can see why their customer was rejected.',
+  })
+  @ApiOkResponse({
+    description: 'Customer rejection details with history',
+  })
+  @Get('customer/:id/rejection-details')
+  @HttpCode(HttpStatus.OK)
+  async getCustomerRejectionDetails(
+    @Param('id') customerId: string,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    return await this.customersService.getCustomerRejectionDetails(
+      customerId,
+      requestUserId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiBearerAuth('access_token')
+  @ApiParam({
+    name: 'id',
+    description: 'Customer ID to resubmit',
+  })
+  @ApiOperation({
+    summary: 'Resubmit rejected customer',
+    description:
+      'Agent can update and resubmit a rejected customer with corrected information',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    type: ResubmitCustomerDto,
+    description: 'Updated customer information for resubmission',
+  })
+  @Post(':id/resubmit')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'passportPhoto', maxCount: 1 },
+      { name: 'idImage', maxCount: 1 },
+      { name: 'contractFormImage', maxCount: 1 },
+    ]),
+  )
+  async resubmitCustomer(
+    @Param('id') customerId: string,
+    @Body() resubmitDto: ResubmitCustomerDto,
+    @UploadedFiles()
+    files: {
+      passportPhoto?: Express.Multer.File[];
+      idImage?: Express.Multer.File[];
+      contractFormImage?: Express.Multer.File[];
+    },
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    // Validate files
+    if (files?.passportPhoto?.[0]) {
+      const validator = new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /(jpeg|jpg|png|svg)$/i })
+        .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY });
+      await validator.transform(files.passportPhoto[0]);
+    }
+
+    if (files?.idImage?.[0]) {
+      const validator = new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /(jpeg|jpg|png|svg)$/i })
+        .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY });
+      await validator.transform(files.idImage[0]);
+    }
+
+    if (files?.contractFormImage?.[0]) {
+      const validator = new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /(jpeg|jpg|png|svg)$/i })
+        .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY });
+      await validator.transform(files.contractFormImage[0]);
+    }
+
+    return await this.customersService.resubmitCustomer(
+      customerId,
+      requestUserId,
+      resubmitDto,
+      files?.passportPhoto?.[0],
+      files?.idImage?.[0],
+      files?.contractFormImage?.[0],
+    );
   }
 
   @Post(':id/assign-products')

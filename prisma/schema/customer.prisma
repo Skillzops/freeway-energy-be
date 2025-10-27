@@ -23,6 +23,8 @@ model Customer {
 
   contractFormImageUrl String?
 
+  approvalStatus ApprovalStatus @default(PENDING)
+
   isApproved      Boolean   @default(true)
   approvedAt      DateTime?
   approvedBy      String?   @db.ObjectId
@@ -31,6 +33,12 @@ model Customer {
   rejectedBy      String?   @db.ObjectId
   rejecter        User?     @relation("CustomerRejecter", fields: [rejectedBy], references: [id])
   rejectionReason String?
+
+  resubmissionCount  Int                @default(0) 
+  lastResubmittedAt  DateTime? 
+  previousRejections RejectionHistory[]
+
+  requiresReview Boolean @default(false)
 
   status UserStatus @default(active)
 
@@ -50,6 +58,30 @@ model Customer {
   deletedAt DateTime?
 
   @@map("customers")
+}
+
+model RejectionHistory {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  customerId String   @db.ObjectId
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  rejectedAt DateTime @default(now())
+  rejectedBy String   @db.ObjectId
+  rejecter   User     @relation("CustomerRejecter", fields: [rejectedBy], references: [id])
+
+  rejectionReason String
+  resubmittedAt   DateTime? 
+
+  createdAt DateTime @default(now())
+
+  @@index([customerId])
+}
+
+enum ApprovalStatus {
+  PENDING 
+  APPROVED 
+  REJECTED 
+  RESUBMITTED 
 }
 
 enum CustomerType {

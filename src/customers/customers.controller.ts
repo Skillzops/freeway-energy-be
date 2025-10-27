@@ -41,6 +41,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import {
   ApproveCustomerDto,
   BulkApproveCustomersDto,
+  ListRejectedCustomersDto,
 } from './dto/customer-approval.dto';
 import { AuthService } from 'src/auth/auth.service';
 
@@ -104,7 +105,7 @@ export class CustomersController {
       ],
       agentCategory: AgentCategory.SALES,
     });
-    // Validate files if provided
+
     if (files?.passportPhoto?.[0]) {
       const passportPhotoValidator = new ParseFilePipeBuilder()
         .addFileTypeValidator({ fileType: /(jpeg|jpg|png|svg)$/i })
@@ -193,7 +194,6 @@ export class CustomersController {
       contractFormImage?: Express.Multer.File[];
     },
   ) {
-    // Validate files if provided
     if (files?.passportPhoto?.[0]) {
       const passportPhotoValidator = new ParseFilePipeBuilder()
         .addFileTypeValidator({ fileType: /(jpeg|jpg|png|svg)$/i })
@@ -256,24 +256,6 @@ export class CustomersController {
   async listCustomers(@Query() query: ListCustomersQueryDto) {
     return await this.customersService.getCustomers(query);
   }
-
-  // @UseGuards(JwtAuthGuard)
-  // @RolesAndPermissions({
-  //   permissions: [`${ActionEnum.read}:${SubjectEnum.Customers}`],
-  // })
-  // @Get('/single')
-  // @ApiOperation({
-  //   summary: 'Fetch customer details',
-  //   description:
-  //     'This endpoint allows an authenticated customer to fetch their details.',
-  // })
-  // @ApiBearerAuth('access_token')
-  // @ApiOkResponse({
-  //   type: UserEntity,
-  // })
-  // async fetchCustomer(@GetUser('id') id: string): Promise<User> {
-  //   return new UserEntity(await this.customersService.getCustomer(id));
-  // }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
@@ -457,5 +439,57 @@ export class CustomersController {
       bulkApproveDto,
       approverUserId,
     );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.read}:${SubjectEnum.Customers}`,
+    ],
+  })
+  @ApiBearerAuth('access_token')
+  @ApiParam({
+    name: 'id',
+    description: 'Customer ID',
+  })
+  @ApiOperation({
+    summary: 'Get customer rejection details',
+    description:
+      'Get rejection reason and history for a rejected customer. Agent can see why their customer was rejected.',
+  })
+  @ApiOkResponse({
+    description: 'Customer rejection details with history',
+  })
+  @Get(':id/rejection-details')
+  @HttpCode(HttpStatus.OK)
+  async getCustomerRejectionDetails(@Param('id') customerId: string) {
+    return await this.customersService.getCustomerRejectionDetails(customerId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.read}:${SubjectEnum.Customers}`,
+    ],
+  })
+  @ApiBearerAuth('access_token')
+  @ApiOperation({
+    summary: 'List rejected customers for resubmission',
+    description:
+      'List all customers created by this agent that were rejected and need resubmission',
+  })
+  @ApiOkResponse({
+    description: 'List of rejected customers needing resubmission',
+    isArray: true,
+  })
+  @Get('rejected-list')
+  @HttpCode(HttpStatus.OK)
+  async listRejectedCustomers(
+    @Query() query: ListRejectedCustomersDto,
+    @GetSessionUser('id') agentId: string,
+  ) {
+    return await this.customersService.listRejectedCustomers(agentId, query);
   }
 }

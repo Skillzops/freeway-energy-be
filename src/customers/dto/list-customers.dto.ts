@@ -232,8 +232,7 @@ export class ListCustomersQueryDto {
   isApproved?: boolean;
 
   @ApiPropertyOptional({
-    description:
-      'Filter for pending customers (awaiting approval)',
+    description: 'Filter for pending customers (awaiting approval)',
     type: Boolean,
     example: 'true',
   })
@@ -241,6 +240,16 @@ export class ListCustomersQueryDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === '1')
   isPending?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter for resubmitted customers',
+    type: Boolean,
+    example: 'true',
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === '1')
+  isResubmitted?: boolean;
 }
 
 export class ListAgentCustomersQueryDto extends OmitType(
