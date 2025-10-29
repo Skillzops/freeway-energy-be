@@ -194,6 +194,9 @@ export class CsvUploadService {
     ['registration date', 'dateOfRegistration'],
     ['date', 'dateOfRegistration'],
 
+    ['payment plan', 'paymentPlan'],
+    ['payment_plan', 'paymentPlan'],
+
     ['activation date', 'timestamp'],
     ['activation_date', 'timestamp'],
     ['timestamp', 'timestamp'],
@@ -629,11 +632,12 @@ export class CsvUploadService {
     rowIndex: number,
     sessionId?: string,
   ): Promise<any> {
-    const transformedData = await this.dataMappingService.transformSalesRowToEntities(
-      row,
-      generatedDefaults,
-    );
-  
+    const transformedData =
+      await this.dataMappingService.transformSalesRowToEntities(
+        row,
+        generatedDefaults,
+      );
+
     let agent = null;
     let isNewAgent = false;
     if (transformedData.agentData) {
@@ -762,7 +766,7 @@ export class CsvUploadService {
       installerTaskCreated: !!installerTask,
     };
   }
-  
+
   private async createInstallerAssignment(
     agentId: string,
     installerId: string,
@@ -867,7 +871,9 @@ export class CsvUploadService {
         let userData = { ...agentData.userData };
 
         if (category === AgentCategory.INSTALLER) {
-          const parsedName = this.dataMappingService.parseFullName(agentData.fullname);
+          const parsedName = this.dataMappingService.parseFullName(
+            agentData.fullname,
+          );
           const baseUsername = this.dataMappingService.generateUsername(
             parsedName.firstname,
             parsedName.lastname,

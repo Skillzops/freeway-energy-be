@@ -14,6 +14,7 @@ import {
   InventoryClass,
   AgentCategory,
 } from '@prisma/client';
+import { PricingLookupService } from './pricing-lookup.service';
 
 @Injectable()
 export class DataMappingService {
@@ -22,6 +23,7 @@ export class DataMappingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly defaultsGenerator: DefaultsGeneratorService,
+    private readonly pricingLookupService: PricingLookupService,
   ) {}
 
   async transformSalesRowToEntities(row: SalesRowDto, generatedDefaults: any) {
@@ -93,6 +95,7 @@ export class DataMappingService {
       paymentType: this.normalizePaymentType(row.paymentType),
       paymentOption: this.cleanString(row.paymentOption),
       totalPayment: this.parseAmount(row.totalPayment),
+      paymentPlan: this.extractMonthsFromPaymentPlan(row.paymentPlan),
 
       // Device and installation
       serialNumber: this.cleanString(row.serialNumber),
@@ -158,13 +161,15 @@ export class DataMappingService {
       agentNames.mn || Date.now().toString(),
     );
 
+    const installerUsername = `${username}.installer`;
+    const installerEmail =
+      `${agentNames.firstname}.${agentNames.mn || Date.now()}.installer@gmail.com`.toLowerCase();
     return {
       userData: {
         firstname: agentNames.firstname,
         lastname: agentNames.lastname,
-        username: username,
-        email:
-          `${agentNames.firstname}.${agentNames.mn || Date.now()}@gmail.com`.toLowerCase(),
+        username: installerUsername,
+        email: installerEmail,
         password: generatedDefaults.defaultPassword,
       },
       agentData: {
@@ -306,54 +311,103 @@ export class DataMappingService {
   }
 
   private transformSaleData(extractedData: any) {
-    // const estimatedPrice = this.estimateProductPrice(extractedData.productType);
-    const estimatedPrice = extractedData.totalPayment || 144000;
-    const paymentMode = this.getPaymentMode(extractedData.paymentType);
+    // // const estimatedPrice = this.estimateProductPrice(extractedData.productType);
+    // const estimatedPrice = extractedData.totalPayment || 144000;
+    const paymentMode = this.getPaymentMode(extractedData.paymentOption);
     const paymentMethod = this.getPaymentMethod(extractedData.paymentOption);
-    const totalPaid = extractedData.initialDeposit || 0;
-    const paymentPeriod = extractedData.paymentPeriod || 24;
+    // const totalPaid = extractedData.initialDeposit || 0;
+    // const paymentPeriod = extractedData.paymentPeriod || 24;
 
-    const totalInstallmentDuration =
-      paymentMode === PaymentMode.INSTALLMENT ? paymentPeriod : 0;
+    // const totalInstallmentDuration =
+    //   paymentMode === PaymentMode.INSTALLMENT ? paymentPeriod : 0;
 
-    const totalMonthlyPayment =
-      paymentMode === PaymentMode.INSTALLMENT && paymentPeriod > 0
-        ? Math.ceil(estimatedPrice / paymentPeriod)
-        : 0;
+    // const totalMonthlyPayment =
+    //   paymentMode === PaymentMode.INSTALLMENT && paymentPeriod > 0
+    //     ? Math.ceil(estimatedPrice / paymentPeriod)
+    //     : 0;
 
-    const totalMiscellaneousPrice = Math.max(
-      totalPaid - totalMonthlyPayment,
-      0,
+    // const totalMiscellaneousPrice = Math.max(
+    //   totalPaid - totalMonthlyPayment,
+    //   0,
+    // );
+
+    // const miscellaneousPrices =
+    //   totalMiscellaneousPrice > 0 ? { misc1: totalMiscellaneousPrice } : null;
+
+    const pricingPlan = this.pricingLookupService.getPricingPlan(
+      extractedData.state || 'taraba',
+      extractedData.productSku || 'A4T77',
+      extractedData.paymentPlan || 12,
     );
 
-    const miscellaneousPrices =
-      totalMiscellaneousPrice > 0 ? { misc1: totalMiscellaneousPrice } : null;
-
     let status: SalesStatus = SalesStatus.COMPLETED;
-    if (paymentMode === PaymentMode.INSTALLMENT) {
+    if (pricingPlan) {
+      status =
+        pricingPlan.initialPayment == pricingPlan.totalCumulativePayment
+          ? SalesStatus.COMPLETED
+          : SalesStatus.IN_INSTALLMENT;
+    } else {
       status = SalesStatus.IN_INSTALLMENT;
     }
 
-    return {
-      category: CategoryTypes.PRODUCT,
-      status: status,
-      totalPrice: estimatedPrice,
-      totalPaid: totalPaid,
-      installmentStartingPrice:
-        paymentMode === PaymentMode.INSTALLMENT ? totalPaid : 0,
-      totalMiscellaneousPrice,
-      miscellaneousPrices,
-      paymentMode: paymentMode,
-      paymentMethod,
-      installerName: extractedData.installerName || null,
-      totalInstallmentDuration,
-      remainingInstallments: Math.max(totalInstallmentDuration - 1, 0),
-      totalMonthlyPayment,
-      transactionDate:
-        extractedData.creationDate || extractedData.dateOfRegistration,
-      createdAt: extractedData.creationDate,
-      updatedAt: extractedData.creationDate,
-    };
+    if (pricingPlan) {
+      const initialPayment = pricingPlan.initialPayment;
+      const monthlyPayment = pricingPlan.monthlyPayment;
+      const totalCumulativePayment = pricingPlan.totalCumulativePayment;
+      const durationMonths = pricingPlan.duration;
+
+      return {
+        category: CategoryTypes.PRODUCT,
+        status,
+
+        totalPrice: totalCumulativePayment,
+        totalPaid: initialPayment,
+        installmentStartingPrice: initialPayment,
+        totalMonthlyPayment: monthlyPayment,
+
+        totalMiscellaneousPrice: 2000,
+        miscellaneousPrices: { misc1: 2000 },
+
+        totalInstallmentDuration: durationMonths,
+        remainingInstallments: durationMonths - 1,
+
+        paymentMode,
+        paymentMethod,
+        installerName: extractedData.installerName || null,
+
+        transactionDate:
+          extractedData.creationDate || extractedData.dateOfRegistration,
+        createdAt: extractedData.creationDate,
+        updatedAt: extractedData.creationDate,
+      };
+    } else {
+      this.logger.warn(
+        `No pricing found for: ${extractedData.state}, ${extractedData.productSku}, ${extractedData.paymentPlan}`,
+      );
+
+      // Use defaults
+      return {
+        category: CategoryTypes.PRODUCT,
+        status,
+        totalPrice: extractedData.totalPayment || 117000,
+        totalPaid: extractedData.initialDeposit || 0,
+        installmentStartingPrice: extractedData.initialDeposit || 0,
+        totalMonthlyPayment: 0,
+        totalMiscellaneousPrice: 2000,
+        miscellaneousPrices: { misc1: 2000 },
+        totalInstallmentDuration: extractedData.paymentPlan || 0,
+        remainingInstallments: Math.max(
+          (extractedData.paymentPlan || 0) - 1,
+          0,
+        ),
+        paymentMode,
+        paymentMethod,
+        installerName: extractedData.installerName || null,
+        transactionDate: extractedData.creationDate,
+        createdAt: extractedData.creationDate,
+        updatedAt: extractedData.creationDate,
+      };
+    }
   }
 
   private transformPaymentData(extractedData: any) {
@@ -367,7 +421,7 @@ export class DataMappingService {
       paymentDate:
         extractedData.creationDate || extractedData.dateOfRegistration,
       paymentMethod: PaymentMethod.ONLINE,
-      notes: 'Initial deposit from CSV import',
+      notes: 'Initial deposit',
     };
   }
 
@@ -524,7 +578,7 @@ export class DataMappingService {
     mn?: string;
   } {
     if (!fullName || fullName.trim() === '') {
-      return { firstname: 'Unknown', lastname: 'Agent' };
+      return { firstname: 'User', lastname: 'Agent' };
     }
 
     const names = fullName
@@ -533,7 +587,7 @@ export class DataMappingService {
       .filter((name) => name.length > 0);
 
     if (names.length === 0) {
-      return { firstname: 'Unknown', lastname: 'Agent' };
+      return { firstname: 'User', lastname: 'Agent' };
     } else if (names.length === 1) {
       return { firstname: names[0], lastname: 'Agent' };
     } else {
@@ -567,6 +621,31 @@ export class DataMappingService {
       return ['ONE_OFF', 'INSTALLMENT'];
     }
     return ['ONE_OFF'];
+  }
+
+  private extractMonthsFromPaymentPlan(paymentPlan: any): number | null {
+    if (!paymentPlan) return null;
+
+    // Convert to string if it's a number
+    const planStr = paymentPlan.toString().trim().toLowerCase();
+
+    // Try to extract number from string
+    // Handles: "12 months", "12months", "12", "12 month", etc.
+    const match = planStr.match(/(\d+)/);
+
+    if (match && match[1]) {
+      const months = parseInt(match[1], 10);
+
+      // Validate it's a reasonable number (1-120 months = 1-10 years)
+      if (months > 0 && months <= 120) {
+        return months;
+      }
+    }
+
+    this.logger.warn(
+      `Could not extract months from payment plan: ${paymentPlan}`,
+    );
+    return null;
   }
 
   private getPaymentMode(paymentOption: string): PaymentMode {

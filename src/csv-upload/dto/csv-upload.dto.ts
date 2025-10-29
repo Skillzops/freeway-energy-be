@@ -203,6 +203,9 @@ export class SalesRowDto {
   @ApiPropertyOptional({ description: 'Sales agent name' })
   salesAgent?: string;
 
+  @ApiPropertyOptional({ description: 'Payment Plan' })
+  paymentPlan?: string | number;
+
   // Customer Basic Information
   @ApiProperty({ description: 'Customer first name' })
   firstName: string;

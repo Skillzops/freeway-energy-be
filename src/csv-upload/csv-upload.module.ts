@@ -9,6 +9,7 @@ import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { CsvProcessingProcessor } from './csv-processing.processor';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailModule } from 'src/mailer/email.module';
+import { PricingLookupService } from './pricing-lookup.service';
 
 @Module({
   imports: [
@@ -26,12 +27,14 @@ import { EmailModule } from 'src/mailer/email.module';
     DefaultsGeneratorService,
     FileParserService,
     CsvProcessingProcessor,
+    PricingLookupService,
   ],
   exports: [
     CsvUploadService,
     DataMappingService,
     DefaultsGeneratorService,
     FileParserService,
+    PricingLookupService,
   ],
 })
 export class CsvUploadModule {}
