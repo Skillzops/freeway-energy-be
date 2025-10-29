@@ -348,7 +348,7 @@ export class CustomersService {
       where: {
         id,
         assignedAgents: agent ? { some: { agentId: agent } } : undefined,
-        ...(creatorId ? [{ creatorId }] : []),
+        ...(creatorId? { creatorId } : {}),
       },
       include: {
         creatorDetails: {
