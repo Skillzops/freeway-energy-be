@@ -37,6 +37,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationModule } from './notification/notification.module';
 import { ExportModule } from './export/export.module';
 import { OdysseyModule } from './odyssey/odyssey.module';
+import { TokenRestorationModule } from './token-restoration/token-restoration.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { OdysseyModule } from './odyssey/odyssey.module';
     NotificationModule,
     ExportModule,
     OdysseyModule,
+    TokenRestorationModule,
   ],
   controllers: [AppController],
   providers: [

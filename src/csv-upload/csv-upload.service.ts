@@ -837,6 +837,7 @@ export class CsvUploadService {
 
       // FOR INSTALLERS: Always create separate accounts (no name-based searching)
       if (category === AgentCategory.INSTALLER || forceUniqueForInstaller) {
+        console.log({ agentData, forceUniqueForInstaller });
         // Only check by username/email, NOT by name
         user = await this.prisma.user.findFirst({
           where: {
@@ -871,18 +872,18 @@ export class CsvUploadService {
         let userData = { ...agentData.userData };
 
         if (category === AgentCategory.INSTALLER) {
-          const parsedName = this.dataMappingService.parseFullName(
-            agentData.fullname,
-          );
-          const baseUsername = this.dataMappingService.generateUsername(
-            parsedName.firstname,
-            parsedName.lastname,
-          );
+          // const parsedName = this.dataMappingService.parseFullName(
+          //   agentData.fullname,
+          // );
+          // const baseUsername = this.dataMappingService.generateUsername(
+          //   parsedName.firstname,
+          //   parsedName.lastname,
+          // );
 
           userData = {
             ...userData,
-            username: `${baseUsername}.installer`,
-            email: `${baseUsername}.installer@gmail.com`,
+            // username: `${baseUsername}.installer`,
+            // email: `${baseUsername}.installer@gmail.com`,
           };
         }
 

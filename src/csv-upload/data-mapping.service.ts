@@ -159,6 +159,13 @@ export class DataMappingService {
 
     const installerUsername = `${agentNames.firstname || agentNames.lastname || agentNames.mn || Date.now().toString().slice(-4)}.installer`;
     const installerEmail = `${installerUsername}@gmail.com`.toLowerCase();
+
+    console.log({
+      installerUsername,
+      installerEmail,
+      agentNames,
+      installerName,
+    });
     return {
       userData: {
         firstname: agentNames.firstname,
