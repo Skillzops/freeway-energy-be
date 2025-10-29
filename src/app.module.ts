@@ -36,6 +36,7 @@ import { WarehouseModule } from './warehouse/warehouse.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationModule } from './notification/notification.module';
 import { ExportModule } from './export/export.module';
+import { OdysseyModule } from './odyssey/odyssey.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { ExportModule } from './export/export.module';
     AnalyticsModule,
     NotificationModule,
     ExportModule,
+    OdysseyModule,
   ],
   controllers: [AppController],
   providers: [
