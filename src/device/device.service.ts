@@ -136,30 +136,32 @@ export class DeviceService {
       installerAgentId,
     );
 
-    const agentInstaller = await this.prisma.agentInstallerAssignment.findFirst({
-      where: {
-        installerId: installerAgentId,
-      },
-      select: {
-        agent: {
-          select: {
-            id: true,
-            assignedInstallers: true,
-            assignedAsInstaller: true,
-            user: {
-              select: {
-                firstname: true,
-                lastname: true,
-                phone: true,
-                email: true,
+    const agentInstaller = await this.prisma.agentInstallerAssignment.findFirst(
+      {
+        where: {
+          installerId: installerAgentId,
+        },
+        select: {
+          agent: {
+            select: {
+              id: true,
+              assignedInstallers: true,
+              assignedAsInstaller: true,
+              user: {
+                select: {
+                  firstname: true,
+                  lastname: true,
+                  phone: true,
+                  email: true,
+                },
               },
             },
           },
         },
       },
-    });
+    );
 
-    const agent = agentInstaller?.agent
+    const agent = agentInstaller?.agent;
 
     if (!agent) {
       throw new NotFoundException(`Installer Agent not found`);
@@ -842,12 +844,15 @@ export class DeviceService {
             }
           : {},
 
-        // fetchFormat === 'used'
-        //   ? { isUsed: true }
-        //   : fetchFormat === 'unused'
-        //     ? { isUsed: false }
-        //     : {},
-
+        fetchFormat === 'used'
+          ? {
+            isUsed: true,
+            }
+          : fetchFormat === 'unused'
+            ? {
+              isUsed: false,
+              }
+            : {},
         hardwareModel
           ? { hardwareModel: { contains: hardwareModel, mode: 'insensitive' } }
           : {},

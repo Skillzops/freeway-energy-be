@@ -179,6 +179,8 @@ export class UsersService {
     let successCount = 0;
     let failureCount = 0;
 
+    console.log({emails})
+
     for (const email of emails) {
       try {
         // Find user by email
@@ -208,8 +210,8 @@ export class UsersService {
         }
 
         // Generate new password
-        // const newPassword = `${user.firstname}@${user.lastname}${generateRandomPassword(4)}`;
-        const newPassword = `Lakeside@123`;
+        const newPassword = `${user.firstname}@${user.lastname}${generateRandomPassword(4)}`;
+        // const newPassword = `Lakeside@123`;
         const hashedPassword = await hashPassword(newPassword);
 
         // Update user with new password and activate account

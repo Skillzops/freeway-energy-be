@@ -98,7 +98,7 @@ export class CustomersService {
       contractFormImageUrl = uploadResult.secure_url;
     }
 
-    await this.prisma.customer.create({
+    const customer = await this.prisma.customer.create({
       data: {
         firstname,
         lastname,
@@ -125,6 +125,16 @@ export class CustomersService {
         // ...rest,
       },
     });
+
+    if(isAgentUser){
+      await this.prisma.agentCustomer.create({
+        data: {
+          agentId: creator.agentDetails.id,
+          customerId: customer.id,
+          assignedBy: requestUserId,
+        },
+      });
+    }
 
     return {
       message: !isAgentUser

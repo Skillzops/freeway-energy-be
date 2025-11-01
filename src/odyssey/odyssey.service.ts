@@ -17,6 +17,16 @@ export class OdysseyService {
     query: OdysseyPaymentQueryDto,
   ): Promise<OdysseyPaymentResponseDto> {
     try {
+      const badSales = await this.prisma.sales.count({
+        where: {
+          OR: [
+            { customerId: null },
+            { customer: { id: { equals: undefined } } },
+          ],
+        },
+      });
+
+      console.log({badSales});
       const payments = await this.prisma.payment.findMany({
         where: {
           paymentDate: {
@@ -25,11 +35,9 @@ export class OdysseyService {
           },
           paymentStatus: PaymentStatus.COMPLETED,
           sale: {
-            id: {},
+            customer: {},
           },
-          deletedAt: {
-            not: {},
-          },
+          deletedAt: { isSet: false },
         },
         include: {
           sale: {

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -46,8 +47,74 @@ export interface AgentCredentialInfo {
   category: AgentCategory;
 }
 
+export interface AgentImportRow {
+  name: string;
+  surname: string;
+  position: string;
+  phone?: string;
+  location?: string;
+}
+
+export interface CreatedAgent {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  username: string;
+  password: string;
+  position: AgentCategory;
+  phone?: string;
+  location?: string;
+  agentId: number;
+  createdAt: string;
+}
+
+export interface AgentBulkImportResult {
+  totalRecords: number;
+  agentsCreated: number;
+  usersCreated: number;
+  errors: Array<{ row: number; error: string }>;
+  createdAgents: CreatedAgent[];
+  credentialsFile?: string;
+}
+
+
+export interface AgentImportRow {
+  name: string;
+  surname: string;
+  position: string;
+  phone?: string;
+  location?: string;
+}
+
+export interface CreatedAgent {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  username: string;
+  password: string;
+  position: AgentCategory;
+  phone?: string;
+  location?: string;
+  agentId: number;
+  createdAt: string;
+}
+
+export interface AgentBulkImportResult {
+  totalRecords: number;
+  agentsCreated: number;
+  usersCreated: number;
+  errors: Array<{ row: number; error: string }>;
+  createdAgents: CreatedAgent[];
+  credentialsFile?: string;
+}
+
 @Injectable()
 export class AgentsService {
+  private logger = new Logger(AgentsService.name);
+  private agentCounter: number = 0;
+
   constructor(
     private prisma: PrismaService,
     private readonly Email: EmailService,
@@ -57,7 +124,11 @@ export class AgentsService {
   async create(createAgentDto: CreateAgentDto, userId) {
     const { email, location, category, ...otherData } = createAgentDto;
 
+    console.log({createAgentDto})
+
     const agentId = this.generateAgentNumber();
+
+    console.log({ agentId });
 
     const existingEmail = await this.prisma.user.findFirst({
       where: { email },
@@ -1504,8 +1575,8 @@ export class AgentsService {
                   product: true,
                   devices: {
                     include: {
-                      tokens: true
-                    }
+                      tokens: true,
+                    },
                   },
                 },
               },
@@ -2086,6 +2157,666 @@ export class AgentsService {
         },
       },
     });
+  }
+
+  private async initializeAgentCounter() {
+    try {
+      const lastAgent = await this.prisma.agent.findFirst({
+        orderBy: { agentId: 'desc' },
+      });
+      this.agentCounter = lastAgent ? lastAgent.agentId : 0;
+    } catch (error) {
+      this.logger.warn('Could not initialize agent counter: ' + error.message);
+      this.agentCounter = 0;
+    }
+  }
+
+  // ADD THIS METHOD to your bulk-agent-import.service-FIXED.ts
+
+  /**
+   * Detect delimiter (tab or multiple spaces)
+   */
+  private detectDelimiter(csvContent: string): string {
+    const lines = csvContent.trim().split('\n');
+    if (lines.length === 0) return '\t';
+
+    const firstLine = lines[0];
+
+    // Count tabs
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+
+    // Count multiple spaces (2+)
+    const spaceCount = (firstLine.match(/\s{2,}/g) || []).length;
+
+    // If more spaces than tabs, use space delimiter
+    if (spaceCount > tabCount) {
+      return ' '; // Will be handled as multiple spaces in split
+    }
+
+    return '\t';
+  }
+
+  /**
+   * Enhanced parse CSV that handles both tab and space delimiters
+   */
+  private parseCsv(csvContent: string): AgentImportRow[] {
+    const lines = csvContent.trim().split('\n');
+    if (lines.length < 2) {
+      throw new BadRequestException(
+        'CSV must contain headers and at least one data row',
+      );
+    }
+
+    // Detect delimiter
+    const delimiter = this.detectDelimiter(csvContent);
+    let headers: string[];
+
+    if (delimiter === ' ') {
+      // Split by multiple spaces
+      headers = lines[0].split(/\s{2,}/).map((h) => h.trim().toLowerCase());
+    } else {
+      // Split by tabs
+      headers = lines[0].split('\t').map((h) => h.trim().toLowerCase());
+    }
+    console.log({ csvContent, delimiter, headers });
+
+    // Find column indices
+    const columnIndices = {
+      name: headers.indexOf('name'),
+      surname: headers.indexOf('surname'),
+      position: headers.indexOf('position'),
+      phone: headers.indexOf('phone'),
+      location: headers.indexOf('location'),
+    };
+
+    // Validate required columns
+    if (
+      columnIndices.name === -1 ||
+      columnIndices.surname === -1 ||
+      columnIndices.position === -1 ||
+      columnIndices.phone === -1 ||
+      columnIndices.location === -1
+    ) {
+      throw new BadRequestException(
+        `CSV must contain "NAME", "SURNAME", "POSITION", "PHONE", and "LOCATION" columns. Found: ${headers.join(', ')}`,
+      );
+    }
+
+    const parsedRows: AgentImportRow[] = [];
+
+    // Parse data rows (skip header)
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue; // Skip empty lines
+
+      let columns: string[];
+
+      if (delimiter === ' ') {
+        // Split by multiple spaces
+        columns = line.split(/\s{2,}/).map((c) => c.trim());
+      } else {
+        // Split by tabs
+        columns = line.split('\t').map((c) => c.trim());
+      }
+
+      if (
+        columns.length > columnIndices.name &&
+        columns.length > columnIndices.surname &&
+        columns.length > columnIndices.position &&
+        columns.length > columnIndices.phone &&
+        columns.length > columnIndices.location
+      ) {
+        const name = columns[columnIndices.name];
+        const surname = columns[columnIndices.surname];
+        const position = columns[columnIndices.position];
+        const phone = columns[columnIndices.phone];
+        const location = columns[columnIndices.location];
+
+        if (name && surname && position) {
+          parsedRows.push({
+            name,
+            surname,
+            position,
+            phone,
+            location,
+          });
+        }
+      }
+    }
+
+    if (parsedRows.length === 0) {
+      throw new BadRequestException(
+        'CSV file contains headers but no valid data rows. Check formatting.',
+      );
+    }
+
+    return parsedRows;
+  }
+
+  /**
+   * Normalize position to AgentCategory
+   */
+  private normalizePosition(position: string): AgentCategory {
+    const normalized = position.trim().toUpperCase();
+
+    if (normalized.includes('SALES')) {
+      return 'SALES';
+    } else if (normalized.includes('INSTALLER')) {
+      return 'INSTALLER';
+    }
+
+    // Default to SALES if unknown
+    return 'SALES';
+  }
+
+  /**
+   * Generate unique email
+   */
+  private async generateUniqueEmail(
+    firstName: string,
+    lastName: string,
+    attempt: number = 0,
+  ): Promise<string> {
+    const baseEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@gmail.com`;
+    const email =
+      attempt === 0
+        ? baseEmail
+        : `${firstName.toLowerCase()}.${lastName.toLowerCase()}.${attempt}@gmail.com`;
+
+    // Check if email exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      // Try next attempt
+      return this.generateUniqueEmail(firstName, lastName, attempt + 1);
+    }
+
+    return email;
+  }
+
+  /**
+   * Generate unique username
+   */
+  private async generateUniqueUsername(
+    firstName: string,
+    lastName: string,
+    attempt: number = 0,
+  ): Promise<string> {
+    const baseUsername =
+      `${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}`.substring(
+        0,
+        20,
+      );
+    const username = attempt === 0 ? baseUsername : `${baseUsername}${attempt}`;
+
+    // Check if username exists
+    const existingUser = await this.prisma.user.findFirst({
+      where: { username },
+    });
+
+    if (existingUser) {
+      // Try next attempt
+      return this.generateUniqueUsername(firstName, lastName, attempt + 1);
+    }
+
+    return username;
+  }
+
+  /**
+   * Generate random password
+   */
+  private generatePassword(length: number = 12): string {
+    const charset =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+
+    // Ensure at least one uppercase, one lowercase, one number, one special char
+    password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)];
+    password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)];
+    password += '0123456789'[Math.floor(Math.random() * 10)];
+    password += '!@#$%^&*'[Math.floor(Math.random() * 8)];
+
+    // Fill rest with random characters
+    for (let i = password.length; i < length; i++) {
+      password += charset[Math.floor(Math.random() * charset.length)];
+    }
+
+    // Shuffle password
+    password = password
+      .split('')
+      .sort(() => Math.random() - 0.5)
+      .join('');
+
+    return password;
+  }
+
+  /**
+   * Get agent role ID
+   */
+  private async getAgentRoleId(): Promise<string> {
+    let defaultRole = await this.prisma.role.findFirst({
+      where: {
+        role: 'AssignedAgent',
+        permissions: {
+          some: {
+            subject: SubjectEnum.Assignments,
+            action: ActionEnum.manage,
+          },
+        },
+      },
+    });
+
+    if (!defaultRole) {
+      defaultRole = await this.prisma.role.create({
+        data: {
+          role: 'AssignedAgent',
+          permissions: {
+            create: {
+              subject: SubjectEnum.Assignments,
+              action: ActionEnum.manage,
+            },
+          },
+        },
+      });
+    }
+
+    return defaultRole.id;
+  }
+
+  /**
+   * Create user and agent profile
+   */
+  private async createAgentUser(
+    row: AgentImportRow,
+  ): Promise<{ user: any; agent: any; credentials: CreatedAgent }> {
+    try {
+      // Generate unique credentials
+      const email = await this.generateUniqueEmail(row.name, row.surname);
+      const username = await this.generateUniqueUsername(row.name, row.surname);
+      const plainPassword = generateRandomPassword(10);
+      const hashedPassword = await hashPassword(plainPassword);
+
+      // Normalize position
+      const position = this.normalizePosition(row.position);
+
+      // Get agent role
+      // const roleId = await this.getAgentRoleId();
+
+      // Create user with phone and location
+      const user = await this.prisma.user.create({
+        data: {
+          firstname: row.name,
+          lastname: row.surname,
+          username,
+          email,
+          password: hashedPassword,
+          phone: row.phone || null,
+          location: row.location || null,
+          roleId: '687a8565e7b4874bfbcd78e6',
+          status: UserStatus.active,
+        },
+      });
+
+      this.logger.log(`Created user: ${email}`);
+
+      // Increment agent counter
+      this.agentCounter++;
+
+      // Create agent profile
+      const agent = await this.prisma.agent.create({
+        data: {
+          userId: user.id,
+          agentId: this.agentCounter,
+          category: position,
+        },
+      });
+
+      this.logger.log(`Created agent: ${agent.id} (${position})`);
+
+      return {
+        user,
+        agent,
+        credentials: {
+          id: agent.id,
+          firstName: row.name,
+          lastName: row.surname,
+          email,
+          username,
+          password: plainPassword,
+          position,
+          phone: row.phone,
+          location: row.location,
+          agentId: this.agentCounter,
+          createdAt: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error creating agent for ${row.name} ${row.surname}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Generate credentials file
+   */
+  private async generateCredentialsFile2(
+    createdAgents: CreatedAgent[],
+  ): Promise<string> {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const fileName = `agent_credentials_${timestamp}.txt`;
+    const filePath = path.join(process.cwd(), 'uploads', fileName);
+
+    // Ensure uploads directory exists
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    // Generate credentials content
+    const header = `
+═══════════════════════════════════════════════════════════════════════════════
+                          AGENT LOGIN CREDENTIALS
+                          Generated: ${new Date().toISOString()}
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️  IMPORTANT: Keep these credentials secure and share with agents via secure channel
+⚠️  First Login: Agents should change their password on first login
+
+───────────────────────────────────────────────────────────────────────────────
+`;
+
+    let content = header;
+
+    content += `\nTotal Agents Created: ${createdAgents.length}\n\n`;
+
+    // Group by position
+    const byPosition = {
+      SALES: createdAgents.filter((a) => a.position === 'SALES'),
+      INSTALLER: createdAgents.filter((a) => a.position === 'INSTALLER'),
+    };
+
+    // SALES AGENTS
+    if (byPosition.SALES.length > 0) {
+      content += `\n${'═'.repeat(80)}\nSALES AGENTS (${byPosition.SALES.length})\n${'═'.repeat(80)}\n\n`;
+
+      for (const agent of byPosition.SALES) {
+        content += `Name: ${agent.firstName} ${agent.lastName}
+Username: ${agent.username}
+Email: ${agent.email}
+Password: ${agent.password}
+Phone: ${agent.phone || 'N/A'}
+Location: ${agent.location || 'N/A'}
+Agent ID: ${agent.agentId}
+Position: ${agent.position}
+Created: ${agent.createdAt}
+────────────────────────────────────────────────────────────────────────────────\n\n`;
+      }
+    }
+
+    // INSTALLERS
+    if (byPosition.INSTALLER.length > 0) {
+      content += `\n${'═'.repeat(80)}\nINSTALLERS (${byPosition.INSTALLER.length})\n${'═'.repeat(80)}\n\n`;
+
+      for (const agent of byPosition.INSTALLER) {
+        content += `Name: ${agent.firstName} ${agent.lastName}
+Username: ${agent.username}
+Email: ${agent.email}
+Password: ${agent.password}
+Phone: ${agent.phone || 'N/A'}
+Location: ${agent.location || 'N/A'}
+Agent ID: ${agent.agentId}
+Position: ${agent.position}
+Created: ${agent.createdAt}
+────────────────────────────────────────────────────────────────────────────────\n\n`;
+      }
+    }
+
+    // Footer
+    const footer = `
+═══════════════════════════════════════════════════════════════════════════════
+
+LOGIN INFORMATION:
+- Login URL: http://yourapp.com/login
+- Username or Email can be used for login
+- Agents should change passwords on first login
+
+SECURITY NOTES:
+✓ All passwords are securely hashed in the database
+✓ Keep this file in a secure location
+✓ Delete after sharing with agents
+✓ Consider using encrypted email or secure file sharing
+
+═══════════════════════════════════════════════════════════════════════════════
+`;
+
+    content += footer;
+
+    // Write to file
+    await fs.writeFile(filePath, content, 'utf8');
+    this.logger.log(`Credentials file created: ${filePath}`);
+
+    return filePath;
+  }
+
+  /**
+   * Generate CSV credentials file (optional, for import to Excel)
+   */
+  private async generateCredentialsCsv(
+    createdAgents: CreatedAgent[],
+  ): Promise<string> {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const fileName = `agent_credentials_${timestamp}.csv`;
+    const filePath = path.join(process.cwd(), 'uploads', fileName);
+
+    // Ensure uploads directory exists
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    // CSV content
+    const headers = [
+      'First Name',
+      'Last Name',
+      'Username',
+      'Email',
+      'Password',
+      'Phone',
+      'Location',
+      'Position',
+      'Agent ID',
+      'Created At',
+    ];
+    const rows = createdAgents.map((agent) => [
+      agent.firstName,
+      agent.lastName,
+      agent.username,
+      agent.email,
+      agent.password,
+      agent.phone || 'N/A',
+      agent.location || 'N/A',
+      agent.position,
+      agent.agentId,
+      agent.createdAt,
+    ]);
+
+    // Convert to CSV
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
+    ].join('\n');
+
+    // Write to file
+    await fs.writeFile(filePath, csvContent, 'utf8');
+    this.logger.log(`CSV credentials file created: ${filePath}`);
+
+    return filePath;
+  }
+
+  /**
+   * Import agents from CSV
+   */
+  async importAgentsFromCsv(
+    csvContent: string,
+  ): Promise<AgentBulkImportResult> {
+    const result: AgentBulkImportResult = {
+      totalRecords: 0,
+      agentsCreated: 0,
+      usersCreated: 0,
+      errors: [],
+      createdAgents: [],
+    };
+
+    try {
+      // Ensure counter is initialized
+      if (this.agentCounter === 0) {
+        await this.initializeAgentCounter();
+      }
+
+      // Parse CSV
+      const parsedRows = this.parseCsv(csvContent);
+      result.totalRecords = parsedRows.length;
+
+      this.logger.log(
+        `Starting bulk agent import: ${parsedRows.length} records to process`,
+      );
+
+      // Process each row
+      for (let i = 0; i < parsedRows.length; i++) {
+        try {
+          const row = parsedRows[i];
+
+          // Create agent user
+          const { user, agent, credentials } = await this.createAgentUser(row);
+
+          result.usersCreated++;
+          result.agentsCreated++;
+          result.createdAgents.push(credentials);
+
+          this.logger.log(
+            `Created agent ${i + 1}/${parsedRows.length}: ${row.name} ${row.surname}`,
+          );
+        } catch (error) {
+          this.logger.error(`Error processing row ${i + 1}: ${error.message}`);
+          result.errors.push({
+            row: i + 1,
+            error: error.message,
+          });
+        }
+      }
+
+      // Generate credentials files
+      if (result.createdAgents.length > 0) {
+        const credentialsFile = await this.generateCredentialsFile2(
+          result.createdAgents,
+        );
+        await this.generateCredentialsCsv(result.createdAgents);
+
+        result.credentialsFile = credentialsFile;
+
+        this.logger.log(
+          `Bulk import completed: ${result.agentsCreated} agents created, ${result.errors.length} errors`,
+        );
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error(`CSV parsing error: ${error.message}`);
+      throw new BadRequestException(`Failed to parse CSV: ${error.message}`);
+    }
+  }
+
+  /**
+   * Import agents from file buffer
+   */
+  async importAgentsFromFile(
+    fileBuffer: Buffer,
+  ): Promise<AgentBulkImportResult> {
+    const csvContent = fileBuffer.toString('utf-8');
+    return this.importAgentsFromCsv(csvContent);
+  }
+
+  async importAgentsFromJson(
+    agents: Array<{
+      name: string;
+      surname: string;
+      position: string;
+      phone?: string;
+      location?: string;
+    }>,
+  ): Promise<AgentBulkImportResult> {
+    const result: AgentBulkImportResult = {
+      totalRecords: agents.length,
+      agentsCreated: 0,
+      usersCreated: 0,
+      errors: [],
+      createdAgents: [],
+    };
+
+    try {
+      if (this.agentCounter === 0) {
+        await this.initializeAgentCounter();
+      }
+
+      this.logger.log(`Starting JSON import: ${agents.length} agents`);
+
+      for (let i = 0; i < agents.length; i++) {
+        try {
+          const agent = agents[i];
+
+          if (!agent.name || !agent.surname || !agent.position) {
+            throw new Error('Missing required fields: name, surname, position');
+          }
+
+          const row: AgentImportRow = {
+            name: agent.name,
+            surname: agent.surname,
+            position: agent.position,
+            phone: agent.phone,
+            location: agent.location,
+          };
+
+          const {
+            user,
+            agent: createdAgent,
+            credentials,
+          } = await this.createAgentUser(row);
+
+          result.usersCreated++;
+          result.agentsCreated++;
+          result.createdAgents.push(credentials);
+
+          this.logger.log(
+            `Created agent ${i + 1}/${agents.length}: ${agent.name} ${agent.surname}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Error processing agent ${i + 1}: ${error.message}`,
+          );
+          result.errors.push({
+            row: i + 1,
+            error: error.message,
+          });
+        }
+      }
+
+      if (result.createdAgents.length > 0) {
+        const credentialsFile = await this.generateCredentialsFile2(
+          result.createdAgents,
+        );
+        await this.generateCredentialsCsv(result.createdAgents);
+        result.credentialsFile = credentialsFile;
+
+        this.logger.log(
+          `JSON import completed: ${result.agentsCreated} agents created, ${result.errors.length} errors`,
+        );
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error(`JSON import error: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to import from JSON: ${error.message}`,
+      );
+    }
   }
 
   private generateAgentNumber(): number {

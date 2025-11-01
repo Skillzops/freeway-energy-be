@@ -13,6 +13,8 @@ import {
   UseInterceptors,
   UploadedFiles,
   ParseFilePipeBuilder,
+  Res,
+  UploadedFile,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -66,7 +68,8 @@ import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ResubmitCustomerDto } from 'src/customers/dto/customer-approval.dto';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -1230,5 +1233,81 @@ export class AgentsController {
     //   success: true,
     //   message: 'Agent credentials generation proceessing',
     // };
+  }
+
+  @Post('import/bulk')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  async uploadAgentsFile(@UploadedFile() file: Express.Multer.File) {
+    // Validate file exists
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    // Validate file type
+    const validExtensions = ['.csv', '.txt', '.xlsx'];
+    const fileExtension = file.originalname
+      .substring(file.originalname.lastIndexOf('.'))
+      .toLowerCase();
+
+    if (!validExtensions.includes(fileExtension)) {
+      throw new BadRequestException(
+        `Only CSV/TXT files are accepted. Received: ${fileExtension}`,
+      );
+    }
+
+    try {
+      // Import agents from file
+      const result = await this.agentsService.importAgentsFromFile(file.buffer);
+
+      return {
+        success: true,
+        message: `Agents imported successfully (${result.agentsCreated} created, ${result.errors.length} errors)`,
+        data: result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message || 'Failed to import agents');
+    }
+  }
+
+  @Post('import/bulk/json')
+  @ApiOperation({
+    summary: 'Bulk import agents from JSON',
+    description: 'Import agents by posting JSON directly',
+  })
+  async importAgentsFromJson(@Body() body) {
+    if (!body.agents || !Array.isArray(body.agents)) {
+      throw new BadRequestException('Request must contain "agents" array');
+    }
+
+    if (body.agents.length === 0) {
+      throw new BadRequestException('agents array cannot be empty');
+    }
+
+    // Validate each agent has required fields
+    for (let i = 0; i < body.agents.length; i++) {
+      const agent = body.agents[i];
+      if (!agent.name || !agent.surname || !agent.position) {
+        throw new BadRequestException(
+          `Agent at index ${i} is missing required fields: name, surname, position`,
+        );
+      }
+    }
+
+
+    try {
+      // Convert JSON to CSV-like format and import
+      const result = await this.agentsService.importAgentsFromJson(
+        body.agents,
+      );
+
+      return {
+        success: true,
+        message: `Agents imported successfully (${result.agentsCreated} created, ${result.errors.length} errors)`,
+        data: result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message || 'Failed to import agents');
+    }
   }
 }
