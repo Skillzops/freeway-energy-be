@@ -126,7 +126,7 @@ export class CustomersService {
       },
     });
 
-    if(isAgentUser){
+    if (isAgentUser) {
       await this.prisma.agentCustomer.create({
         data: {
           agentId: creator.agentDetails.id,
@@ -269,7 +269,6 @@ export class CustomersService {
         updatedAt ? { updatedAt: { gte: new Date(updatedAt) } } : {},
       ],
     };
-
     return filterConditions;
   }
 
@@ -636,6 +635,7 @@ export class CustomersService {
         data: {
           isApproved: true,
           approvalStatus: ApprovalStatus.APPROVED,
+          status: UserStatus.active,
           approvedAt: new Date(),
           approvedBy: approverUserId,
           requiresReview: false,
@@ -693,14 +693,15 @@ export class CustomersService {
     const updateData = approve
       ? {
           isApproved: true,
-          approvalStatus: 'APPROVED' as const,
+          status: UserStatus.active,
+          approvalStatus: ApprovalStatus.APPROVED,
           approvedAt: new Date(),
           approvedBy: approverUserId,
           requiresReview: false,
         }
       : {
           isApproved: false,
-          approvalStatus: 'REJECTED' as const,
+          approvalStatus: ApprovalStatus.REJECTED,
           rejectedAt: new Date(),
           rejectedBy: approverUserId,
           rejectionReason,
@@ -914,9 +915,9 @@ export class CustomersService {
         ...(resubmitDto.idType && { idType: resubmitDto.idType }),
         ...(resubmitDto.idNumber && { idNumber: resubmitDto.idNumber }),
         ...(resubmitDto.type && { type: resubmitDto.type }),
-        ...(passportPhotoUrl && {passportPhotoUrl}),
-        ...(idImageUrl && {idImageUrl}),
-        ...(contractFormImageUrl && {contractFormImageUrl}),
+        ...(passportPhotoUrl && { passportPhotoUrl }),
+        ...(idImageUrl && { idImageUrl }),
+        ...(contractFormImageUrl && { contractFormImageUrl }),
         approvalStatus: ApprovalStatus.RESUBMITTED,
         lastResubmittedAt: new Date(),
         resubmissionCount: customer.resubmissionCount + 1,

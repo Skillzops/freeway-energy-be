@@ -77,6 +77,8 @@ model AgentCustomer {
   assignedBy String   @db.ObjectId
   assigner   User     @relation("CustomerAssigner", fields: [assignedBy], references: [id])
 
+  @@index([agentId]) 
+  @@index([customerId]) 
   @@unique([agentId, customerId])
   @@map("agent_customers")
 }
