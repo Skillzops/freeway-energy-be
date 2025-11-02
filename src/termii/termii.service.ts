@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, retry } from 'rxjs';
 import { formatPhoneNumber } from 'src/utils/helpers.util';
 
 export interface DeviceTokenSmsData {
@@ -32,7 +32,7 @@ export class TermiiService {
     private readonly httpService: HttpService,
   ) {
     this.apiKey = this.config.get<string>('TERMII_API_KEY');
-    this.senderId = this.config.get<string>('TERMII_SENDER_ID', 'Energy');
+    this.senderId = this.config.get<string>('TERMII_SENDER_ID', 'A4T');
 
     if (!this.apiKey) {
       this.logger.warn(
@@ -64,7 +64,8 @@ export class TermiiService {
           headers: {
             'Content-Type': 'application/json',
           },
-        }),
+          timeout: 30000,
+        }).pipe(retry(2)),
       );
 
       this.logger.log(`SMS sent successfully to ${payload.to}`);

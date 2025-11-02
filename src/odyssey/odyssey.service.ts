@@ -15,18 +15,8 @@ export class OdysseyService {
 
   async getPayments(
     query: OdysseyPaymentQueryDto,
-  ): Promise<OdysseyPaymentResponseDto> {
+  ): Promise<any> {
     try {
-      const badSales = await this.prisma.sales.count({
-        where: {
-          OR: [
-            { customerId: null },
-            { customer: { id: { equals: undefined } } },
-          ],
-        },
-      });
-
-      console.log({badSales});
       const payments = await this.prisma.payment.findMany({
         where: {
           paymentDate: {
@@ -34,15 +24,13 @@ export class OdysseyService {
             lte: query.to,
           },
           paymentStatus: PaymentStatus.COMPLETED,
-          sale: {
-            customer: {},
-          },
+          sale: { },
           deletedAt: { isSet: false },
         },
         include: {
           sale: {
             include: {
-              customer: true,
+              // customer: true,
               saleItems: {
                 include: {
                   devices: true,
@@ -61,19 +49,20 @@ export class OdysseyService {
       // Transform payments to Odyssey format
       const odysseyPayments: OdysseyPaymentDto[] = [];
 
-      for (const payment of payments) {
-        const odysseyPayment = await this.transformToOdysseyFormat(payment);
+      // for (const payment of payments) {
+      //   const odysseyPayment = await this.transformToOdysseyFormat(payment);
 
-        // Apply optional filters
-        if (this.shouldIncludePayment(odysseyPayment, query)) {
-          odysseyPayments.push(odysseyPayment);
-        }
-      }
+      //   // Apply optional filters
+      //   if (this.shouldIncludePayment(odysseyPayment, query)) {
+      //     odysseyPayments.push(odysseyPayment);
+      //   }
+      // }
 
       console.log(`Transformed ${odysseyPayments.length} payments for Odyssey`);
 
       return {
-        payments: odysseyPayments,
+        // payments: odysseyPayments,
+        payments,
         errors: '',
       };
     } catch (error) {

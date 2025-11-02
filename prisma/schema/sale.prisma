@@ -131,7 +131,7 @@ model SaleRecipient {
   lastname  String
   address   String
   phone     String
-  email     String
+  email     String?
 
   saleItems SaleItem[]
 

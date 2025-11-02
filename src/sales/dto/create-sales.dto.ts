@@ -62,13 +62,13 @@ export class SaleRecipientDto {
   @IsString()
   phone: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: "Recipient's email address.",
     example: 'john.doe@example.com',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
 }
 
 export class SaleItemDto {
