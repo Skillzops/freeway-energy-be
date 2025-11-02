@@ -12,5 +12,7 @@ model ApiAuthToken {
     createdById String? @db.ObjectId
     createdBy   User?   @relation("CreatedApiTokens", fields: [createdById], references: [id])
 
+    @@index([isActive])
+    @@index([expiresAt])
     @@map("api_auth_tokens")
 }

@@ -24,13 +24,17 @@ model Payment {
   paymentResponses   PaymentResponses[]
   walletTransactions WalletTransaction[]
 
-  saleId String @db.ObjectId
-  sale   Sales  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  saleId String? @db.ObjectId
+  sale   Sales?  @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@index([paymentDate])
+  @@index([paymentStatus])
+  @@index([deletedAt])
+  @@index([saleId])
   @@map("payments")
 }
 

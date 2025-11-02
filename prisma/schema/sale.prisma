@@ -11,8 +11,8 @@ model Sales {
 
   status SalesStatus
 
-  customerId String   @db.ObjectId
-  customer   Customer @relation(fields: [customerId], references: [id])
+  customerId String?   @db.ObjectId
+  customer   Customer? @relation(fields: [customerId], references: [id])
 
   creatorId      String? @db.ObjectId
   creatorDetails User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)

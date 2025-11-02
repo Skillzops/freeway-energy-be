@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  OdysseyPaymentDto,
-  OdysseyPaymentQueryDto,
-  OdysseyPaymentResponseDto,
-} from './dto/odyssey.dto';
+import { OdysseyPaymentDto, OdysseyPaymentQueryDto } from './dto/odyssey.dto';
 import { PaymentStatus } from '@prisma/client';
 
 @Injectable()
@@ -13,9 +9,7 @@ export class OdysseyService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async getPayments(
-    query: OdysseyPaymentQueryDto,
-  ): Promise<any> {
+  async getPayments(query: OdysseyPaymentQueryDto): Promise<any> {
     try {
       const payments = await this.prisma.payment.findMany({
         where: {
@@ -24,20 +18,58 @@ export class OdysseyService {
             lte: query.to,
           },
           paymentStatus: PaymentStatus.COMPLETED,
-          sale: { },
+          // sale: {},
+          NOT: {
+            // sale: null,
+            sale: {
+              customer: null,
+            },
+          },
+          // sale: {
+          //   customer: { isNot: null },
+          // },
           deletedAt: { isSet: false },
         },
+        // include: {
+        //   sale: {
+        //     include: {
+        //       customer: true,
+        //       saleItems: {
+        //         include: {
+        //           devices: true,
+        //           product: true,
+        //         },
+        //       },
+        //       creatorDetails: true,
+        //     },
+        //   },
+        // },
         include: {
           sale: {
-            include: {
-              // customer: true,
+            select: {
+              id: true,
+              totalPaid: true,
+              totalPrice: true,
+              status: true,
               saleItems: {
-                include: {
-                  devices: true,
-                  product: true,
+                select: {
+                  id: true,
+                  devices: {
+                    select: {
+                      serialNumber: true,
+                    },
+                  },
                 },
               },
-              creatorDetails: true,
+              customer: {
+                select: {
+                  id: true,
+                  firstname: true,
+                  lastname: true,
+                  longitude: true,
+                  latitude: true,
+                },
+              },
             },
           },
         },
@@ -49,20 +81,19 @@ export class OdysseyService {
       // Transform payments to Odyssey format
       const odysseyPayments: OdysseyPaymentDto[] = [];
 
-      // for (const payment of payments) {
-      //   const odysseyPayment = await this.transformToOdysseyFormat(payment);
+      for (const payment of payments) {
+        const odysseyPayment = await this.transformToOdysseyFormat(payment);
 
-      //   // Apply optional filters
-      //   if (this.shouldIncludePayment(odysseyPayment, query)) {
-      //     odysseyPayments.push(odysseyPayment);
-      //   }
-      // }
+        // Apply optional filters
+        if (this.shouldIncludePayment(odysseyPayment, query)) {
+          odysseyPayments.push(odysseyPayment);
+        }
+      }
 
       console.log(`Transformed ${odysseyPayments.length} payments for Odyssey`);
 
       return {
-        // payments: odysseyPayments,
-        payments,
+        payments: odysseyPayments,
         errors: '',
       };
     } catch (error) {
@@ -206,46 +237,13 @@ export class OdysseyService {
         payment.customerPhone.startsWith('+234') || payment.currency === 'Naira'
       );
     }
-    return true; 
+    return true;
   }
 
   private isInSite(payment: OdysseyPaymentDto, siteId: string): boolean {
     // Implement site-based filtering if you have site data
     // For now, return true to include all payments
     return true;
-  }
-
-  // Method to generate new API tokens (for admin use)
-  async generateApiToken(
-    clientName: string,
-    expirationDays = 365,
-  ): Promise<string> {
-    const token = this.generateSecureToken();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + expirationDays);
-
-    await this.prisma.apiAuthToken.create({
-      data: {
-        token,
-        clientName,
-        expiresAt,
-        isActive: true,
-        createdAt: new Date(),
-      },
-    });
-
-    console.log(`Generated new API token for client: ${clientName}`);
-    return token;
-  }
-
-  private generateSecureToken(): string {
-    // Generate a 64-character hexadecimal token
-    const chars = '0123456789abcdef';
-    let token = '';
-    for (let i = 0; i < 64; i++) {
-      token += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return token;
   }
 
   // Method to revoke API tokens
