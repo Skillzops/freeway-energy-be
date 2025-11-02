@@ -67,7 +67,7 @@ export class SaleRecipientDto {
     example: 'john.doe@example.com',
   })
   @IsOptional()
-  @IsEmail()
+  // @IsEmail()
   email?: string;
 }
 
