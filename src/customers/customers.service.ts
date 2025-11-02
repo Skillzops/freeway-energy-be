@@ -357,8 +357,14 @@ export class CustomersService {
     const customer = await this.prisma.customer.findUnique({
       where: {
         id,
-        assignedAgents: agent ? { some: { agentId: agent } } : undefined,
-        ...(creatorId? { creatorId } : {}),
+        ...(agent && {
+          OR: [
+            { assignedAgents: { some: { agentId: agent } } },
+            ...(creatorId ? [{ creatorId }] : []),
+          ],
+        }),
+        // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
+        // ...(creatorId? { creatorId } : {}),
       },
       include: {
         creatorDetails: {

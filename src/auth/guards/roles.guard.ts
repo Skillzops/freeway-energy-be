@@ -62,7 +62,7 @@ export class RolesAndPermissionsGuard implements CanActivate {
       : true;
 
     // Check user permissions
-    const userPermissions = await this.getUserPermissions(user.roleId);
+    const userPermissions = await this.getUserPermissions(user.role.id);
 
     // Check if any user permission has the subject 'all'
     const hasRequiredPermissions = requiredPermissions.length
