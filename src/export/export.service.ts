@@ -101,6 +101,16 @@ export class ExportService {
 
     const salesPipeline = [
       { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $match: { customer: { $ne: [] } } },
+      { $unwind: '$customer' },
       { $sort: { totalPrice: -1, _id: 1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
@@ -116,6 +126,11 @@ export class ExportService {
           transactionDate: 1,
           createdAt: 1,
           status: 1,
+          'customer.firstname': 1,
+          'customer.lastname': 1,
+          'customer.phone': 1,
+          'customer.email': 1,
+          'customer.createdAt': 1,
         },
       },
     ];
