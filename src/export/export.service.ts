@@ -146,6 +146,17 @@ export class ExportService {
           email: true,
           state: true,
           lga: true,
+          assignedAgents: {
+            select: {
+              agent: {
+                select: {
+                  user: {
+                    select: { firstname: true, lastname: true },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
       this.prisma.payment.findMany({
@@ -230,7 +241,11 @@ export class ExportService {
           daysSinceLastPayment,
           isOverdue,
           status: sale.status || '',
-          agentName: sale.agentName || '',
+          agentName:
+            sale?.agentName && sale?.agentName?.trim()
+              ? sale?.agentName?.trim()
+              : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
+                '',
           state: customer?.state || '',
           lga: customer?.lga || '',
         };
@@ -329,6 +344,16 @@ export class ExportService {
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: [
         { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'customers',
+            localField: 'customerId',
+            foreignField: '_id',
+            as: 'customer',
+          },
+        },
+        { $match: { customer: { $ne: [] } } },
+        { $unwind: '$customer' },
         { $sort: { createdAt: 1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit },
@@ -343,11 +368,17 @@ export class ExportService {
             totalInstallmentDuration: 1,
             transactionDate: 1,
             createdAt: 1,
+            'customer.firstname': 1,
+            'customer.lastname': 1,
+            'customer.phone': 1,
+            'customer.email': 1,
+            'customer.createdAt': 1,
           },
         },
       ],
       options: { allowDiskUse: true },
     });
+
     const sales = this.extractResults(salesResults);
 
     if (sales.length === 0) {
@@ -374,10 +405,26 @@ export class ExportService {
           phone: true,
           state: true,
           lga: true,
+          createdAt: true,
+          assignedAgents: {
+            select: {
+              agent: {
+                select: {
+                  user: {
+                    select: { firstname: true, lastname: true },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
       this.prisma.payment.findMany({
-        where: { saleId: { in: saleIds }, paymentStatus: 'COMPLETED' },
+        where: {
+          saleId: { in: saleIds },
+          sale: {},
+          paymentStatus: 'COMPLETED',
+        },
         select: { saleId: true, paymentDate: true },
         orderBy: { paymentDate: 'asc' },
       }),
@@ -399,7 +446,9 @@ export class ExportService {
         const payments = paymentsBySale.get(saleId) || [];
 
         const lastPayment = payments[payments.length - 1];
-        const lastPaymentDate = lastPayment?.paymentDate || sale.createdAt;
+        const lastPaymentDate =
+          lastPayment?.paymentDate || sale.transactionDate;
+
         const daysSinceLastPayment = Math.floor(
           (now - new Date(lastPaymentDate).getTime()) / 86400000,
         );
@@ -417,33 +466,33 @@ export class ExportService {
         )
           return null;
 
-          const saleDate = sale.transactionDate?.$date
-            ? new Date(sale.transactionDate.$date)
-            : sale.createdAt?.$date
-              ? new Date(sale.createdAt.$date)
-              : new Date(sale.createdAt);
+        const saleDate = sale.transactionDate?.$date
+          ? new Date(sale.transactionDate.$date)
+          : sale.createdAt?.$date
+            ? new Date(sale.createdAt.$date)
+            : new Date(sale.createdAt);
 
-          const monthsSinceSale = Math.floor(
-            (now - saleDate.getTime()) / 2592000000, // 30 days in ms
-          );
+        const monthsSinceSale = Math.floor(
+          (now - saleDate.getTime()) / 2592000000, // 30 days in ms
+        );
 
-          const totalDuration = sale.totalInstallmentDuration || 12; // Default to 12 if missing
-          const expectedPayments = Math.max(
-            0,
-            Math.min(monthsSinceSale, totalDuration - 1),
-          );
+        const totalDuration = sale.totalInstallmentDuration || 12; // Default to 12 if missing
+        const expectedPayments = Math.max(
+          0,
+          Math.min(monthsSinceSale, totalDuration - 1),
+        );
 
-          const actualMonthlyPayments = Math.max(0, payments.length - 1);
+        const actualMonthlyPayments = Math.max(0, payments.length - 1);
 
-          const missedPayments = Math.max(
-            0,
-            expectedPayments - actualMonthlyPayments,
-          );
+        const missedPayments = Math.max(
+          0,
+          expectedPayments - actualMonthlyPayments,
+        );
 
-          const safeExpectedPaymentAmount =
-            isNaN(missedPayments) || !sale.totalMonthlyPayment
-              ? 0
-              : (sale.totalMonthlyPayment || 0) * missedPayments;
+        const safeExpectedPaymentAmount =
+          isNaN(missedPayments) || !sale.totalMonthlyPayment
+            ? 0
+            : (sale.totalMonthlyPayment || 0) * missedPayments;
 
         return {
           customerId,
@@ -456,12 +505,16 @@ export class ExportService {
           lastPaymentDate: this.formatDate(lastPaymentDate),
           daysSinceLastPayment,
           monthsDefaulted: Math.floor(daysSinceLastPayment / 30),
-          missedPayments: missedPayments || 0, 
-          expectedPaymentAmount: safeExpectedPaymentAmount, 
+          missedPayments: missedPayments || 0,
+          expectedPaymentAmount: safeExpectedPaymentAmount,
           outstandingBalance: parseFloat(
             ((sale.totalPrice || 0) - (sale.totalPaid || 0)).toFixed(2),
           ),
-          agentName: sale.agentName || '',
+          agentName:
+            sale?.agentName && sale?.agentName?.trim()
+              ? sale?.agentName?.trim()
+              : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
+                '',
           state: customer?.state || '',
           lga: customer?.lga || '',
         };
@@ -778,9 +831,35 @@ export class ExportService {
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: [
         { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'customers',
+            localField: 'customerId',
+            foreignField: '_id',
+            as: 'customer',
+          },
+        },
         { $sort: { createdAt: -1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit },
+        {
+          $project: {
+            _id: 1,
+            customerId: 1,
+            agentName: 1,
+            totalPrice: 1,
+            totalPaid: 1,
+            totalMonthlyPayment: 1,
+            totalInstallmentDuration: 1,
+            transactionDate: 1,
+            createdAt: 1,
+            'customer.firstname': 1,
+            'customer.lastname': 1,
+            'customer.phone': 1,
+            'customer.email': 1,
+            'customer.createdAt': 1,
+          },
+        },
       ],
       options: { allowDiskUse: true },
     });
@@ -813,6 +892,17 @@ export class ExportService {
           phone: true,
           state: true,
           lga: true,
+          assignedAgents: {
+            select: {
+              agent: {
+                select: {
+                  user: {
+                    select: { firstname: true, lastname: true },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
       this.prisma.saleItem.findMany({
@@ -847,7 +937,10 @@ export class ExportService {
           sale.transactionDate || sale.createdAt,
         ),
         status: sale.status || '',
-        agentName: sale.agentName || '',
+        agentName:
+          sale?.agentName ||
+          `${customer.assignedAgents?.[0].agent.user.firstname} ${customer.assignedAgents?.[0].agent.user.lastname}` ||
+          '',
         customerName: customer
           ? `${customer.firstname} ${customer.lastname}`
           : '',
@@ -1049,12 +1142,52 @@ export class ExportService {
     const paymentsResults = await this.prisma.payment.aggregateRaw({
       pipeline: [
         { $match: matchConditions },
+
+        {
+          $lookup: {
+            from: 'sales',
+            localField: 'saleId',
+            foreignField: '_id',
+            as: 'sale',
+          },
+        },
+        { $unwind: '$sale' },
+
+        {
+          $lookup: {
+            from: 'customers',
+            localField: 'sale.customerId',
+            foreignField: '_id',
+            as: 'customer',
+          },
+        },
+        { $unwind: '$customer' },
+
+        { $match: { customer: { $ne: null } } },
+
         { $sort: { paymentDate: -1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit },
+
+        {
+          $project: {
+            _id: 1,
+            saleId: 1,
+            transactionRef: 1,
+            amount: 1,
+            paymentStatus: 1,
+            paymentMethod: 1,
+            paymentDate: 1,
+            'customer.firstname': 1,
+            'customer.lastname': 1,
+            'customer.phone': 1,
+            'sale.agentName': 1,
+          },
+        },
       ],
       options: { allowDiskUse: true },
     });
+
     const payments = this.extractResults(paymentsResults);
 
     if (payments.length === 0) {
@@ -1081,7 +1214,23 @@ export class ExportService {
     const customerIds = [...new Set(sales.map((s) => s.customerId))];
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: customerIds } },
-      select: { id: true, firstname: true, lastname: true, phone: true },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        phone: true,
+        assignedAgents: {
+          select: {
+            agent: {
+              select: {
+                user: {
+                  select: { firstname: true, lastname: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     const saleMap = new Map(sales.map((s) => [s.id, s]));
@@ -1102,7 +1251,11 @@ export class ExportService {
           ? `${customer.firstname} ${customer.lastname}`
           : '',
         customerPhone: customer?.phone || '',
-        agentName: sale?.agentName || '',
+        agentName:
+          sale?.agentName && sale?.agentName?.trim()
+            ? sale?.agentName?.trim()
+            : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
+              '',
       };
     });
 
@@ -1195,7 +1348,23 @@ export class ExportService {
     const customerIds = [...new Set(sales.map((s) => s.customerId))];
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: customerIds } },
-      select: { id: true, firstname: true, lastname: true, phone: true },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        phone: true,
+        assignedAgents: {
+          select: {
+            agent: {
+              select: {
+                user: {
+                  select: { firstname: true, lastname: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     // Build maps
@@ -1221,7 +1390,11 @@ export class ExportService {
           ? `${customer.firstname} ${customer.lastname}`
           : '',
         customerPhone: customer?.phone || '',
-        agentName: sale?.agentName || '',
+        agentName:
+          sale?.agentName && sale?.agentName?.trim()
+            ? sale?.agentName?.trim()
+            : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
+              '',
         createdDate: this.formatDate(device.createdAt),
       };
     });
