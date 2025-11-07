@@ -85,6 +85,11 @@ export class ExportService {
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
     };
 
+    const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
+    if (dateFilter) {
+      matchConditions.createdAt = dateFilter;
+    }
+
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
@@ -280,6 +285,12 @@ export class ExportService {
       totalSalesWithDebt: jsonData.length,
       overduePaymentsCount: overdueCount,
       generatedAt: new Date().toISOString(),
+      ...(filters.startDate && {
+        periodStart: new Date(filters.startDate).toISOString(),
+      }),
+      ...(filters.endDate && {
+        periodEnd: new Date(filters.endDate).toISOString(),
+      }),
     };
 
     // Build CSV
@@ -310,6 +321,13 @@ export class ExportService {
       [
         'DEBT REPORT SUMMARY',
         `Generated At: ${new Date().toLocaleString()}`,
+        ...(filters.startDate && filters.endDate
+          ? [
+              `Period: ${this.formatDate(filters.startDate)} to ${this.formatDate(
+                filters.endDate,
+              )}`,
+            ]
+          : []),
         `Total Outstanding Debt: NGN ${summary.totalOutstandingDebt.toLocaleString()}`,
         `Total Customers in Debt: ${summary.totalCustomersInDebt}`,
         `Total Sales with Outstanding Balance: ${summary.totalSalesWithDebt}`,
@@ -343,6 +361,11 @@ export class ExportService {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
     };
+
+    const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
+    if (dateFilter) {
+      matchConditions.createdAt = dateFilter; 
+    }
 
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
@@ -543,6 +566,10 @@ export class ExportService {
       ),
       overdueDaysThreshold: overdueDays,
       generatedAt: new Date().toISOString(),
+      ...(filters.startDate && {
+        periodStart: new Date(filters.startDate).toISOString(),
+      }),
+      ...(filters.endDate && { periodEnd: new Date(filters.endDate).toISOString() }),
     };
 
     const csvData = this.buildCSV(
@@ -566,6 +593,13 @@ export class ExportService {
       [
         'RENEWAL PAYMENT DEFAULTERS REPORT',
         `Generated At: ${new Date().toLocaleString()}`,
+        ...(filters.startDate && filters.endDate
+          ? [
+              `Period: ${this.formatDate(filters.startDate)} to ${this.formatDate(
+                filters.endDate,
+              )}`,
+            ]
+          : []),
         `Overdue Threshold: ${overdueDays} days`,
         `Total Defaulters: ${summary.totalDefaulters}`,
         `Total Missed Payments: ${summary.totalMissedPayments}`,
@@ -589,9 +623,9 @@ export class ExportService {
   }
 
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
-    const endDate = filters.endDate || new Date();
+    const endDate = new Date(filters.endDate) || new Date();
     const startDate =
-      filters.startDate ||
+      new Date(filters.startDate) ||
       new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
     return this.generateSummaryReport(startDate, endDate, filters, 'WEEKLY');
   }
@@ -599,9 +633,9 @@ export class ExportService {
   private async exportMonthlySummary(
     filters: ExportDataQueryDto,
   ): Promise<any> {
-    const endDate = filters.endDate || new Date();
+    const endDate = new Date(filters.endDate) || new Date();
     const startDate =
-      filters.startDate ||
+      new Date(filters.startDate) ||
       new Date(endDate.getFullYear(), endDate.getMonth(), 1);
     return this.generateSummaryReport(startDate, endDate, filters, 'MONTHLY');
   }
@@ -823,11 +857,11 @@ export class ExportService {
       matchConditions.createdAt = {};
       if (filters.startDate)
         matchConditions.createdAt.$gte = {
-          $date: filters.startDate.toISOString(),
+          $date: new Date(filters.startDate).toISOString(),
         };
       if (filters.endDate)
         matchConditions.createdAt.$lte = {
-          $date: filters.endDate.toISOString(),
+          $date: new Date(filters.endDate).toISOString(),
         };
     }
     if (filters.salesStatus) matchConditions.status = filters.salesStatus;
@@ -1138,11 +1172,11 @@ export class ExportService {
       matchConditions.paymentDate = {};
       if (filters.startDate)
         matchConditions.paymentDate.$gte = {
-          $date: filters.startDate.toISOString(),
+          $date: new Date(filters.startDate).toISOString(),
         };
       if (filters.endDate)
         matchConditions.paymentDate.$lte = {
-          $date: filters.endDate.toISOString(),
+          $date: new Date(filters.endDate).toISOString(),
         };
     }
 
@@ -1308,11 +1342,11 @@ export class ExportService {
       matchConditions.createdAt = {};
       if (filters.startDate)
         matchConditions.createdAt.$gte = {
-          $date: filters.startDate.toISOString(),
+          $date: new Date(filters.startDate).toISOString(),
         };
       if (filters.endDate)
         matchConditions.createdAt.$lte = {
-          $date: filters.endDate.toISOString(),
+          $date: new Date(filters.endDate).toISOString(),
         };
     }
 
@@ -1482,6 +1516,21 @@ export class ExportService {
     } catch {
       return '';
     }
+  }
+
+  private buildDateFilter(startDate?: string, endDate?: string): any {
+    if (!startDate && !endDate) return null;
+
+    const dateFilter: any = {};
+
+    if (startDate) {
+      dateFilter.$gte = { $date: new Date(startDate).toISOString() };
+    }
+    if (endDate) {
+      dateFilter.$lte = { $date: new Date(endDate).toISOString() };
+    }
+
+    return dateFilter;
   }
 
   private escapeCSV(value: any): string {

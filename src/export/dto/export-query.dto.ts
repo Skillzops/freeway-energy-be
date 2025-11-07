@@ -114,8 +114,8 @@ export class ExportDataQueryDto {
   })
   @IsOptional()
   @IsDateString()
-  @Transform(({ value }) => (value ? new Date(value) : undefined))
-  startDate?: Date;
+  // @Transform(({ value }) => (value ? new Date(value) : undefined))
+  startDate?: string;
 
   @ApiPropertyOptional({
     description:
@@ -124,8 +124,8 @@ export class ExportDataQueryDto {
   })
   @IsOptional()
   @IsDateString()
-  @Transform(({ value }) => (value ? new Date(value) : undefined))
-  endDate?: Date;
+  // @Transform(({ value }) => (value ? new Date(value) : undefined))
+  endDate?: string;
 
   @ApiPropertyOptional({
     description:
