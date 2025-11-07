@@ -364,7 +364,7 @@ export class ExportService {
 
     const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
     if (dateFilter) {
-      matchConditions.createdAt = dateFilter; 
+      matchConditions.createdAt = dateFilter;
     }
 
     if (filters.customerId)
@@ -569,7 +569,9 @@ export class ExportService {
       ...(filters.startDate && {
         periodStart: new Date(filters.startDate).toISOString(),
       }),
-      ...(filters.endDate && { periodEnd: new Date(filters.endDate).toISOString() }),
+      ...(filters.endDate && {
+        periodEnd: new Date(filters.endDate).toISOString(),
+      }),
     };
 
     const csvData = this.buildCSV(
@@ -623,20 +625,20 @@ export class ExportService {
   }
 
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
-    const endDate = new Date(filters.endDate) || new Date();
-    const startDate =
-      new Date(filters.startDate) ||
-      new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
+    const startDate = filters.startDate 
+      ? new Date(filters.startDate) 
+      : new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
     return this.generateSummaryReport(startDate, endDate, filters, 'WEEKLY');
   }
-
-  private async exportMonthlySummary(
-    filters: ExportDataQueryDto,
-  ): Promise<any> {
-    const endDate = new Date(filters.endDate) || new Date();
-    const startDate =
-      new Date(filters.startDate) ||
-      new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+  
+  private async exportMonthlySummary(filters: ExportDataQueryDto): Promise<any> {
+    const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
+    const startDate = filters.startDate 
+      ? new Date(filters.startDate) 
+      : new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    
     return this.generateSummaryReport(startDate, endDate, filters, 'MONTHLY');
   }
 
