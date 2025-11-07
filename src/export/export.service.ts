@@ -88,7 +88,6 @@ export class ExportService {
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
-    if (filters.salesStatus) matchConditions.status = filters.salesStatus;
 
     const countPipeline = [{ $match: matchConditions }, { $count: 'total' }];
 

@@ -10,7 +10,7 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { PaymentMethod, PaymentMode, SalesStatus } from '@prisma/client';
+import { PaymentMethod, SalesStatus } from '@prisma/client';
 
 /**
  * Export Types:
@@ -72,7 +72,8 @@ export class ExportDataQueryDto {
   exportType: ExportType;
 
   @ApiPropertyOptional({
-    description: 'Filter by specific customer ID',
+    description:
+      'Filter by specific customer ID (Applicable to only export_type=sales|debt_report|customers|renewal_report)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsOptional()
@@ -80,7 +81,8 @@ export class ExportDataQueryDto {
   customerId?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by agent ID',
+    description:
+      'Filter by agent ID (Applicable to only export_type=sales|debt_report|weekly_summary|monthly_summary|renewal_report)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsOptional()
@@ -89,7 +91,8 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     enum: SalesStatus,
-    description: 'Filter by sales status (COMPLETED, IN_INSTALLMENT, UNPAID, CANCELLED)',
+    description:
+      'Filter by sales status (COMPLETED, IN_INSTALLMENT, UNPAID, CANCELLED) (Applicable to only export_type=sales)',
   })
   @IsOptional()
   @IsEnum(SalesStatus)
@@ -97,22 +100,16 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     enum: PaymentMethod,
-    description: 'Filter by payment method',
+    description:
+      'Filter by payment method (Applicable to only export_type=payment)',
   })
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
 
   @ApiPropertyOptional({
-    enum: PaymentMode,
-    description: 'Filter by payment mode (ONE_OFF or INSTALLMENT)',
-  })
-  @IsOptional()
-  @IsEnum(PaymentMode)
-  paymentMode?: PaymentMode;
-
-  @ApiPropertyOptional({
-    description: 'Start date for filtering (ISO 8601: 2025-01-01)',
+    description:
+      'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report)',
     example: '2025-01-01',
   })
   @IsOptional()
@@ -121,7 +118,8 @@ export class ExportDataQueryDto {
   startDate?: Date;
 
   @ApiPropertyOptional({
-    description: 'End date for filtering (ISO 8601: 2025-12-31)',
+    description:
+      'End date for filtering (ISO 8601: 2025-12-31) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report)',
     example: '2025-12-31',
   })
   @IsOptional()
@@ -130,7 +128,8 @@ export class ExportDataQueryDto {
   endDate?: Date;
 
   @ApiPropertyOptional({
-    description: 'Filter by state (e.g., Lagos, Abuja)',
+    description:
+      'Filter by state (e.g., Lagos, Abuja) (Applicable to only export_type=debt_report|customers|renewal_report)',
     example: 'Lagos',
   })
   @IsOptional()
@@ -138,7 +137,8 @@ export class ExportDataQueryDto {
   state?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by LGA (Local Government Area)',
+    description:
+      'Filter by LGA (Local Government Area) (Applicable to only export_type=debt_report|customers|renewal_report)',
     example: 'Ikeja',
   })
   @IsOptional()
@@ -152,6 +152,8 @@ Minimum number of days since last payment to consider overdue.
 - Default: 35 days
 - Use for: Renewal Report to find defaulters
 - Example: overdueDays=60 finds customers who haven't paid in 60+ days
+
+(Applicable to only export_type=debt_report|renewal_report)
     `,
     example: 35,
     default: 35,
@@ -163,7 +165,8 @@ Minimum number of days since last payment to consider overdue.
   overdueDays?: number;
 
   @ApiPropertyOptional({
-    description: 'Filter customers with outstanding debt only (for CUSTOMERS export)',
+    description:
+      'Filter customers with outstanding debt only (for CUSTOMERS export) (Applicable to only export_type=customers)',
     example: true,
   })
   @IsOptional()
