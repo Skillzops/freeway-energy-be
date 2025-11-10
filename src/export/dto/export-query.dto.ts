@@ -23,6 +23,7 @@ import { PaymentMethod, SalesStatus } from '@prisma/client';
  * CUSTOMERS: Customer list with debt summary
  * PAYMENTS: Payment transaction history
  * DEVICES: Device installation records
+ * TOTAL_OUTSTANDING_RECEIVABLES: TOTAL_OUTSTANDING_RECEIVABLES records
  */
 export enum ExportType {
   DEBT_REPORT = 'debt_report',
@@ -33,6 +34,7 @@ export enum ExportType {
   CUSTOMERS = 'customers',
   PAYMENTS = 'payments',
   DEVICES = 'devices',
+  TOTAL_OUTSTANDING_RECEIVABLES = 'total_outstanding_receivables',
 }
 
 export class ExportDataQueryDto {
@@ -109,7 +111,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report)',
+      'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
     example: '2025-01-01',
   })
   @IsOptional()
@@ -119,7 +121,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'End date for filtering (ISO 8601: 2025-12-31) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report)',
+      'End date for filtering (ISO 8601: 2025-12-31) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
     example: '2025-12-31',
   })
   @IsOptional()
@@ -173,6 +175,16 @@ Minimum number of days since last payment to consider overdue.
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   hasOutstandingDebt?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter by overdue status - show only overdue debts (Applicable to only export_type=debt_report)',
+    example: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isOverdue?: boolean;
 
   @ApiPropertyOptional({
     description: 'Page number for pagination',

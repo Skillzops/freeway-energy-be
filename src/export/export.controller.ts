@@ -343,3 +343,47 @@ GET /export/data?exportType=payments&customerId=xxx
 // \`\`\`
 
 // ---
+
+// ### 5. TOTAL OUTSTANDING RECEIVABLES REPORT (\`exportType=total_outstanding_receivables\`)
+// **Purpose:** Get total outstanding debt summary with date range filters
+
+// **What it shows:**
+// - Total outstanding debt across all sales
+// - Count of debts and overdue debts
+// - Breakdown of overdue vs non-overdue amounts
+// - Overdue threshold applied (default: 35 days)
+
+// **Use Cases:**
+// - Track total company receivables
+// - See how much is overdue vs current
+// - Monitor debt collection trends over time
+
+// **Example Requests:**
+// \`\`\`
+// GET /export/data?exportType=total_outstanding_receivables
+// GET /export/data?exportType=total_outstanding_receivables&startDate=2025-01-01&endDate=2025-12-31
+// GET /export/data?exportType=total_outstanding_receivables&overdueDays=60
+// \`\`\`
+
+// **Response Fields:**
+// - \`totalOutstandingDebt\`: Total of all outstanding balances (NGN)
+// - \`totalOutstandingDebtsOverdue\`: Amount that is overdue (NGN)
+// - \`totalDebtsCount\`: Number of individual debts
+// - \`overdueDebtsCount\`: Number of overdue debts
+// - \`nonOverdueDebtsAmount\`: Amount not yet overdue
+// - \`nonOverdueDebtsCount\`: Count of non-overdue debts
+
+// ---
+
+// ### 6. DEBT REPORT (\`exportType=debt_report\`)
+// **Updated:** Now supports \`isOverdue\` filter to show only overdue or non-overdue debts
+
+// **New Filter:**
+// - \`isOverdue\`: true (only overdue), false (only current), or omitted (all)
+
+// **Example Requests:**
+// \`\`\`
+// GET /export/data?exportType=debt_report&isOverdue=true
+// GET /export/data?exportType=debt_report&isOverdue=false
+// GET /export/data?exportType=debt_report (shows all)
+// \`\`\`

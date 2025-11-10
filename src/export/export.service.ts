@@ -55,6 +55,9 @@ export class ExportService {
       case ExportType.DEVICES:
         result = await this.exportDevices(filters);
         break;
+      case ExportType.TOTAL_OUTSTANDING_RECEIVABLES:
+        result = await this.exportTotalOutstandingReceivables(filters);
+        break;
       default:
         throw new BadRequestException(
           `Invalid export type: ${filters.exportType}`,
@@ -224,6 +227,13 @@ export class ExportService {
           (now - new Date(lastPaymentDate).getTime()) / 86400000,
         );
         const isOverdue = daysSinceLastPayment > overdueDays;
+
+        if (
+          filters.isOverdue !== undefined &&
+          filters.isOverdue !== isOverdue
+        ) {
+          return null;
+        }
 
         if (
           filters.state &&
@@ -626,19 +636,21 @@ export class ExportService {
 
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
     const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
-    const startDate = filters.startDate 
-      ? new Date(filters.startDate) 
+    const startDate = filters.startDate
+      ? new Date(filters.startDate)
       : new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
+
     return this.generateSummaryReport(startDate, endDate, filters, 'WEEKLY');
   }
-  
-  private async exportMonthlySummary(filters: ExportDataQueryDto): Promise<any> {
+
+  private async exportMonthlySummary(
+    filters: ExportDataQueryDto,
+  ): Promise<any> {
     const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
-    const startDate = filters.startDate 
-      ? new Date(filters.startDate) 
+    const startDate = filters.startDate
+      ? new Date(filters.startDate)
       : new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-    
+
     return this.generateSummaryReport(startDate, endDate, filters, 'MONTHLY');
   }
 
@@ -1469,6 +1481,100 @@ export class ExportService {
       currentPage: page,
       totalPages,
       exportType: ExportType.DEVICES,
+    };
+  }
+
+  private async exportTotalOutstandingReceivables(
+    filters: ExportDataQueryDto,
+  ): Promise<any> {
+    const startDate = filters.startDate ? new Date(filters.startDate) : null;
+    const endDate = filters.endDate ? new Date(filters.endDate) : null;
+
+    const matchConditions: any = {
+      deletedAt: null,
+      $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
+    };
+
+    if (startDate || endDate) {
+      matchConditions.createdAt = {};
+      if (startDate) {
+        matchConditions.createdAt.$gte = { $date: startDate.toISOString() };
+      }
+      if (endDate) {
+        matchConditions.createdAt.$lte = { $date: endDate.toISOString() };
+      }
+    }
+
+    const salesResults = await this.prisma.sales.aggregateRaw({
+      pipeline: [
+        { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'sales_items',
+            localField: '_id',
+            foreignField: 'saleId',
+            as: 'saleItems',
+          },
+        },
+        {
+          $match: { saleItems: { $ne: [] } }, // Only sales with items
+        },
+        {
+          $group: {
+            _id: null,
+            totalOutstandingAmount: {
+              $sum: { $subtract: ['$totalPrice', '$totalPaid'] },
+            },
+            totalSalesCount: { $sum: 1 },
+            totalPriceSum: { $sum: '$totalPrice' },
+            totalPaidSum: { $sum: '$totalPaid' },
+          },
+        },
+      ],
+      options: { allowDiskUse: true },
+    });
+
+    const results = this.extractResults(salesResults)[0] || {
+      totalOutstandingAmount: 0,
+      totalSalesCount: 0,
+      totalPriceSum: 0,
+      totalPaidSum: 0,
+    };
+
+    const summary = {
+      periodStart: startDate?.toISOString() || null,
+      periodEnd: endDate?.toISOString() || null,
+      totalOutstandingReceivables: parseFloat(
+        (results.totalOutstandingAmount || 0).toFixed(2),
+      ),
+      totalSalesCount: results.totalSalesCount || 0,
+      totalSalesValue: parseFloat((results.totalPriceSum || 0).toFixed(2)),
+      totalPaidToDate: parseFloat((results.totalPaidSum || 0).toFixed(2)),
+      generatedAt: new Date().toISOString(),
+    };
+
+    const csvRows = [
+      'TOTAL OUTSTANDING RECEIVABLES REPORT',
+      ...(startDate && endDate
+        ? [
+            `Period: ${this.formatDate(startDate)} to ${this.formatDate(endDate)}`,
+          ]
+        : []),
+      `Generated At: ${new Date().toLocaleString()}`,
+      '',
+      'SUMMARY',
+      `Total Outstanding Receivables,NGN ${summary.totalOutstandingReceivables.toLocaleString()}`,
+      `Total Sales (in period),${summary.totalSalesCount}`,
+      `Total Sales Value,NGN ${summary.totalSalesValue.toLocaleString()}`,
+      `Total Paid to Date,NGN ${summary.totalPaidToDate.toLocaleString()}`,
+    ];
+
+    return {
+      data: csvRows.join('\n'),
+      jsonData: [summary],
+      totalRecords: 1,
+      exportType: ExportType.TOTAL_OUTSTANDING_RECEIVABLES,
+      summary,
     };
   }
 
