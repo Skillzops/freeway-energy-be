@@ -8,7 +8,7 @@ import {
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRandomPassword } from '../utils/generate-pwd';
-import { calculateDistance, hashPassword } from '../utils/helpers.util';
+import { calculateDistance, cleanPhoneNumber, hashPassword } from '../utils/helpers.util';
 import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
@@ -34,6 +34,7 @@ import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { UpdateAgentDto } from './dto/update-agent.dto';
 
 export interface AgentCredentialInfo {
   id: string;
@@ -122,13 +123,9 @@ export class AgentsService {
   ) {}
 
   async create(createAgentDto: CreateAgentDto, userId) {
-    const { email, location, category, ...otherData } = createAgentDto;
-
-    console.log({createAgentDto})
+    const { email, location, phone, category, ...otherData } = createAgentDto;
 
     const agentId = this.generateAgentNumber();
-
-    console.log({ agentId });
 
     const existingEmail = await this.prisma.user.findFirst({
       where: { email },
@@ -189,6 +186,7 @@ export class AgentsService {
         email,
         password: hashedPassword,
         location,
+        phone: cleanPhoneNumber(phone),
         roleId: defaultRole.id,
         ...otherData,
       },
@@ -238,6 +236,78 @@ export class AgentsService {
     }
 
     return newUser;
+  }
+
+  async updateAgentDetails(agentId: string, updateAgentDto: UpdateAgentDto) {
+    if (!this.isValidObjectId(agentId)) {
+      throw new BadRequestException(`Invalid agent ID: ${agentId}`);
+    }
+
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      include: { user: true },
+    });
+
+    if (!agent) {
+      throw new NotFoundException(MESSAGES.AGENT_NOT_FOUND);
+    }
+
+    // Check if email is being updated and if it's already taken
+    if (updateAgentDto.email && updateAgentDto.email !== agent.user.email) {
+      const existingEmail = await this.prisma.user.findFirst({
+        where: {
+          email: updateAgentDto.email,
+          id: { not: agent.userId }, // Exclude current user
+        },
+      });
+
+      if (existingEmail) {
+        throw new ConflictException('Email is already in use by another user');
+      }
+    }
+
+    // Prepare update data for user
+    const userUpdateData: any = {};
+
+    if (updateAgentDto.firstname) {
+      userUpdateData.firstname = updateAgentDto.firstname;
+    }
+
+    if (updateAgentDto.lastname) {
+      userUpdateData.lastname = updateAgentDto.lastname;
+    }
+
+    if (updateAgentDto.email) {
+      userUpdateData.email = updateAgentDto.email;
+    }
+
+    if (updateAgentDto.phone) {
+      userUpdateData.phone = cleanPhoneNumber(updateAgentDto.phone);
+    }
+
+    if (updateAgentDto.location) {
+      userUpdateData.location = updateAgentDto.location;
+    }
+
+    if (updateAgentDto.addressType) {
+      userUpdateData.addressType = updateAgentDto.addressType;
+    }
+
+    if (updateAgentDto.latitude !== undefined) {
+      userUpdateData.latitude = updateAgentDto.latitude;
+    }
+
+    if (updateAgentDto.longitude !== undefined) {
+      userUpdateData.longitude = updateAgentDto.longitude;
+    }
+
+    // Update user details
+    const updatedUser = await this.prisma.user.update({
+      where: { id: agent.userId },
+      data: userUpdateData,
+    });
+
+    return updatedUser;
   }
 
   async getAll(getProductsDto: GetAgentsDto) {

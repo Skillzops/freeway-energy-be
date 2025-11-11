@@ -48,3 +48,28 @@ export const calculateDistance = (
 export const toRadians = (degrees: number): number => {
   return degrees * (Math.PI / 180);
 };
+
+
+export function cleanPhoneNumber(phone: any): string {
+  if (!phone) return '';
+
+  const cleaned = phone.toString().replace(/\D/g, '');
+
+  if (cleaned.startsWith('234')) {
+    return cleaned;
+  }
+
+  if (cleaned.startsWith('0') && cleaned.length === 11) {
+    return '234' + cleaned.substring(1);
+  }
+
+  if (cleaned.length === 10) {
+    return '234' + cleaned;
+  }
+
+  if (cleaned.length > 11 && cleaned.endsWith('0')) {
+    return '234' + cleaned.slice(-10);
+  }
+
+  return '';
+}

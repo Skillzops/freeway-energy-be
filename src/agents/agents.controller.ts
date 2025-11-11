@@ -15,6 +15,7 @@ import {
   ParseFilePipeBuilder,
   Res,
   UploadedFile,
+  Patch,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -68,8 +69,12 @@ import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ResubmitCustomerDto } from 'src/customers/dto/customer-approval.dto';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 import { Response } from 'express';
+import { UpdateAgentDto } from './dto/update-agent.dto';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -136,6 +141,81 @@ export class AgentsController {
     @GetSessionUser('id') id: string,
   ) {
     return await this.agentsService.create(CreateAgentDto, id);
+  }
+
+  @Patch('profile/:id')
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID of the agent to update',
+  })
+  @ApiBody({
+    type: UpdateAgentDto,
+    description: 'Agent details to update',
+  })
+  @ApiBadRequestResponse({})
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update agent details (Admin)',
+    description:
+      'Admin can update agent details including personal info, location, and Ogaranya account details',
+  })
+  async updateAgent(
+    @Param('id') agentId: string,
+    @Body() updateAgentDto: UpdateAgentDto,
+  ): Promise<any> {
+    return await this.agentsService.updateAgentDetails(agentId, updateAgentDto);
+  }
+
+  @Patch('profile/me')
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiBody({
+    type: UpdateAgentDto,
+    description: 'Agent details to update',
+  })
+  @ApiOkResponse({
+    description: 'Your profile updated successfully',
+  })
+  @ApiBadRequestResponse({})
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update own agent profile',
+    description: 'Agent can update their own profile details',
+  })
+  async updateOwnProfile(
+    @Body() updateAgentDto: UpdateAgentDto,
+    @GetSessionUser('agent') agent: Agent,
+  ): Promise<any> {
+    return await this.agentsService.updateAgentDetails(
+      agent.id,
+      updateAgentDto,
+    );
   }
 
   // @Get('analyze-missing-installers')
@@ -1294,12 +1374,9 @@ export class AgentsController {
       }
     }
 
-
     try {
       // Convert JSON to CSV-like format and import
-      const result = await this.agentsService.importAgentsFromJson(
-        body.agents,
-      );
+      const result = await this.agentsService.importAgentsFromJson(body.agents);
 
       return {
         success: true,

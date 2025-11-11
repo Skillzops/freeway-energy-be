@@ -15,6 +15,7 @@ import {
   AgentCategory,
 } from '@prisma/client';
 import { PricingLookupService } from './pricing-lookup.service';
+import { cleanPhoneNumber } from 'src/utils/helpers.util';
 
 @Injectable()
 export class DataMappingService {
@@ -58,8 +59,8 @@ export class DataMappingService {
       // Customer basic info
       firstName: this.cleanString(row.firstName) || 'Unknown',
       lastName: this.cleanString(row.lastName) || 'Customer',
-      phoneNumber: this.cleanPhoneNumber(row.phoneNumber),
-      alternatePhoneNumber: this.cleanPhoneNumber(row.alternatePhoneNumber),
+      phoneNumber: cleanPhoneNumber(row.phoneNumber),
+      alternatePhoneNumber: cleanPhoneNumber(row.alternatePhoneNumber),
 
       // Address and location
       installationAddress: this.cleanString(row.installationAddress),
@@ -86,7 +87,7 @@ export class DataMappingService {
 
       // Guarantor information
       guarantorName: this.cleanString(row.guarantorName),
-      guarantorNumber: this.cleanPhoneNumber(row.guarantorNumber),
+      guarantorNumber: cleanPhoneNumber(row.guarantorNumber),
 
       // Product and payment
       productType: this.cleanString(row.productType) || 'Unknown Product',
@@ -435,26 +436,51 @@ export class DataMappingService {
     return cleaned === '' || cleaned.toLowerCase() === 'nil' ? null : cleaned;
   }
 
+  // private cleanPhoneNumber(phone: any): string {
+  //   // if (!phone) return this.defaultsGenerator.generateNigerianPhone();
+  //   if (!phone) return 'nil';
+
+  //   const cleaned = phone.toString().replace(/\D/g, '');
+
+  //   // return cleaned;
+
+  //   // Handle Nigerian phone numbers
+  //   // if (cleaned.startsWith('234')) {
+  //   //   return cleaned;
+  //   // } else if (cleaned.startsWith('0') && cleaned.length === 11) {
+  //   //   return '234' + cleaned.substring(1);
+  //   // } else if (cleaned.length === 10) {
+  //   //   return '234' + cleaned;
+  //   // } else if (cleaned.length >= 10) {
+  //   //   return '234' + cleaned.slice(-10);
+  //   // }
+
+  //   // return this.defaultsGenerator.generateNigerianPhone();
+  // }
+
   private cleanPhoneNumber(phone: any): string {
-    // if (!phone) return this.defaultsGenerator.generateNigerianPhone();
-    if (!phone) return 'nil';
+    if (!phone) return '';
 
     const cleaned = phone.toString().replace(/\D/g, '');
 
-    return cleaned;
+    if (cleaned.startsWith('234')) {
+      return cleaned;
+    }
 
-    // Handle Nigerian phone numbers
-    // if (cleaned.startsWith('234')) {
-    //   return cleaned;
-    // } else if (cleaned.startsWith('0') && cleaned.length === 11) {
-    //   return '234' + cleaned.substring(1);
-    // } else if (cleaned.length === 10) {
-    //   return '234' + cleaned;
-    // } else if (cleaned.length >= 10) {
-    //   return '234' + cleaned.slice(-10);
-    // }
+    if (cleaned.startsWith('0') && cleaned.length === 11) {
+      return '234' + cleaned.substring(1);
+    }
 
-    // return this.defaultsGenerator.generateNigerianPhone();
+    if (cleaned.length === 10) {
+      return '234' + cleaned;
+    }
+
+    if (cleaned.length > 11 && cleaned.endsWith('0')) {
+      return '234' + cleaned.slice(-10);
+    }
+
+    // fallback: invalid or unexpected
+    return '';
   }
 
   private cleanCoordinate(coord: any): string | null {
