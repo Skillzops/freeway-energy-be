@@ -75,7 +75,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Filter by specific customer ID (Applicable to only export_type=sales|debt_report|customers|renewal_report)',
+      'Filter by specific customer ID (Applicable to only export_type=sales|debt_report|customers|renewal_report|devices)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsOptional()
@@ -175,6 +175,24 @@ Minimum number of days since last payment to consider overdue.
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   hasOutstandingDebt?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter by device serial number (case insensitive) (Applicable to only export_type=devices)',
+    example: 'SN12345',
+  })
+  @IsOptional()
+  @IsString()
+  serialNumber?: string;
+
+  @ApiPropertyOptional({
+    enum: ['not_installed', 'ready_for_installation', 'installed'],
+    description:
+      'Filter by installation status (Applicable to only export_type=devices)',
+  })
+  @IsOptional()
+  @IsEnum(['not_installed', 'ready_for_installation', 'installed'])
+  installationStatus?: string;
 
   @ApiPropertyOptional({
     description:

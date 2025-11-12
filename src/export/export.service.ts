@@ -97,7 +97,21 @@ export class ExportService {
       matchConditions.customerId = { $oid: filters.customerId };
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
-    const countPipeline = [{ $match: matchConditions }, { $count: 'total' }];
+    const countPipeline = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } }, // Only sales with items
+      },
+      { $count: 'total' },
+    ];
 
     const countResult = await this.prisma.sales.aggregateRaw({
       pipeline: countPipeline,
@@ -108,6 +122,17 @@ export class ExportService {
 
     const salesPipeline = [
       { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } }, // Only sales with items
+      },
       {
         $lookup: {
           from: 'customers',
@@ -382,7 +407,21 @@ export class ExportService {
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
     const countResult = await this.prisma.sales.aggregateRaw({
-      pipeline: [{ $match: matchConditions }, { $count: 'total' }],
+      pipeline: [
+        { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'sales_items',
+            localField: '_id',
+            foreignField: 'saleId',
+            as: 'saleItems',
+          },
+        },
+        {
+          $match: { saleItems: { $ne: [] } }, // Only sales with items
+        },
+        { $count: 'total' },
+      ],
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
@@ -391,6 +430,17 @@ export class ExportService {
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: [
         { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'sales_items',
+            localField: '_id',
+            foreignField: 'saleId',
+            as: 'saleItems',
+          },
+        },
+        {
+          $match: { saleItems: { $ne: [] } }, // Only sales with items
+        },
         {
           $lookup: {
             from: 'customers',
@@ -895,7 +945,21 @@ export class ExportService {
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
     const countResult = await this.prisma.sales.aggregateRaw({
-      pipeline: [{ $match: matchConditions }, { $count: 'total' }],
+      pipeline: [
+        { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'sales_items',
+            localField: '_id',
+            foreignField: 'saleId',
+            as: 'saleItems',
+          },
+        },
+        {
+          $match: { saleItems: { $ne: [] } }, // Only sales with items
+        },
+        { $count: 'total' },
+      ],
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
@@ -904,6 +968,17 @@ export class ExportService {
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: [
         { $match: matchConditions },
+        {
+          $lookup: {
+            from: 'sales_items',
+            localField: '_id',
+            foreignField: 'saleId',
+            as: 'saleItems',
+          },
+        },
+        {
+          $match: { saleItems: { $ne: [] } }, // Only sales with items
+        },
         {
           $lookup: {
             from: 'customers',
@@ -1375,6 +1450,14 @@ export class ExportService {
         };
     }
 
+    if (filters.serialNumber)
+      matchConditions.serialNumber = {
+        $regex: filters.serialNumber,
+        $options: 'i',
+      };
+    if (filters.installationStatus)
+      matchConditions.installationStatus = filters.installationStatus;
+
     const countResult = await this.prisma.device.aggregateRaw({
       pipeline: [{ $match: matchConditions }, { $count: 'total' }],
       options: { allowDiskUse: true },
@@ -1397,7 +1480,7 @@ export class ExportService {
       return {
         data: '',
         jsonData: [],
-        totalRecords: 0,
+        totalRecordsCount: 0,
         allRecordsCount,
         currentPage: page,
         totalPages,
@@ -1415,32 +1498,58 @@ export class ExportService {
     const saleIds = [...new Set(saleItems.map((si) => si.saleId))];
     const sales = await this.prisma.sales.findMany({
       where: { id: { in: saleIds } },
-      select: { id: true, customerId: true, agentName: true },
+      select: { id: true, customerId: true, agentId: true, agentName: true },
     });
 
-    const customerIds = [...new Set(sales.map((s) => s.customerId))];
-    const customers = await this.prisma.customer.findMany({
-      where: { id: { in: customerIds } },
-      select: {
-        id: true,
-        firstname: true,
-        lastname: true,
-        phone: true,
-        assignedAgents: {
-          select: {
-            agent: {
-              select: {
-                user: {
-                  select: { firstname: true, lastname: true },
+    let customerIds = [
+      ...new Set(sales.map((s) => s.customerId).filter(Boolean)),
+    ];
+    const agentIds = [...new Set(sales.map((s) => s.agentId).filter(Boolean))];
+
+    if (filters.customerId) {
+      customerIds = customerIds.filter((id) => id === filters.customerId);
+    }
+
+    const customers =
+      customerIds.length > 0
+        ? await this.prisma.customer.findMany({
+            where: { id: { in: customerIds } },
+            select: {
+              id: true,
+              firstname: true,
+              lastname: true,
+              phone: true,
+              assignedAgents: {
+                select: {
+                  agent: {
+                    select: {
+                      user: {
+                        select: { firstname: true, lastname: true },
+                      },
+                    },
+                  },
                 },
               },
             },
-          },
-        },
-      },
-    });
+          })
+        : [];
 
-    // Build maps
+    const agents =
+      agentIds.length > 0
+        ? await this.prisma.agent.findMany({
+            where: { id: { in: agentIds } },
+            select: {
+              id: true,
+              user: {
+                select: {
+                  firstname: true,
+                  lastname: true,
+                },
+              },
+            },
+          })
+        : [];
+
     const deviceToSale = new Map<string, string>();
     saleItems.forEach((si) => {
       si.deviceIDs.forEach((deviceId) => {
@@ -1449,28 +1558,45 @@ export class ExportService {
     });
     const saleMap = new Map(sales.map((s) => [s.id, s]));
     const customerMap = new Map(customers.map((c) => [c.id, c]));
+    const agentMap = new Map(
+      agents.map((a) => [
+        a.id,
+        {
+          firstname: a.user?.firstname || '',
+          lastname: a.user?.lastname || '',
+        },
+      ]),
+    );
 
-    const jsonData = devices.map((device) => {
-      const deviceId = this.extractObjectId(device._id);
-      const saleId = deviceToSale.get(deviceId);
-      const sale = saleMap.get(saleId);
-      const customer = customerMap.get(sale?.customerId);
+    const jsonData = devices
+      .map((device) => {
+        const deviceId = this.extractObjectId(device._id);
+        const saleId = deviceToSale.get(deviceId);
+        const sale = saleMap.get(saleId);
+        const customer = customerMap.get(sale?.customerId);
+        const agent = agentMap.get(sale?.agentId);
 
-      return {
-        serialNumber: device.serialNumber || '',
-        installationStatus: device.installationStatus || '',
-        customerName: customer
-          ? `${customer.firstname} ${customer.lastname}`
-          : '',
-        customerPhone: customer?.phone || '',
-        agentName:
-          sale?.agentName && sale?.agentName?.trim()
-            ? sale?.agentName?.trim()
-            : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
-              '',
-        createdDate: this.formatDate(device.createdAt),
-      };
-    });
+        if (filters.customerId && sale?.customerId !== filters.customerId)
+          return null;
+
+        return {
+          serialNumber: device.serialNumber || '',
+          installationStatus: device.installationStatus || '',
+          customerName: customer
+            ? `${customer.firstname} ${customer.lastname}`
+            : '',
+          customerPhone: customer?.phone || '',
+          agentName:
+            sale?.agentName && sale?.agentName?.trim()
+              ? sale?.agentName?.trim()
+              : agent
+                ? `${agent.firstname} ${agent.lastname}`.trim()
+                : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
+                  '',
+          createdDate: this.formatDate(device.createdAt),
+        };
+      })
+      .filter((item) => item !== null);
 
     const csvData = this.buildCSV(
       [
