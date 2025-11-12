@@ -635,10 +635,14 @@ export class ExportService {
   }
 
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
-    const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
-    const startDate = filters.startDate
-      ? new Date(filters.startDate)
-      : new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const { startDate: rawStartDate, endDate: rawEndDate } = filters;
+
+    // Validate and calculate dates
+    const { startDate, endDate } = this.validateAndCalculateDateRange(
+      rawStartDate,
+      rawEndDate,
+      'WEEKLY',
+    );
 
     return this.generateSummaryReport(startDate, endDate, filters, 'WEEKLY');
   }
@@ -646,10 +650,14 @@ export class ExportService {
   private async exportMonthlySummary(
     filters: ExportDataQueryDto,
   ): Promise<any> {
-    const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
-    const startDate = filters.startDate
-      ? new Date(filters.startDate)
-      : new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    const { startDate: rawStartDate, endDate: rawEndDate } = filters;
+
+    // Validate and calculate dates
+    const { startDate, endDate } = this.validateAndCalculateDateRange(
+      rawStartDate,
+      rawEndDate,
+      'MONTHLY',
+    );
 
     return this.generateSummaryReport(startDate, endDate, filters, 'MONTHLY');
   }
@@ -682,6 +690,9 @@ export class ExportService {
               foreignField: 'saleId',
               as: 'items',
             },
+          },
+          {
+            $match: { items: { $ne: [] } }, // Only sales with items
           },
           { $unwind: { path: '$items', preserveNullAndEmptyArrays: true } },
           {
@@ -1716,5 +1727,87 @@ export class ExportService {
         generatedAt: new Date().toISOString(),
       },
     };
+  }
+
+  private validateAndCalculateDateRange(
+    startDate?: string,
+    endDate?: string,
+    period: 'WEEKLY' | 'MONTHLY' = 'WEEKLY',
+  ): { startDate: Date; endDate: Date } {
+    // If both dates are provided, validate the range
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      const diffMs = end.getTime() - start.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (period === 'WEEKLY') {
+        // For weekly: must be exactly 7 days or less (same week)
+        if (diffDays < 0 || diffDays > 6) {
+          throw new BadRequestException(
+            `Weekly report date range must be within a 7-day period. You provided ${diffDays + 1} days. Example: 2025-01-01 to 2025-01-07`,
+          );
+        }
+        return { startDate: start, endDate: end };
+      } else if (period === 'MONTHLY') {
+        // For monthly: must be within same month or up to 31 days
+        const isNotSameMonthYear =
+          start.getMonth() !== end.getMonth() ||
+          start.getFullYear() !== end.getFullYear();
+
+        if (isNotSameMonthYear) {
+          throw new BadRequestException(
+            `Monthly report date range must be within the same month. Start: ${start.toLocaleDateString()}, End: ${end.toLocaleDateString()}. Example: 2025-01-01 to 2025-01-31`,
+          );
+        }
+        return { startDate: start, endDate: end };
+      }
+    }
+
+    // If only one date is provided, calculate the other
+    if (startDate && !endDate) {
+      const start = new Date(startDate);
+      let end: Date;
+
+      if (period === 'WEEKLY') {
+        // Add 6 days to start date to make a full week
+        end = new Date(start);
+        end.setDate(end.getDate() + 6);
+      } else if (period === 'MONTHLY') {
+        // Get the last day of the month
+        end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+      }
+
+      return { startDate: start, endDate: endDate as any };
+    }
+
+    if (endDate && !startDate) {
+      const end = new Date(endDate);
+      let start: Date;
+
+      if (period === 'WEEKLY') {
+        // Subtract 6 days from end date
+        start = new Date(end);
+        start.setDate(start.getDate() - 6);
+      } else if (period === 'MONTHLY') {
+        // Get the first day of the month
+        start = new Date(end.getFullYear(), end.getMonth(), 1);
+      }
+
+      return { startDate: start, endDate: end };
+    }
+
+    // If neither date provided, use defaults (original behavior)
+    const end = new Date();
+    let start: Date;
+
+    if (period === 'WEEKLY') {
+      start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (period === 'MONTHLY') {
+      start = new Date(end.getFullYear(), end.getMonth(), 1);
+    }
+
+    return { startDate: start, endDate: end };
   }
 }
