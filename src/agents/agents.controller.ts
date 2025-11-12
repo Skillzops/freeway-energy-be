@@ -143,6 +143,41 @@ export class AgentsController {
     return await this.agentsService.create(CreateAgentDto, id);
   }
 
+  @Patch('profile/me')
+  @UseGuards(JwtAuthGuard, AgentAccessGuard)
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiBody({
+    type: UpdateAgentDto,
+    description: 'Agent details to update',
+  })
+  @ApiOkResponse({
+    description: 'Your profile updated successfully',
+  })
+  @ApiBadRequestResponse({})
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update own agent profile',
+    description: 'Agent can update their own profile details',
+  })
+  async updateOwnProfile(
+    @Body() updateAgentDto: UpdateAgentDto,
+    @GetSessionUser('agent') agent: Agent,
+  ): Promise<any> {
+    return await this.agentsService.updateAgentDetails(
+      agent.id,
+      updateAgentDto,
+    );
+  }
+
   @Patch('profile/:id')
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
@@ -181,41 +216,6 @@ export class AgentsController {
     @Body() updateAgentDto: UpdateAgentDto,
   ): Promise<any> {
     return await this.agentsService.updateAgentDetails(agentId, updateAgentDto);
-  }
-
-  @Patch('profile/me')
-  @UseGuards(JwtAuthGuard, AgentAccessGuard)
-  @ApiBearerAuth('access_token')
-  @ApiHeader({
-    name: 'Authorization',
-    description: 'JWT token used for authentication',
-    required: true,
-    schema: {
-      type: 'string',
-      example: 'Bearer <token>',
-    },
-  })
-  @ApiBody({
-    type: UpdateAgentDto,
-    description: 'Agent details to update',
-  })
-  @ApiOkResponse({
-    description: 'Your profile updated successfully',
-  })
-  @ApiBadRequestResponse({})
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Update own agent profile',
-    description: 'Agent can update their own profile details',
-  })
-  async updateOwnProfile(
-    @Body() updateAgentDto: UpdateAgentDto,
-    @GetSessionUser('agent') agent: Agent,
-  ): Promise<any> {
-    return await this.agentsService.updateAgentDetails(
-      agent.id,
-      updateAgentDto,
-    );
   }
 
   // @Get('analyze-missing-installers')

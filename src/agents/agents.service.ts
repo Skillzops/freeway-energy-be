@@ -2522,7 +2522,7 @@ export class AgentsService {
           username,
           email,
           password: hashedPassword,
-          phone: row.phone || null,
+          phone: cleanPhoneNumber(row.phone) || null,
           location: row.location || null,
           roleId: '687a8565e7b4874bfbcd78e6',
           status: UserStatus.active,
@@ -2885,7 +2885,8 @@ SECURITY NOTES:
       this.logger.error(`JSON import error: ${error.message}`);
       throw new BadRequestException(
         `Failed to import from JSON: ${error.message}`,
-      );
+      );import { cleanPhoneNumber } from 'src/utils/helpers.util';
+
     }
   }
 
