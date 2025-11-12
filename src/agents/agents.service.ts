@@ -2885,7 +2885,7 @@ SECURITY NOTES:
       this.logger.error(`JSON import error: ${error.message}`);
       throw new BadRequestException(
         `Failed to import from JSON: ${error.message}`,
-      );import { cleanPhoneNumber } from 'src/utils/helpers.util';
+      );
 
     }
   }
