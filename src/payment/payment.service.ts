@@ -838,7 +838,7 @@ export class PaymentService {
   //   return 'success';
   // }
 
-  async handlePostPayment(paymentData: any) {
+  async handlePostPayment(paymentData: any) {   
     const sale = await this.prisma.sales.findUnique({
       where: { id: paymentData.saleId },
       include: {
@@ -878,9 +878,16 @@ export class PaymentService {
 
     await this.updateDeviceStatusAfterPayment(sale);
 
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: sale.id },
+      include: {
+        devices: true,
+      },
+    }); 
+
     // Process tokenable devices
     const deviceTokens = [];
-    for (const saleItem of sale.saleItems) {
+    for (const saleItem of saleItems) {
       // const saleDevices = saleItem.devices;
       // const tokenableDevices = saleDevices.filter(
       //   (device) => device.isTokenable,
@@ -928,6 +935,7 @@ export class PaymentService {
               token: String(token.finalToken),
               duration: tokenDuration,
               creatorId: sale.creatorId,
+              tokenReleased: true
             },
           });
         }

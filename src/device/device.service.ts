@@ -23,6 +23,7 @@ import {
   Prisma,
   SaleItem,
   Sales,
+  TaskStatus,
   User,
 } from '@prisma/client';
 import { ListDevicesQueryDto } from './dto/list-devices.dto';
@@ -285,15 +286,48 @@ export class DeviceService {
       return { message: 'No devices found for this sale' };
     }
 
-    await this.prisma.device.updateMany({
+    const task = await this.prisma.installerTask.findFirst({
       where: {
-        id: { in: deviceIds },
-        installationStatus: InstallationStatus.not_installed,
-      },
-      data: {
-        installationStatus: InstallationStatus.ready_for_installation,
+        saleId: sale.id,
       },
     });
+
+    if (!task) {
+      const { id } = await this.prisma.agent.findUnique({
+        where: { id: sale.creatorId },
+        select: { id: true },
+      });
+
+      await this.prisma.installerTask.create({
+        data: {
+          status: TaskStatus.PENDING,
+          sale: { connect: { id: sale.id } },
+          customer: { connect: { id: sale.customerId } },
+          requestingAgent: { connect: { id } },
+        },
+      });
+
+      await this.prisma.device.updateMany({
+        where: {
+          id: { in: deviceIds },
+          installationStatus: InstallationStatus.not_installed,
+        },
+        data: {
+          installationStatus: InstallationStatus.ready_for_installation,
+        },
+      });
+    }else{
+      await this.prisma.device.updateMany({
+        where: {
+          id: { in: deviceIds },
+          // installationStatus: { not: InstallationStatus.not_installed },
+        },
+        data: {
+          installationStatus: InstallationStatus.installed,
+          gpsVerified: true
+        },
+      });
+    }
 
     return {
       message: `${deviceIds.length} devices marked as ready for installation`,
@@ -846,11 +880,11 @@ export class DeviceService {
 
         fetchFormat === 'used'
           ? {
-            isUsed: true,
+              isUsed: true,
             }
           : fetchFormat === 'unused'
             ? {
-              isUsed: false,
+                isUsed: false,
               }
             : {},
         hardwareModel
