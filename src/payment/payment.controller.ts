@@ -154,6 +154,15 @@ export class PaymentController {
     }
   }
 
+  @Post('initiate-failed-post-payment')
+  @HttpCode(HttpStatus.OK)
+  async handleFailedPostPayment(
+    @Body() body: any,
+  ) {
+    return await this.paymentService.handlePostPayment(body.paymentData);
+  }
+
+
   // @Post('webhook/ogaranya')
   // @ApiOperation({ summary: 'Ogaranya payment webhook (legacy endpoint)' })
   // @HttpCode(HttpStatus.OK)

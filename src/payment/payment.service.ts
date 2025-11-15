@@ -838,8 +838,8 @@ export class PaymentService {
   //   return 'success';
   // }
 
-  async handlePostPayment(paymentData: any) {   
-    const sale = await this.prisma.sales.findUnique({
+  async handlePostPayment(paymentData: any) {
+    let sale = await this.prisma.sales.findUnique({
       where: { id: paymentData.saleId },
       include: {
         saleItems: {
@@ -850,6 +850,28 @@ export class PaymentService {
           },
         },
         customer: true,
+        creatorDetails: true,
+        installmentAccountDetails: true,
+      },
+    });
+
+    sale = await this.prisma.sales.update({
+      where: { id: sale.id },
+      data: {
+        totalPaid: {
+          increment: paymentData.amount,
+        },
+      },
+      include: {
+        saleItems: {
+          include: {
+            product: true,
+            devices: true,
+            SaleRecipient: true,
+          },
+        },
+        customer: true,
+    creatorDetails: true,
         installmentAccountDetails: true,
       },
     });
@@ -868,9 +890,6 @@ export class PaymentService {
     await this.prisma.sales.update({
       where: { id: sale.id },
       data: {
-        totalPaid: {
-          increment: paymentData.amount,
-        },
         remainingInstallments: installmentInfo.newRemainingDuration,
         status: installmentInfo.newStatus,
       },
@@ -883,7 +902,7 @@ export class PaymentService {
       include: {
         devices: true,
       },
-    }); 
+    });
 
     // Process tokenable devices
     const deviceTokens = [];
@@ -945,7 +964,12 @@ export class PaymentService {
     // Send device tokens via email and SMS
     if (deviceTokens.length) {
       await this.notificationService.sendTokenToRecipient(
-        sale.customer,
+        {
+          email: sale.creatorDetails.email,
+          phone: sale.creatorDetails.phone,
+          firstname: sale.creatorDetails.firstname,
+          lastname: sale.creatorDetails.lastname,
+        },
         deviceTokens,
       );
     }
@@ -1046,7 +1070,8 @@ export class PaymentService {
   }
 
   calculateInstallmentProgress(sale: any, paymentAmount: number) {
-    const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
+    // const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
+    const currentTotalPaid = sale.totalPaid;
     const newTotalPaid = currentTotalPaid + paymentAmount;
     const totalPrice = sale.totalPrice;
     const monthlyPayment = sale.totalMonthlyPayment;
@@ -1058,14 +1083,6 @@ export class PaymentService {
         newStatus: SalesStatus.COMPLETED,
         newRemainingDuration: 0,
         monthsCovered: -1,
-      };
-    }
-
-    if (newTotalPaid >= totalPrice) {
-      return {
-        newStatus: SalesStatus.COMPLETED,
-        newRemainingDuration: 0,
-        monthsCovered: -1, // Forever token
       };
     }
 
