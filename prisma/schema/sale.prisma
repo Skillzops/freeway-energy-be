@@ -56,6 +56,11 @@ model Sales {
   deletedAt DateTime?
 
   @@map("sales")
+  @@index([customerId])
+  @@index([creatorId])
+  @@index([agentId])
+  @@index([createdAt])
+  @@index([status])
 }
 
 model InstallmentAccountDetails {
@@ -121,7 +126,9 @@ model SaleItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+
   @@map("sales_items")
+  @@index([saleId])
 }
 
 model SaleRecipient {

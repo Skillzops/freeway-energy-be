@@ -997,6 +997,7 @@ export class ExportService {
             agentName: 1,
             totalPrice: 1,
             totalPaid: 1,
+            remainingInstallments: 1,
             totalMonthlyPayment: 1,
             totalInstallmentDuration: 1,
             transactionDate: 1,

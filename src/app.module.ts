@@ -51,6 +51,9 @@ import { TokenRestorationModule } from './token-restoration/token-restoration.mo
           // password: configService.get<string>('REDIS_PASSWORD'),
           // username: configService.get<string>('REDIS_USERNAME'),
           url: configService.get<string>('REDIS_URL'),
+          // tls: {
+          //   rejectUnauthorized: false,
+          // },
         },
       }),
     }),

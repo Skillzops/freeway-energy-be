@@ -871,7 +871,7 @@ export class PaymentService {
           },
         },
         customer: true,
-    creatorDetails: true,
+        creatorDetails: true,
         installmentAccountDetails: true,
       },
     });
