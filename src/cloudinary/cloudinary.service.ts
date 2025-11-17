@@ -16,7 +16,7 @@ export class CloudinaryService {
         {
           resource_type: 'auto',
           use_filename: true,
-          public_id: file.fieldname,
+          public_id: `${file.fieldname}-${Date.now()}`,
         },
         (error, result) => {
           if (error) reject(error);
