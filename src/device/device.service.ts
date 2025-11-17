@@ -317,16 +317,18 @@ export class DeviceService {
         },
       });
     }else{
-      await this.prisma.device.updateMany({
-        where: {
-          id: { in: deviceIds },
-          // installationStatus: { not: InstallationStatus.not_installed },
-        },
-        data: {
-          installationStatus: InstallationStatus.installed,
-          gpsVerified: true
-        },
-      });
+      if(task.status === TaskStatus.COMPLETED){
+        await this.prisma.device.updateMany({
+          where: {
+            id: { in: deviceIds },
+            // installationStatus: { not: InstallationStatus.not_installed },
+          },
+          data: {
+            installationStatus: InstallationStatus.installed,
+            gpsVerified: true
+          },
+        });
+      }
     }
 
     return {
