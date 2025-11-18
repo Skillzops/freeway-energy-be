@@ -32,6 +32,9 @@ model InstallerTask {
     updatedAt DateTime @updatedAt
 
     @@map("installer_tasks")
+    @@index([createdAt])
+    @@index([customerId])
+    @@index([requestingAgentId])
 }
 
 enum TaskStatus {

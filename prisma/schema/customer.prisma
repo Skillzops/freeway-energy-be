@@ -58,6 +58,7 @@ model Customer {
   deletedAt DateTime?
 
   @@map("customers")
+  @@index([createdAt])
 }
 
 model RejectionHistory {

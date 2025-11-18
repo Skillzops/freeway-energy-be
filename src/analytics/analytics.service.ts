@@ -127,60 +127,70 @@ export class AnalyticsService {
     const dateFilter = this.buildDateFilter(filters);
     const salesWhere = this.buildSalesWhereFilter(filters);
 
-    const salesData = await this.prisma.sales.findMany({
+    const salesData = await this.prisma.sales.groupBy({
+      by: ['createdAt'],
+      _count: { id: true },
+      _sum: { totalPrice: true },
       where: { ...salesWhere, ...dateFilter },
-      select: {
-        createdAt: true,
-        totalPrice: true,
-        status: true,
-        category: true,
-      },
     });
 
-    // Group by day for the chart
-    const dailyData = salesData.reduce((acc, sale) => {
-      const date = sale.createdAt.toISOString().split('T')[0];
-      if (!acc[date]) {
-        acc[date] = { date, count: 0, value: 0 };
-      }
-      acc[date].count += 1;
-      acc[date].value += sale.totalPrice;
-      return acc;
-    }, {});
+    const dailyData = new Map<
+      string,
+      { date: string; count: number; value: number }
+    >();
 
-    return Object.values(dailyData).sort(
-      (a: any, b: any) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime(),
+    salesData.forEach((sale) => {
+      const date = new Date(sale.createdAt).toISOString().split('T')[0];
+      if (!dailyData.has(date)) {
+        dailyData.set(date, { date, count: 0, value: 0 });
+      }
+      const entry = dailyData.get(date)!;
+      entry.count += sale._count.id;
+      entry.value += sale._sum.totalPrice || 0;
+    });
+
+    return Array.from(dailyData.values()).sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
   }
 
   private async getUserDistribution(filters: AdminDashboardFilterDto) {
-    const [agents, customers, admins] = await Promise.all([
+    const userCounts = await this.prisma.user.groupBy({
+      by: ['roleId'],
+      _count: true,
+      where: filters.userStatus ? { status: filters.userStatus } : {},
+    });
+
+    const [agents, customers] = await Promise.all([
       this.prisma.agent.count({
         where: filters.agentCategory ? { category: filters.agentCategory } : {},
       }),
       this.prisma.customer.count({
         where: filters.userStatus ? { status: filters.userStatus } : {},
       }),
-      this.prisma.user.count({
-        where: {
-          agentDetails: null, // Users who are not agents
-          ...(filters.userStatus && { status: filters.userStatus }),
-        },
-      }),
     ]);
 
+    const admins = userCounts.reduce((sum, u) => sum + u._count, 0) - agents;
+
+    const total = agents + customers + admins;
+
     return [
-      { name: 'Agents', value: agents, percentage: 0 },
-      { name: 'Customers', value: customers, percentage: 0 },
-      { name: 'Admins', value: admins, percentage: 0 },
-    ].map((item) => {
-      const total = agents + customers + admins;
-      return {
-        ...item,
-        percentage: total > 0 ? Math.round((item.value / total) * 100) : 0,
-      };
-    });
+      {
+        name: 'Agents',
+        value: agents,
+        percentage: total > 0 ? Math.round((agents / total) * 100) : 0,
+      },
+      {
+        name: 'Customers',
+        value: customers,
+        percentage: total > 0 ? Math.round((customers / total) * 100) : 0,
+      },
+      {
+        name: 'Admins',
+        value: admins,
+        percentage: total > 0 ? Math.round((admins / total) * 100) : 0,
+      },
+    ];
   }
 
   private async getAgentDistribution(filters: AdminDashboardFilterDto) {
@@ -226,29 +236,29 @@ export class AnalyticsService {
   }
 
   private async getInventoryStatistics(filters: AdminDashboardFilterDto) {
-    const [totalInventory, inStock, outOfStock, discontinued] =
-      await Promise.all([
-        this.prisma.inventory.count(),
-        this.prisma.inventory.count({
-          where: { status: InventoryStatus.IN_STOCK },
-        }),
-        this.prisma.inventory.count({
-          where: { status: InventoryStatus.OUT_OF_STOCK },
-        }),
-        this.prisma.inventory.count({
-          where: { status: InventoryStatus.DISCONTINUED },
-        }),
-      ]);
+    const inventoryStats = await this.prisma.inventory.groupBy({
+      by: ['status'],
+      _count: true,
+    });
+
+    const statsMap = new Map(
+      inventoryStats.map((stat) => [stat.status, stat._count]),
+    );
 
     const lowStockItems = await this.prisma.inventoryBatch.count({
       where: { remainingQuantity: { lt: 10 } },
     });
 
+    const totalInventory = inventoryStats.reduce(
+      (sum, stat) => sum + stat._count,
+      0,
+    );
+
     return {
       total: totalInventory,
-      inStock,
-      outOfStock,
-      discontinued,
+      inStock: statsMap.get(InventoryStatus.IN_STOCK) || 0,
+      outOfStock: statsMap.get(InventoryStatus.OUT_OF_STOCK) || 0,
+      discontinued: statsMap.get(InventoryStatus.DISCONTINUED) || 0,
       lowStockItems,
     };
   }
@@ -295,10 +305,12 @@ export class AnalyticsService {
       take: limit,
     });
 
-    // Get agent details
-    const agentDetails = await this.prisma.user.findMany({
-      where: { id: { in: topAgents.map((agent) => agent.creatorId) } },
-      //   include: { agentDetails: true },
+    if (topAgents.length === 0) return [];
+
+    const userIds = topAgents.map((agent) => agent.creatorId).filter(Boolean);
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
       select: {
         id: true,
         firstname: true,
@@ -310,17 +322,17 @@ export class AnalyticsService {
       },
     });
 
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
     return topAgents.map((agent) => {
-      const details = agentDetails.find(
-        (detail) => detail.id === agent.creatorId,
-      );
+      const user = userMap.get(agent.creatorId);
       return {
-        agentId: details?.agentDetails?.agentId || 'N/A',
-        name:
-          `${details?.firstname || ''} ${details?.lastname || ''}`.trim() ||
-          'Unknown',
-        email: details?.email || 'N/A',
-        category: details?.agentDetails?.category || 'N/A',
+        agentId: user?.agentDetails?.agentId || 'N/A',
+        name: user
+          ? `${user.firstname || ''} ${user.lastname || ''}`.trim()
+          : 'Unknown',
+        email: user?.email || 'N/A',
+        category: user?.agentDetails?.category || 'N/A',
         salesCount: agent._count.id,
         totalRevenue: agent._sum.totalPrice || 0,
       };
@@ -332,55 +344,81 @@ export class AnalyticsService {
     limit = 20,
   ) {
     const dateFilter = this.buildDateFilter(filters);
+    const take = Math.floor(limit / 3);
 
     const [recentSales, recentPayments, recentTasks] = await Promise.all([
       this.prisma.sales.findMany({
-        where: dateFilter,
-        include: {
-          customer: { select: { firstname: true, lastname: true } },
-          creatorDetails: { select: { firstname: true, lastname: true } },
+        where: { ...dateFilter, deletedAt: null },
+        select: {
+          id: true,
+          totalPrice: true,
+          createdAt: true,
+          customer: {
+            select: { firstname: true, lastname: true },
+          },
+          creatorDetails: {
+            select: { firstname: true, lastname: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
-        take: Math.floor(limit / 3),
+        take,
       }),
       this.prisma.payment.findMany({
         where: {
           ...dateFilter,
           paymentStatus: PaymentStatus.COMPLETED,
-          sale: {
-            is: {},
+          deletedAt: null,
+          NOT: {
+            sale: {
+              customer: null,
+            },
           },
         },
-        include: {
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
           sale: {
-            include: {
-              customer: { select: { firstname: true, lastname: true } },
+            select: {
+              customer: {
+                select: { firstname: true, lastname: true },
+              },
             },
           },
         },
         orderBy: { createdAt: 'desc' },
-        take: Math.floor(limit / 3),
+        take,
       }),
       this.prisma.installerTask.findMany({
         where: {
           ...dateFilter,
-          sale: {
-            is: {},
+          NOT: {
+            sale: {
+              customer: null,
+            },
           },
         },
-        include: {
-          //   customer: { select: { firstname: true, lastname: true } },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
           requestingAgent: {
-            include: { user: { select: { firstname: true, lastname: true } } },
+            select: {
+              user: {
+                select: { firstname: true, lastname: true },
+              },
+            },
           },
           sale: {
-            include: {
-              customer: { select: { firstname: true, lastname: true } },
+            select: {
+              customer: {
+                select: { firstname: true, lastname: true },
+              },
             },
           },
         },
         orderBy: { createdAt: 'desc' },
-        take: Math.floor(limit / 3),
+        take,
       }),
     ]);
 
@@ -388,7 +426,7 @@ export class AnalyticsService {
       ...recentSales.map((sale) => ({
         type: 'sale',
         id: sale.id,
-        description: `New sale created for ${sale.customer.firstname} ${sale.customer.lastname}`,
+        description: `New sale created for ${sale.customer?.firstname} ${sale.customer?.lastname}`,
         amount: sale.totalPrice,
         createdAt: sale.createdAt,
         user: sale.creatorDetails
@@ -398,7 +436,7 @@ export class AnalyticsService {
       ...recentPayments.map((payment) => ({
         type: 'payment',
         id: payment.id,
-        description: `Payment completed for ${payment.sale.customer.firstname} ${payment.sale.customer.lastname}`,
+        description: `Payment completed for ${payment.sale?.customer?.firstname} ${payment.sale?.customer?.lastname}`,
         amount: payment.amount,
         createdAt: payment.createdAt,
         user: 'Customer',
@@ -406,7 +444,7 @@ export class AnalyticsService {
       ...recentTasks.map((task) => ({
         type: 'task',
         id: task.id,
-        description: `Installation task ${task.status.toLowerCase()} for ${task.sale.customer.firstname} ${task.sale.customer.lastname}`,
+        description: `Installation task ${task.status?.toLowerCase()} for ${task.sale?.customer?.firstname} ${task.sale?.customer?.lastname}`,
         amount: null,
         createdAt: task.createdAt,
         user: task.requestingAgent?.user
@@ -425,33 +463,42 @@ export class AnalyticsService {
 
   private async getGeographicalData(filters: AdminDashboardFilterDto) {
     const customers = await this.prisma.customer.findMany({
-      where: filters.userStatus ? { status: filters.userStatus } : {},
+      where: {
+        ...this.buildDateFilter(filters),
+        ...(filters.userStatus && { status: filters.userStatus }),
+      },
       select: { state: true, lga: true },
     });
 
-    const stateDistribution = customers.reduce((acc, customer) => {
-      if (customer.state) {
-        acc[customer.state] = (acc[customer.state] || 0) + 1;
-      }
-      return acc;
-    }, {});
+    const stateDistribution = customers.reduce(
+      (acc, customer) => {
+        if (customer.state) {
+          acc[customer.state] = (acc[customer.state] || 0) + 1;
+        }
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
-    const lgaDistribution = customers.reduce((acc, customer) => {
-      if (customer.lga) {
-        acc[customer.lga] = (acc[customer.lga] || 0) + 1;
-      }
-      return acc;
-    }, {});
+    const lgaDistribution = customers.reduce(
+      (acc, customer) => {
+        if (customer.lga) {
+          acc[customer.lga] = (acc[customer.lga] || 0) + 1;
+        }
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     return {
-      states: Object.entries(stateDistribution).map(([state, count]) => ({
-        state,
-        count,
-      })),
-      lgas: Object.entries(lgaDistribution).map(([lga, count]) => ({
-        lga,
-        count,
-      })),
+      states: Object.entries(stateDistribution)
+        .map(([state, count]) => ({ state, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 15), // Limit to top 15
+      lgas: Object.entries(lgaDistribution)
+        .map(([lga, count]) => ({ lga, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 15),
     };
   }
 
@@ -473,6 +520,7 @@ export class AnalyticsService {
         where: {
           createdAt: dateWhere,
           ...this.buildSalesWhereFilter(filters),
+          deletedAt: null,
         },
         select: { createdAt: true, totalPrice: true },
       }),
@@ -480,6 +528,7 @@ export class AnalyticsService {
         where: {
           createdAt: dateWhere,
           paymentStatus: PaymentStatus.COMPLETED,
+          deletedAt: null,
         },
         select: { createdAt: true, amount: true },
       }),
@@ -509,46 +558,59 @@ export class AnalyticsService {
   }
 
   private async getProductCategoriesChart(filters: AdminDashboardFilterDto) {
-    const salesWithItems = await this.prisma.sales.findMany({
-      where: this.buildSalesWhereFilter(filters),
-      include: {
-        saleItems: {
-          include: {
-            product: {
-              include: { category: true },
+    const categoryStats = await this.prisma.saleItem.groupBy({
+      by: ['id'],
+      _sum: { totalPrice: true, quantity: true },
+      where: {
+        sale: this.buildSalesWhereFilter(filters),
+      },
+    });
+
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: {
+        sale: this.buildSalesWhereFilter(filters),
+      },
+      select: {
+        id: true,
+        totalPrice: true,
+        quantity: true,
+        product: {
+          select: {
+            category: {
+              select: { name: true },
             },
           },
         },
       },
     });
 
-    const categoryStats = new Map<string, { count: number; value: number }>();
+    const categoryMap = new Map<string, { count: number; value: number }>();
 
-    salesWithItems.forEach((sale) => {
-      sale.saleItems.forEach((item) => {
-        const categoryName = item.product.category.name;
-        const existing = categoryStats.get(categoryName) || {
-          count: 0,
-          value: 0,
-        };
-        existing.count += item.quantity;
-        existing.value += item.totalPrice;
-        categoryStats.set(categoryName, existing);
-      });
+    saleItems.forEach((item) => {
+      const categoryName = item.product?.category?.name || 'Uncategorized';
+      const existing = categoryMap.get(categoryName) || { count: 0, value: 0 };
+      existing.count += item.quantity || 0;
+      existing.value += item.totalPrice || 0;
+      categoryMap.set(categoryName, existing);
     });
 
-    const totalValue = Array.from(categoryStats.values()).reduce(
+    const totalValue = Array.from(categoryMap.values()).reduce(
       (sum, cat) => sum + cat.value,
       0,
     );
 
-    return Array.from(categoryStats.entries()).map(([name, stats]) => ({
-      name,
-      count: stats.count,
-      value: stats.value,
-      percentage:
-        totalValue > 0 ? ((stats.value / totalValue) * 100).toFixed(2) : '0',
-    }));
+    return Array.from(categoryMap.entries())
+      .map(([name, stats]) => ({
+        name,
+        count: stats.count,
+        value: stats.value,
+        percentage:
+          totalValue > 0
+            ? parseFloat(((stats.value / totalValue) * 100).toFixed(2))
+            : 0,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 15); // Limit to top 15 categories
   }
 
   private buildDateFilter(filters: AdminDashboardFilterDto) {
@@ -564,7 +626,9 @@ export class AnalyticsService {
   private buildSalesWhereFilter(
     filters: AdminDashboardFilterDto,
   ): Prisma.SalesWhereInput {
-    const where: Prisma.SalesWhereInput = {};
+    const where: Prisma.SalesWhereInput = {
+      saleItems:  { some: {}}
+    };
 
     if (filters.status) {
       where.status = filters.status;

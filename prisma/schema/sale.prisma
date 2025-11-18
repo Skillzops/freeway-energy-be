@@ -129,6 +129,7 @@ model SaleItem {
 
   @@map("sales_items")
   @@index([saleId])
+  @@index([productId])
 }
 
 model SaleRecipient {

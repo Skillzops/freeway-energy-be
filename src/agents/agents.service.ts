@@ -1633,7 +1633,12 @@ export class AgentsService {
 
     const [tasks, total] = await Promise.all([
       this.prisma.installerTask.findMany({
-        where: finalWhereConditions,
+        where: {...finalWhereConditions,  NOT: {
+          // sale: null,
+          sale: {
+            customer: null,
+          },
+        },},
         skip,
         take,
         orderBy,
