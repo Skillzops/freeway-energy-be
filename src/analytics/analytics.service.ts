@@ -520,7 +520,6 @@ export class AnalyticsService {
         where: {
           createdAt: dateWhere,
           ...this.buildSalesWhereFilter(filters),
-          deletedAt: null,
         },
         select: { createdAt: true, totalPrice: true },
       }),
@@ -528,7 +527,6 @@ export class AnalyticsService {
         where: {
           createdAt: dateWhere,
           paymentStatus: PaymentStatus.COMPLETED,
-          deletedAt: null,
         },
         select: { createdAt: true, amount: true },
       }),
@@ -627,7 +625,7 @@ export class AnalyticsService {
     filters: AdminDashboardFilterDto,
   ): Prisma.SalesWhereInput {
     const where: Prisma.SalesWhereInput = {
-      saleItems:  { some: {}}
+      saleItems: { some: {} },
     };
 
     if (filters.status) {
