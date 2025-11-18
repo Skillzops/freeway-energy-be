@@ -1072,7 +1072,8 @@ export class PaymentService {
   calculateInstallmentProgress(sale: any, paymentAmount: number) {
     // const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
     const currentTotalPaid = sale.totalPaid;
-    const newTotalPaid = currentTotalPaid + paymentAmount;
+    // const newTotalPaid = currentTotalPaid + paymentAmount;
+    const newTotalPaid = currentTotalPaid;
     const totalPrice = sale.totalPrice;
     const monthlyPayment = sale.totalMonthlyPayment;
     const currentRemainingDuration = sale.remainingInstallments || 0;
@@ -1083,6 +1084,19 @@ export class PaymentService {
         newStatus: SalesStatus.COMPLETED,
         newRemainingDuration: 0,
         monthsCovered: -1,
+      };
+    }
+
+    if (
+      sale.installmentStartingPrice > 0 &&
+      sale.totalPaid === sale.installmentStartingPrice &&
+      sale.totalPaid > 0 &&
+      currentRemainingDuration === originalDuration 
+    ) {
+      return {
+        newStatus: SalesStatus.IN_INSTALLMENT,
+        newRemainingDuration: originalDuration - 1, 
+        monthsCovered: 1, 
       };
     }
 
