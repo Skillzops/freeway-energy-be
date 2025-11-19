@@ -7,8 +7,8 @@ model InstallerTask {
     requestingAgentId String? @db.ObjectId
     requestingAgent   Agent?  @relation("AssignedTasks", fields: [requestingAgentId], references: [id])
 
-    saleId String @db.ObjectId
-    sale   Sales  @relation(fields: [saleId], references: [id])
+    saleId String? @db.ObjectId
+    sale   Sales?  @relation(fields: [saleId], references: [id])
 
     customerId String   @db.ObjectId
     customer   Customer @relation(fields: [customerId], references: [id])

@@ -272,6 +272,9 @@ export class InstallerService {
       where: {
         installerAgentId: agentId,
         status: TaskStatus.COMPLETED,
+        NOT: {
+          sale: null
+        }
       },
       include: {
         sale: {
