@@ -20,6 +20,7 @@ import {
   ListRejectedCustomersDto,
   ResubmitCustomerDto,
 } from './dto/customer-approval.dto';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class CustomersService {
@@ -340,9 +341,16 @@ export class CustomersService {
   }
 
   async getCustomer(id: string, agent?: string) {
+    if (!ObjectId.isValid(id)) {
+      throw new BadRequestException(`Invalid customer  ID: ${id}`);
+    }
+    
     let creatorId;
 
     if (agent) {
+      if (!ObjectId.isValid(agent)) {
+        throw new BadRequestException(`Invalid agent  ID: ${agent}`);
+      }
       const agentUserId = await this.prisma.agent.findUnique({
         where: { id: agent },
         select: { userId: true },
