@@ -23,6 +23,7 @@ import {
   Prisma,
   SaleItem,
   Sales,
+  SalesStatus,
   TaskStatus,
   User,
 } from '@prisma/client';
@@ -316,8 +317,8 @@ export class DeviceService {
           installationStatus: InstallationStatus.ready_for_installation,
         },
       });
-    }else{
-      if(task.status === TaskStatus.COMPLETED){
+    } else {
+      if (task.status === TaskStatus.COMPLETED) {
         await this.prisma.device.updateMany({
           where: {
             id: { in: deviceIds },
@@ -325,7 +326,7 @@ export class DeviceService {
           },
           data: {
             installationStatus: InstallationStatus.installed,
-            gpsVerified: true
+            gpsVerified: true,
           },
         });
       }
@@ -1023,8 +1024,12 @@ export class DeviceService {
       if (paymentMode === PaymentMode.ONE_OFF) {
         tokenDuration = -1;
       } else {
-        const monthsCovered = this.calculateMonthsCoveredBySale(sale);
-        tokenDuration = monthsCovered === -1 ? -1 : monthsCovered * 30;
+        const installmentInfo =
+          this.calculateInstallmentProgress(sale, 0);
+        tokenDuration =
+          installmentInfo.monthsCovered == -1
+            ? installmentInfo.monthsCovered
+            : installmentInfo.monthsCovered * 30;
       }
 
       const tokenResult = await this.openPayGo.generateToken(
@@ -1063,13 +1068,84 @@ export class DeviceService {
     }
   }
 
-  private calculateMonthsCoveredBySale(sale: any): number {
-    if (sale.totalMonthlyPayment === 0) {
-      return -1; // Forever for outright purchases
+  calculateInstallmentProgress(sale: any, paymentAmount: number) {
+    // const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
+    const currentTotalPaid = sale.totalPaid;
+    // const newTotalPaid = currentTotalPaid + paymentAmount;
+    const newTotalPaid = currentTotalPaid;
+    const totalPrice = sale.totalPrice;
+    const monthlyPayment = sale.totalMonthlyPayment;
+    const currentRemainingDuration = sale.remainingInstallments || 0;
+    const originalDuration = sale.totalInstallmentDuration || 0;
+
+    if (sale.totalMonthlyPayment === 0 && paymentAmount >= totalPrice) {
+      return {
+        newStatus: SalesStatus.COMPLETED,
+        newRemainingDuration: 0,
+        monthsCovered: -1,
+      };
     }
 
-    const totalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
-    return Math.floor(totalPaid / sale.totalMonthlyPayment);
+    if (
+      sale.installmentStartingPrice > 0 &&
+      sale.totalPaid === sale.installmentStartingPrice &&
+      sale.totalPaid > 0 &&
+      currentRemainingDuration === originalDuration 
+    ) {
+      return {
+        newStatus: SalesStatus.IN_INSTALLMENT,
+        newRemainingDuration: originalDuration - 1, 
+        monthsCovered: 1, 
+      };
+    }
+
+    if (newTotalPaid >= totalPrice) {
+      return {
+        newStatus: SalesStatus.COMPLETED,
+        newRemainingDuration: 0,
+        monthsCovered: -1, // Forever token
+      };
+    }
+
+    if (monthlyPayment <= 0) {
+      return {
+        newStatus:
+          newTotalPaid >= totalPrice
+            ? SalesStatus.COMPLETED
+            : SalesStatus.UNPAID,
+        newRemainingDuration: currentRemainingDuration,
+        monthsCovered: 0,
+      };
+    }
+
+    const totalMonthsCoveredByAllPayments = Math.floor(
+      newTotalPaid / monthlyPayment,
+    );
+    const previousMonthsCovered = Math.floor(currentTotalPaid / monthlyPayment);
+
+    const monthsCoveredByThisPayment =
+      totalMonthsCoveredByAllPayments - previousMonthsCovered;
+
+    let newRemainingDuration = Math.max(
+      0,
+      originalDuration - totalMonthsCoveredByAllPayments,
+    );
+
+    const remainingBalance = totalPrice - newTotalPaid;
+    if (remainingBalance <= monthlyPayment && remainingBalance > 0) {
+      newRemainingDuration = Math.min(newRemainingDuration, 1);
+    }
+
+    const newStatus =
+      newRemainingDuration === 0
+        ? SalesStatus.COMPLETED
+        : SalesStatus.IN_INSTALLMENT;
+
+    return {
+      newStatus,
+      newRemainingDuration,
+      monthsCovered: monthsCoveredByThisPayment,
+    };
   }
 
   async validateDeviceExistsAndReturn(

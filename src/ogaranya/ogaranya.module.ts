@@ -6,10 +6,11 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentModule } from '../payment/payment.module';
 import { OpenPayGoService } from 'src/openpaygo/openpaygo.service';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
   controllers: [OgaranyaController],
-  imports: [forwardRef(() => PaymentModule)],
+  imports: [forwardRef(() => PaymentModule), DeviceModule],
   providers: [
     OgaranyaService,
     PrismaService,

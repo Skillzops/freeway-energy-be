@@ -33,6 +33,7 @@ import {
   WalletTopUpDto,
 } from './dto/initialize-wallet-topup.dto';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
+import { DeviceService } from 'src/device/device.service';
 
 @Injectable()
 export class OgaranyaService {
@@ -47,6 +48,7 @@ export class OgaranyaService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly openPayGo: OpenPayGoService,
+    private readonly deviceService: DeviceService, 
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
     private readonly referenceGenerator: ReferenceGeneratorService,
@@ -616,7 +618,7 @@ export class OgaranyaService {
     });
 
     // Calculate installment progress using same logic as payment service
-    const installmentInfo = this.paymentService.calculateInstallmentProgress(
+    const installmentInfo = this.deviceService.calculateInstallmentProgress(
       sale,
       amount,
     );
