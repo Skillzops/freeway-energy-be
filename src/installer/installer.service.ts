@@ -148,7 +148,7 @@ export class InstallerService {
     return this.prisma.installerTask.findMany({
       where: {
         installerAgentId,
-        status: { in: [TaskStatus.COMPLETED, TaskStatus.REJECTED] },
+        // status: { in: [TaskStatus.COMPLETED, TaskStatus.REJECTED] },
       },
       include: {
         sale: {
@@ -258,7 +258,7 @@ export class InstallerService {
       results.push(updatedDevice);
     }
 
-    await this.completeTask(taskId, agent.id);
+    // await this.completeTask(taskId, agent.id);
 
     return {
       message: 'Installation location updated and task completed',
@@ -267,14 +267,26 @@ export class InstallerService {
     };
   }
 
+  // async revertTasksAccepted() {
+  //   return await this.prisma.installerTask.updateMany({
+  //     where: {
+  //       status: TaskStatus.ACCEPTED,
+  //     },
+  //     data: {
+  //       status: TaskStatus.PENDING,
+  //     }
+  //   });
+  //   // return true;
+  // }
+
   private async getInstallationStatistics(agentId: string) {
     const completedTasks = await this.prisma.installerTask.findMany({
       where: {
         installerAgentId: agentId,
         status: TaskStatus.COMPLETED,
         NOT: {
-          sale: null
-        }
+          sale: null,
+        },
       },
       include: {
         sale: {

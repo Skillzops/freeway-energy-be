@@ -5,7 +5,6 @@ import {
   Body,
   Param,
   UseGuards,
-  Query,
   ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
@@ -129,4 +128,11 @@ export class InstallerController {
       locationData,
     );
   }
+
+    // @Get('revert-tasks-accepted')
+    // async revertTasksAccepted(
+    // ) {
+    //   return await this.installerTaskService.revertTasksAccepted();
+    // }
+  
 }

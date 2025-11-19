@@ -19,6 +19,7 @@ import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
+import { DeviceService } from 'src/device/device.service';
 
 @ApiTags('Payment')
 @Controller('payment')
@@ -27,6 +28,7 @@ export class PaymentController {
     private readonly paymentService: PaymentService,
     private readonly flutterwaveService: FlutterwaveService,
     private readonly ogaranyaService: OgaranyaService,
+    private readonly deviceService: DeviceService,
     private readonly config: ConfigService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
@@ -160,6 +162,14 @@ export class PaymentController {
     @Body() body: any,
   ) {
     return await this.paymentService.handlePostPayment(body.paymentData);
+  }
+
+  @Post('initiate-failed-device-token-generation')
+  @HttpCode(HttpStatus.OK)
+  async handleFailedDeviceTokenGeneration(
+    @Body() body: any,
+  ) {
+    return await this.deviceService.handleFailedDeviceTokenGeneration(body.serialNumber, body.saleId);
   }
 
 

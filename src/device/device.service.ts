@@ -262,6 +262,60 @@ export class DeviceService {
     }
   }
 
+  async handleFailedDeviceTokenGeneration(serialNumber: string, saleId: string) {
+    const device = await this.prisma.device.findFirst({
+      where: {
+        serialNumber,
+        saleItems: {
+          some: {
+            saleId
+          }
+        }
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                creatorDetails: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!device) {
+      throw new BadRequestException('Device not found');
+    }
+    const tokensToSend = [];
+
+    if (device.isTokenable) {
+      for (const saleItem of device.saleItems) {
+        const sale = saleItem.sale;
+
+        const tokenData = await this.generateAndSendTokensForDevice(
+          device,
+          sale,
+          saleItem.paymentMode,
+        );
+        if (tokenData) tokensToSend.push(tokenData);
+      }
+
+      if (tokensToSend.length > 0) {
+        await this.notificationService.sendTokenToRecipient(
+          {
+            email: device.saleItems[0].sale.creatorDetails.email,
+            phone: device.saleItems[0].sale.creatorDetails.phone,
+            firstname: device.saleItems[0].sale.creatorDetails.firstname,
+            lastname: device.saleItems[0].sale.creatorDetails.lastname,
+          },
+          tokensToSend,
+        );
+      }
+    }
+  }
+
   async markDevicesReadyForInstallation(saleId: string) {
     const sale = await this.prisma.sales.findUnique({
       where: { id: saleId },
@@ -1024,8 +1078,8 @@ export class DeviceService {
       if (paymentMode === PaymentMode.ONE_OFF) {
         tokenDuration = -1;
       } else {
-        const installmentInfo =
-          this.calculateInstallmentProgress(sale, 0);
+        const installmentInfo = this.calculateInstallmentProgress(sale, 0);
+
         tokenDuration =
           installmentInfo.monthsCovered == -1
             ? installmentInfo.monthsCovered
@@ -1090,13 +1144,14 @@ export class DeviceService {
     if (
       sale.installmentStartingPrice > 0 &&
       sale.totalPaid === sale.installmentStartingPrice &&
-      sale.totalPaid > 0 &&
-      currentRemainingDuration === originalDuration 
+      sale.totalPaid > 0
+      // &&
+      // currentRemainingDuration === originalDuration
     ) {
       return {
         newStatus: SalesStatus.IN_INSTALLMENT,
-        newRemainingDuration: originalDuration - 1, 
-        monthsCovered: 1, 
+        newRemainingDuration: currentRemainingDuration - 1,
+        monthsCovered: 1,
       };
     }
 
