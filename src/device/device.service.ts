@@ -31,6 +31,8 @@ import { ListDevicesQueryDto } from './dto/list-devices.dto';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AuthService } from 'src/auth/auth.service';
 import { NotificationService } from 'src/notification/notification.service';
 
@@ -262,15 +264,18 @@ export class DeviceService {
     }
   }
 
-  async handleFailedDeviceTokenGeneration(serialNumber: string, saleId: string) {
+  async handleFailedDeviceTokenGeneration(
+    serialNumber: string,
+    saleId: string,
+  ) {
     const device = await this.prisma.device.findFirst({
       where: {
         serialNumber,
         saleItems: {
           some: {
-            saleId
-          }
-        }
+            saleId,
+          },
+        },
       },
       include: {
         saleItems: {
@@ -314,6 +319,79 @@ export class DeviceService {
         );
       }
     }
+  }
+
+  async findZeroTokenDevices() {
+    const latestTokens = await this.prisma.tokens.groupBy({
+      by: ['deviceId'],
+      _max: {
+        createdAt: true,
+      },
+    });
+
+    // Step 2: Fetch tokens that match the latest timestamp
+    const lastTokenRecords = await this.prisma.tokens.findMany({
+      where: {
+        OR: latestTokens.map((t) => ({
+          deviceId: t.deviceId,
+          createdAt: t._max.createdAt,
+        })),
+      },
+      include: {
+        device: true,
+      },
+    });
+
+    // Step 3: Filter only those with duration = 0
+    const zeroDurationDeviceIds = lastTokenRecords
+      .filter((t) => t.duration === 0)
+      .map((t) => t.deviceId);
+
+    if (zeroDurationDeviceIds.length === 0) return [];
+
+    // Step 4: Fetch the actual devices with relationships
+    const devices = await this.prisma.device.findMany({
+      where: {
+        id: { in: zeroDurationDeviceIds },
+        NOT: {
+          saleItems: {
+            some: {
+              sale: null,
+            },
+          },
+        },
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                creatorDetails: true,
+              },
+            },
+          },
+        },
+        _count: true,
+      },
+    });
+
+    // return devices;
+    console.log({ val: devices.length });
+    const filePath = path.join(process.cwd(), 'zero-token-devices.json');
+
+    fs.writeFileSync(filePath, JSON.stringify(devices, null, 2), 'utf8');
+
+    return devices;
+  }
+
+  async findSalesWithWrongTotals() {
+    const sales = await this.prisma.sales.findMany({
+      where: {
+        totalPrice: 0,
+      },
+    });
+
+    return sales;
   }
 
   async markDevicesReadyForInstallation(saleId: string) {
@@ -1105,7 +1183,7 @@ export class DeviceService {
           token: String(tokenResult.finalToken),
           duration: tokenDuration,
           creatorId: sale.creatorId,
-          tokenReleased: true
+          tokenReleased: true,
         },
       });
 

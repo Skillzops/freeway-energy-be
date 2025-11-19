@@ -156,6 +156,8 @@ export class PaymentController {
     }
   }
 
+
+  //Hot-fix endpoints
   @Post('initiate-failed-post-payment')
   @HttpCode(HttpStatus.OK)
   async handleFailedPostPayment(
@@ -170,6 +172,20 @@ export class PaymentController {
     @Body() body: any,
   ) {
     return await this.deviceService.handleFailedDeviceTokenGeneration(body.serialNumber, body.saleId);
+  }
+
+  @Get('find-zero-token-devices')
+  @HttpCode(HttpStatus.OK)
+  async findZeroTokenDevices(
+  ) {
+    return await this.deviceService.findZeroTokenDevices();
+  }
+
+  @Get('find-sales-with-wrong-totals')
+  @HttpCode(HttpStatus.OK)
+  async findSalesWithWrongTotals(
+  ) {
+    return await this.deviceService.findSalesWithWrongTotals();
   }
 
 

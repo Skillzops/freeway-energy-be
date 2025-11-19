@@ -52,37 +52,62 @@ export class ContractService {
     const { page = 1, limit = 100 } = query;
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
-    const take = limitNumber;
 
-    const totalCount = await this.prisma.contract.count({
+    const totalCount = await this.prisma.sales.count({
       where: {
-        sale: {
-          some: {},
-        },
+        contractId: { not: null },
+        customerId: { not: null },
+        saleItems: { some: {} },
       },
     });
 
+    const sales = await this.prisma.sales.findMany({
+      where: {
+        contractId: { not: null },
+        customerId: { not: null },
+        saleItems: { some: {} }
+      },
+      select: {
+        contractId: true,
+      },
+      skip,
+      take: limitNumber,
+      distinct: ['contractId'],
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const contractIds = sales.map((s) => s.contractId).filter(Boolean);
+
+    if (contractIds.length === 0) {
+      return {
+        contracts: [],
+        total: 0,
+        page,
+        limit,
+        totalPages: 0,
+      };
+    }
+
     const contracts = await this.prisma.contract.findMany({
       where: {
-        sale: {
-          some: {},
-        },
+        id: { in: contractIds },
       },
       include: {
         sale: {
+          where: {
+            customerId: { not: null },
+          },
           include: {
             customer: true,
             saleItems: {
               include: {
                 product: {
-                  include: {
-                    inventories: {
-                      include: {
-                        inventory: true,
-                      },
-                    },
+                  select: {
+                    name: true,
+                    description: true,
+                    image: true,
+                    currency: true,
                   },
                 },
               },
@@ -90,8 +115,6 @@ export class ContractService {
           },
         },
       },
-      skip,
-      take,
     });
 
     return {
