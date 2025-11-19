@@ -103,8 +103,8 @@ model SaleItem {
 
   quantity Int
 
-  saleId String @db.ObjectId
-  sale   Sales  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  saleId String? @db.ObjectId
+  sale   Sales?  @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   discount   Float?
   totalPrice Float

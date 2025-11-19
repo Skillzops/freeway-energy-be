@@ -391,9 +391,7 @@ export class SalesService {
           where: {
             ...baseWhere,
             NOT: {
-              sale: {
-                customer: null,
-              },
+              sale: null,
             },
           },
           include: {
