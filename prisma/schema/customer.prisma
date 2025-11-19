@@ -59,6 +59,9 @@ model Customer {
 
   @@map("customers")
   @@index([createdAt])
+  @@index([status])
+  @@index([state])
+  @@index([lga])
 }
 
 model RejectionHistory {

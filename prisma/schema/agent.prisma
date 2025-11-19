@@ -29,6 +29,7 @@ model Agent {
   deletedAt DateTime?
 
   @@map("agents")
+  @@index([category])
 }
 
 model AgentInstallerAssignment {

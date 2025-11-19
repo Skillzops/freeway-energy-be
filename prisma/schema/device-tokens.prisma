@@ -33,6 +33,7 @@ model Device {
   updatedAt DateTime @updatedAt
 
   @@map("devices")
+  @@index([createdAt])
 }
 
 model Tokens {

@@ -35,6 +35,8 @@ model Payment {
   @@index([paymentStatus])
   @@index([deletedAt])
   @@index([saleId])
+  @@index([createdAt])
+  @@index([paymentStatus, createdAt])
   @@map("payments")
 }
 

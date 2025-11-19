@@ -29,6 +29,7 @@ model Inventory {
   deletedAt DateTime?
 
   @@map("inventories")
+  @@index([status])
 }
 
 model InventoryBatch {
@@ -54,6 +55,7 @@ model InventoryBatch {
   salesBatchAlocation BatchAlocation[]
 
   @@map("inventory_batches")
+  @@index([remainingQuantity])
 }
 
 enum InventoryStatus {

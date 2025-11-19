@@ -56,11 +56,15 @@ model Sales {
   deletedAt DateTime?
 
   @@map("sales")
-  @@index([customerId])
   @@index([creatorId])
+  @@index([customerId])
+  @@index([contractId])
   @@index([agentId])
   @@index([createdAt])
   @@index([status])
+  @@index([createdAt, status]) 
+  @@index([creatorId, createdAt]) 
+  @@index([customerId, createdAt])
 }
 
 model InstallmentAccountDetails {
