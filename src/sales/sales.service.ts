@@ -377,9 +377,25 @@ export class SalesService {
     // If no search, use simple query
     if (!searchTerm) {
       const [totalCount, saleItems, total] = await Promise.all([
-        this.prisma.saleItem.count({ where: baseWhere }),
+        this.prisma.saleItem.count({
+          where: {
+            ...baseWhere,
+            NOT: {
+              sale: {
+                customer: null,
+              },
+            },
+          },
+        }),
         this.prisma.saleItem.findMany({
-          where: baseWhere,
+          where: {
+            ...baseWhere,
+            NOT: {
+              sale: {
+                customer: null,
+              },
+            },
+          },
           include: {
             sale: {
               include: {
@@ -397,8 +413,8 @@ export class SalesService {
             },
             devices: {
               include: {
-                tokens: true
-              }
+                tokens: true,
+              },
             },
             SaleRecipient: true,
             product: true,
@@ -408,7 +424,12 @@ export class SalesService {
           take,
         }),
         this.prisma.saleItem.count({
-          where: { ...(agent ? { sale: { creatorId: agent } } : {}) },
+          where: {
+            ...(agent ? { sale: { creatorId: agent } } : {}),
+            NOT: {
+              sale: null,
+            },
+          },
         }),
       ]);
 

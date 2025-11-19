@@ -1051,6 +1051,7 @@ export class DeviceService {
           token: String(tokenResult.finalToken),
           duration: tokenDuration,
           creatorId: sale.creatorId,
+          tokenReleased: true
         },
       });
 
