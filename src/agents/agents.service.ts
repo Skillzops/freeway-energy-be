@@ -2072,7 +2072,7 @@ export class AgentsService {
 
   private async getSalesStatistics(userId: string, where: any) {
     const sales = await this.prisma.sales.findMany({
-      where: { ...where, creatorId: userId },
+      where: { ...where, saleItems: { some: {} }, creatorId: userId },
       include: { saleItems: true },
     });
 

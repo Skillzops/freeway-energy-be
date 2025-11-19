@@ -73,14 +73,16 @@ export class AnalyticsService {
       pendingTasks,
       activeInventoryItems,
     ] = await Promise.all([
-      this.prisma.payment.aggregate({
-        _sum: { amount: true },
+      this.prisma.sales.aggregate({
+        _sum: { totalPrice: true },
         where: {
-          paymentStatus: PaymentStatus.COMPLETED,
+          // paymentStatus: PaymentStatus.COMPLETED,
+          // ...(filters.paymentStatus && {
+          //   paymentStatus: filters.paymentStatus,
+          // }),
+          // sale: { ...salesWhere } 
+          ...salesWhere,
           ...dateFilter,
-          ...(filters.paymentStatus && {
-            paymentStatus: filters.paymentStatus,
-          }),
         },
       }),
       this.prisma.sales.count({ where: salesWhere }),
@@ -112,7 +114,7 @@ export class AnalyticsService {
     ]);
 
     return {
-      totalRevenue: totalRevenue._sum.amount || 0,
+      totalRevenue: totalRevenue._sum.totalPrice || 0,
       totalSales,
       totalAgents,
       totalCustomers,
@@ -292,6 +294,7 @@ export class AnalyticsService {
     limit = 10,
   ) {
     const dateFilter = this.buildDateFilter(filters);
+    const salesWhere = this.buildSalesWhereFilter(filters);
 
     const topAgents = await this.prisma.sales.groupBy({
       by: ['creatorId'],
@@ -299,6 +302,7 @@ export class AnalyticsService {
       _sum: { totalPrice: true },
       where: {
         ...dateFilter,
+        ...salesWhere,
         creatorId: { not: null },
       },
       orderBy: { _sum: { totalPrice: 'desc' } },
