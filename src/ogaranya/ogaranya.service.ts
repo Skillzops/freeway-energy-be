@@ -964,6 +964,7 @@ export class OgaranyaService {
             phone: { equals: phone, mode: 'insensitive' },
           },
         }),
+        category: AgentCategory.SALES,
       },
       include: {
         user: {
