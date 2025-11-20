@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import ft from 'node-fetch';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AgentCategory,
   PaymentGateway,
   PaymentMethod,
   PaymentMode,
@@ -1027,6 +1028,7 @@ export class OgaranyaService {
             ? [{ userId: agentIdentifier }]
             : []),
         ],
+        category: AgentCategory.SALES,
         deletedAt: { isSet: false },
       },
       include: {
