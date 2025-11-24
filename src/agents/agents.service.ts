@@ -26,7 +26,7 @@ import {
 } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { UserEntity } from '../users/entity/user.entity';
-import { v4 as uuidv4 } from 'uuid';
+import { TermiiService } from 'src/termii/termii.service';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../mailer/email.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
@@ -120,10 +120,19 @@ export class AgentsService {
     private prisma: PrismaService,
     private readonly Email: EmailService,
     private readonly config: ConfigService,
+    private readonly termiiService: TermiiService,
   ) {}
 
   async create(createAgentDto: CreateAgentDto, userId) {
-    const { email, location, phone, category, ...otherData } = createAgentDto;
+    const { email: emailFromDto, location, phone, category, ...otherData } = createAgentDto;
+
+    let email = emailFromDto;
+    if (!email) {
+      email = await this.generateUniqueEmail(
+        createAgentDto.firstname,
+        createAgentDto.lastname
+      );
+    }
 
     const agentId = this.generateAgentNumber();
 
@@ -152,33 +161,46 @@ export class AgentsService {
       throw new ConflictException('Agent with the agent ID already exists');
     }
 
-    const password = generateRandomPassword(30);
+    const password = generateRandomPassword(10);
     const hashedPassword = await hashPassword(password);
 
     let defaultRole = await this.prisma.role.findFirst({
       where: {
         role: 'AssignedAgent',
-        permissions: {
-          some: {
-            subject: SubjectEnum.Assignments,
-            action: ActionEnum.manage,
-          },
-        },
+      },
+      include: {
+        permissions: true,
       },
     });
 
+
     if (!defaultRole) {
-      defaultRole = await this.prisma.role.create({
-        data: {
-          role: 'AssignedAgent',
-          permissions: {
-            create: {
-              subject: SubjectEnum.Assignments,
-              action: ActionEnum.manage,
+      try {
+        defaultRole = await this.prisma.role.create({
+          data: {
+            role: 'AssignedAgent',
+            permissions: {
+              create: {
+                subject: SubjectEnum.Assignments,
+                action: ActionEnum.manage,
+              },
             },
           },
-        },
-      });
+          include: {
+            permissions: true,
+          },
+        });
+      } catch (error) {
+        // If role already exists (race condition), fetch it
+        if (error.code === 'P2002') {
+          defaultRole = await this.prisma.role.findFirst({
+            where: { role: 'AssignedAgent' },
+            include: { permissions: true },
+          });
+        } else {
+          throw error;
+        }
+      }
     }
 
     const newUser = await this.prisma.user.create({
@@ -200,40 +222,59 @@ export class AgentsService {
       },
     });
 
-    if (category != AgentCategory.BUSINESS) {
-      const resetToken = uuidv4();
-      const expirationTime = new Date();
-      expirationTime.setHours(expirationTime.getFullYear() + 1);
 
-      const token = await this.prisma.tempToken.create({
-        data: {
-          token: resetToken,
-          expiresAt: expirationTime,
-          token_type: TokenType.email_verification,
-          userId: newUser.id,
-        },
-      });
-
-      const platformName = 'A4T Energy';
-      const clientUrl = this.config.get<string>('CLIENT_URL');
-
-      const createPasswordUrl = `${clientUrl}create-password/${newUser.id}/${token.token}/`;
-
-      await this.Email.sendMail({
-        userId: newUser.id,
-        to: email,
-        from: this.config.get<string>('MAIL_FROM'),
-        subject: `Welcome to ${platformName} Agent Platform - Let's Get You Started!`,
-        template: './new-user-onboarding',
-        context: {
-          firstname: `Agent ${newUser.firstname}`,
-          userEmail: email,
-          platformName,
-          createPasswordUrl,
-          supportEmail: this.config.get<string>('MAIL_FROM') || 'a4t@gmail.com',
-        },
-      });
+    if (newUser.phone) {
+      try{
+        await this.termiiService.sendSms({
+          to: newUser.phone,
+          message: await this.termiiService.formatAgentCredentialsMessage(
+            newUser.firstname,
+            email,
+            password,
+            category
+          ),
+          type: 'plain',
+          channel: 'generic',
+        });
+      }catch (error){
+        console.log({error})
+      }
     }
+
+    // if (category != AgentCategory.BUSINESS) {
+    //   const resetToken = uuidv4();
+    //   const expirationTime = new Date();
+    //   expirationTime.setHours(expirationTime.getFullYear() + 1);
+
+    //   const token = await this.prisma.tempToken.create({
+    //     data: {
+    //       token: resetToken,
+    //       expiresAt: expirationTime,
+    //       token_type: TokenType.email_verification,
+    //       userId: newUser.id,
+    //     },
+    //   });
+
+    //   const platformName = 'A4T Energy';
+    //   const clientUrl = this.config.get<string>('CLIENT_URL');
+
+    //   const createPasswordUrl = `${clientUrl}create-password/${newUser.id}/${token.token}/`;
+
+    //   await this.Email.sendMail({
+    //     userId: newUser.id,
+    //     to: email,
+    //     from: this.config.get<string>('MAIL_FROM'),
+    //     subject: `Welcome to ${platformName} Agent Platform - Let's Get You Started!`,
+    //     template: './new-user-onboarding',
+    //     context: {
+    //       firstname: `Agent ${newUser.firstname}`,
+    //       userEmail: email,
+    //       platformName,
+    //       createPasswordUrl,
+    //       supportEmail: this.config.get<string>('MAIL_FROM') || 'a4t@gmail.com',
+    //     },
+    //   });
+    // }
 
     return newUser;
   }
@@ -2392,11 +2433,11 @@ export class AgentsService {
     lastName: string,
     attempt: number = 0,
   ): Promise<string> {
-    const baseEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@gmail.com`;
+    const baseEmail = `${firstName.toLowerCase() || "user"}.${lastName.toLowerCase() || "ln"}`;
     const email =
       attempt === 0
-        ? baseEmail
-        : `${firstName.toLowerCase()}.${lastName.toLowerCase()}.${attempt}@gmail.com`;
+        ? `${baseEmail}@gmail.com`
+        : `${baseEmail}${attempt}@gmail.com`;
 
     // Check if email exists
     const existingUser = await this.prisma.user.findUnique({

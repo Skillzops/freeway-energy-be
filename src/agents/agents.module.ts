@@ -12,6 +12,7 @@ import { OgaranyaModule } from '../ogaranya/ogaranya.module';
 import { DeviceModule } from 'src/device/device.module';
 import { BullModule } from '@nestjs/bullmq';
 import { AgentProcessor } from './agent.processor';
+import { TermiiModule  } from 'src/termii/termii.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AgentProcessor } from './agent.processor';
     CustomersModule,
     OgaranyaModule,
     DeviceModule,
+    TermiiModule,
     BullModule.registerQueue({
       name: 'agent-queue',
     }),

@@ -129,10 +129,11 @@ export class InstallerController {
     );
   }
 
-    // @Get('revert-tasks-accepted')
-    // async revertTasksAccepted(
-    // ) {
-    //   return await this.installerTaskService.revertTasksAccepted();
-    // }
+  //hot-fix endpoint
+  @Get('revert-tasks-accepted')
+  async revertTasksAccepted(
+  ) {
+    return await this.installerTaskService.revertTasksAccepted();
+  }
   
 }

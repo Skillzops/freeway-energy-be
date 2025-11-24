@@ -127,6 +127,28 @@ export class TermiiService {
     return message;
   }
 
+  async formatAgentCredentialsMessage(
+    firstname: string,
+    email: string,
+    password: string,
+    category: string,
+  ) {
+    return `Welcome to A4T Energy Agent Platform!
+  
+  Dear ${firstname},
+  
+  Your ${category.toLowerCase()} agent account has been created successfully. Here are your login credentials:
+  
+  Email: ${email}
+  Password: ${password}
+  
+  Please keep these credentials safe. You can use them to log in to your agent dashboard.
+  
+  For support, contact us.
+  
+  Thank you!`;
+  }
+
   async getAccountBalance(): Promise<any> {
     if (!this.apiKey) {
       throw new Error('TERMII_API_KEY not configured');

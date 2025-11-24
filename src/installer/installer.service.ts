@@ -267,17 +267,17 @@ export class InstallerService {
     };
   }
 
-  // async revertTasksAccepted() {
-  //   return await this.prisma.installerTask.updateMany({
-  //     where: {
-  //       status: TaskStatus.ACCEPTED,
-  //     },
-  //     data: {
-  //       status: TaskStatus.PENDING,
-  //     }
-  //   });
-  //   // return true;
-  // }
+  async revertTasksAccepted() {
+    return await this.prisma.installerTask.updateMany({
+      where: {
+        status: TaskStatus.ACCEPTED,
+      },
+      data: {
+        status: TaskStatus.PENDING,
+      }
+    });
+    // return true;
+  }
 
   private async getInstallationStatistics(agentId: string) {
     const completedTasks = await this.prisma.installerTask.findMany({
