@@ -49,6 +49,8 @@ export class SalesService {
     // Validate inventory availability
     await this.validateSaleProductQuantity(dto.saleItems);
 
+    await this.validateDeviceAvailability(dto.saleItems);
+
     const financialSettings = await this.prisma.financialSettings.findFirst();
 
     if (!financialSettings) {
@@ -973,6 +975,37 @@ export class SalesService {
       success: true,
       validationDetails: validationResults,
     };
+  }
+
+  private async validateDeviceAvailability(saleItems: SaleItemDto[]) {
+    const allDeviceIds = saleItems.flatMap((item) => item.devices);
+  
+    if (allDeviceIds.length === 0) return;
+  
+    const usedDevices = await this.prisma.device.findMany({
+      where: {
+        id: { in: allDeviceIds },
+        saleItems: {
+          some: {
+            sale: {
+              NOT: {
+                status: SalesStatus.CANCELLED,
+              },
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        serialNumber: true,
+      },
+    });
+  
+    if (usedDevices.length > 0) {
+      throw new BadRequestException(
+        `The following devices have already been used in previous sales: ${usedDevices.map((d) => d.serialNumber).join(', ')}`,
+      );
+    }
   }
 
   private processProducts(
