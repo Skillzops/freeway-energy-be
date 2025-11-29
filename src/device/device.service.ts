@@ -1201,16 +1201,26 @@ export class DeviceService {
     }
   }
 
-  calculateInstallmentProgress(sale: any, paymentAmount: number) {
+  calculateInstallmentProgress(sale: any, paymentAmount: number = 0) {
     // const currentTotalPaid = sale.totalPaid - sale.totalMiscellaneousPrice;
-    const currentTotalPaid = sale.totalPaid;
-    // const newTotalPaid = currentTotalPaid + paymentAmount;
-    const newTotalPaid = currentTotalPaid;
+    const currentTotalPaid = sale.totalPaid - (paymentAmount ?? 0);
+    const newTotalPaid = sale.totalPaid;
+    // const currentTotalPaid = sale.totalPaid;
+    // const newTotalPaid = currentTotalPaid + (paymentAmount ?? 0);
+    // const newTotalPaid = currentTotalPaid;
     const totalPrice = sale.totalPrice;
     const monthlyPayment = sale.totalMonthlyPayment;
     const currentRemainingDuration = sale.remainingInstallments || 0;
     const originalDuration = sale.totalInstallmentDuration || 0;
 
+    // console.log({
+    //   currentTotalPaid,
+    //   newTotalPaid,
+    //   monthlyPayment,
+    //   totalPrice,
+    //   currentRemainingDuration,
+    //   originalDuration
+    // });
     if (sale.totalMonthlyPayment === 0 && paymentAmount >= totalPrice) {
       return {
         newStatus: SalesStatus.COMPLETED,
@@ -1256,10 +1266,11 @@ export class DeviceService {
       newTotalPaid / monthlyPayment,
     );
     const previousMonthsCovered = Math.floor(currentTotalPaid / monthlyPayment);
-
+    
     const monthsCoveredByThisPayment =
       totalMonthsCoveredByAllPayments - previousMonthsCovered;
 
+    // console.log({totalMonthsCoveredByAllPayments, previousMonthsCovered, monthsCoveredByThisPayment})
     let newRemainingDuration = Math.max(
       0,
       originalDuration - totalMonthsCoveredByAllPayments,
