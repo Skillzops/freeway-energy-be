@@ -21,7 +21,7 @@ import {
   WalletTransactionType,
 } from '@prisma/client';
 import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
-import { formatPhoneNumber } from 'src/utils/helpers.util';
+import { cleanPhoneNumber, formatPhoneNumber } from 'src/utils/helpers.util';
 import {
   DevicePaymentDto,
   PowerPurchaseDto,
@@ -1024,6 +1024,7 @@ export class OgaranyaService {
       where: {
         OR: [
           { user: { phone: { equals: agentIdentifier, mode: 'insensitive' } } },
+          { user: { phone: { equals: cleanPhoneNumber(agentIdentifier), mode: 'insensitive' } } },
           { user: { email: { equals: agentIdentifier, mode: 'insensitive' } } },
           ...(isValidObjectId(agentIdentifier)
             ? [{ userId: agentIdentifier }]
