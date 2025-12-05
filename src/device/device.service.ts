@@ -168,7 +168,7 @@ export class DeviceService {
     const agent = agentInstaller?.agent;
 
     if (!agent) {
-      throw new NotFoundException(`Installer Agent not found`);
+      throw new NotFoundException(`Installer Agent not assigned`);
     }
 
     // Update device with location and mark as installed

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -200,7 +201,7 @@ export class InstallerService {
     });
 
     if (!agent || agent.category !== AgentCategory.INSTALLER) {
-      throw new BadRequestException('Invalid agent or category');
+      throw new ForbiddenException('Invalid agent or category');
     }
 
     const installationStats = await this.getInstallationStatistics(agentId);
