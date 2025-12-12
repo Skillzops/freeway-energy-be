@@ -69,7 +69,7 @@ export class UsersService {
   }
 
   async getUsers(query: ListUsersQueryDto) {
-    const { page = 1, limit = 100, sortField, sortOrder } = query;
+    const { page = 1, limit = 100, sortField = "createdAt", sortOrder } = query;
 
     const filterConditions = await this.userFilter(query);
 
@@ -184,8 +184,13 @@ export class UsersService {
     for (const email of emails) {
       try {
         // Find user by email
-        const user = await this.prisma.user.findUnique({
-          where: { email: email.toLowerCase().trim() },
+        const user = await this.prisma.user.findFirst({
+          where: {
+            email: {
+              contains: email.toLowerCase().trim(),
+              mode: "insensitive"
+            },
+          },
           select: {
             id: true,
             email: true,
@@ -210,8 +215,8 @@ export class UsersService {
         }
 
         // Generate new password
-        // const newPassword = `${user.firstname}@${user.lastname}${generateRandomPassword(4)}`;
-        const newPassword = `Macgarry@Uloko2KZR`;
+        const newPassword = `${user.firstname.trim()}@${user.lastname.trim()}${generateRandomPassword(4)}`;
+        // const newPassword = `Macgarry@Uloko2KZR`;
         const hashedPassword = await hashPassword(newPassword);
 
         // Update user with new password and activate account

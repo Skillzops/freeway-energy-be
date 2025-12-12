@@ -78,7 +78,7 @@ export class ExportService {
   }
 
   private async exportDebtReport(filters: ExportDataQueryDto): Promise<any> {
-    const overdueDays = filters.overdueDays || 35;
+    const overdueDays = filters.overdueDays || 30;
     const page = filters.page || 1;
     const limit = filters.limit || 100;
 
@@ -108,7 +108,7 @@ export class ExportService {
         },
       },
       {
-        $match: { saleItems: { $ne: [] } }, // Only sales with items
+        $match: { saleItems: { $ne: [] } }, 
       },
       { $count: 'total' },
     ];
@@ -131,7 +131,7 @@ export class ExportService {
         },
       },
       {
-        $match: { saleItems: { $ne: [] } }, // Only sales with items
+        $match: { saleItems: { $ne: [] } }, 
       },
       {
         $lookup: {
@@ -181,6 +181,31 @@ export class ExportService {
     const customerIds = [
       ...new Set(sales.map((s) => this.extractObjectId(s.customerId))),
     ];
+
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = [...new Set(saleItems.flatMap((si) => si.deviceIDs))];
+    const devices =
+      deviceIds.length > 0
+        ? await this.prisma.device.findMany({
+            where: { id: { in: deviceIds } },
+            select: { id: true, serialNumber: true, installationStatus: true },
+          })
+        : [];
+
+    
+    const devicesBySale = new Map<string, any[]>();
+    saleItems.forEach((si) => {
+      const devs = si.deviceIDs
+        .map((dId) => devices.find((d) => d.id === dId))
+        .filter(Boolean);
+      if (devs.length > 0) {
+        devicesBySale.set(si.saleId, devs);
+      }
+    });
 
     const [customersData, paymentsData] = await Promise.all([
       this.prisma.customer.findMany({
@@ -237,6 +262,7 @@ export class ExportService {
         const customerId = this.extractObjectId(sale.customerId);
         const customer = customerMap.get(customerId);
         const payments = paymentsBySale.get(saleId) || [];
+        const saleDevices = devicesBySale.get(saleId) || [];
 
         const outstandingBalance =
           (sale.totalPrice || 0) - (sale.totalPaid || 0);
@@ -302,6 +328,7 @@ export class ExportService {
                 '',
           state: customer?.state || '',
           lga: customer?.lga || '',
+          devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
         };
       })
       .filter((item) => item !== null);
@@ -328,7 +355,7 @@ export class ExportService {
       }),
     };
 
-    // Build CSV
+    
     const csvData = this.buildCSV(
       [
         'Customer ID',
@@ -351,6 +378,7 @@ export class ExportService {
         'Agent Name',
         'State',
         'LGA',
+        'Devices (Serial Numbers)',
       ],
       jsonData,
       [
@@ -387,7 +415,7 @@ export class ExportService {
   }
 
   private async exportRenewalReport(filters: ExportDataQueryDto): Promise<any> {
-    const overdueDays = filters.overdueDays || 35;
+    const overdueDays = filters.overdueDays || 30;
     const page = filters.page || 1;
     const limit = filters.limit || 100;
 
@@ -418,7 +446,7 @@ export class ExportService {
           },
         },
         {
-          $match: { saleItems: { $ne: [] } }, // Only sales with items
+          $match: { saleItems: { $ne: [] } }, 
         },
         { $count: 'total' },
       ],
@@ -439,7 +467,7 @@ export class ExportService {
           },
         },
         {
-          $match: { saleItems: { $ne: [] } }, // Only sales with items
+          $match: { saleItems: { $ne: [] } }, 
         },
         {
           $lookup: {
@@ -491,6 +519,30 @@ export class ExportService {
     const customerIds = [
       ...new Set(sales.map((s) => this.extractObjectId(s.customerId))),
     ];
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = [...new Set(saleItems.flatMap((si) => si.deviceIDs))];
+    const devices =
+      deviceIds.length > 0
+        ? await this.prisma.device.findMany({
+            where: { id: { in: deviceIds } },
+            select: { id: true, serialNumber: true, installationStatus: true },
+          })
+        : [];
+
+    
+    const devicesBySale = new Map<string, any[]>();
+    saleItems.forEach((si) => {
+      const devs = si.deviceIDs
+        .map((dId) => devices.find((d) => d.id === dId))
+        .filter(Boolean);
+      if (devs.length > 0) {
+        devicesBySale.set(si.saleId, devs);
+      }
+    });
 
     const [customersData, paymentsData] = await Promise.all([
       this.prisma.customer.findMany({
@@ -541,6 +593,7 @@ export class ExportService {
         const customerId = this.extractObjectId(sale.customerId);
         const customer = customerMap.get(customerId);
         const payments = paymentsBySale.get(saleId) || [];
+        const saleDevices = devicesBySale.get(saleId) || [];
 
         const lastPayment = payments[payments.length - 1];
         const lastPaymentDate =
@@ -570,10 +623,10 @@ export class ExportService {
             : new Date(sale.createdAt);
 
         const monthsSinceSale = Math.floor(
-          (now - saleDate.getTime()) / 2592000000, // 30 days in ms
+          (now - saleDate.getTime()) / 2592000000, 
         );
 
-        const totalDuration = sale.totalInstallmentDuration || 12; // Default to 12 if missing
+        const totalDuration = sale.totalInstallmentDuration || 12; 
         const expectedPayments = Math.max(
           0,
           Math.min(monthsSinceSale, totalDuration - 1),
@@ -614,6 +667,7 @@ export class ExportService {
                 '',
           state: customer?.state || '',
           lga: customer?.lga || '',
+          devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
         };
       })
       .filter((item) => item !== null);
@@ -650,6 +704,7 @@ export class ExportService {
         'Agent Name',
         'State',
         'LGA',
+        'Devices (Serial Numbers)',
       ],
       jsonData,
       [
@@ -687,7 +742,7 @@ export class ExportService {
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
     const { startDate: rawStartDate, endDate: rawEndDate } = filters;
 
-    // Validate and calculate dates
+    
     const { startDate, endDate } = this.validateAndCalculateDateRange(
       rawStartDate,
       rawEndDate,
@@ -702,7 +757,7 @@ export class ExportService {
   ): Promise<any> {
     const { startDate: rawStartDate, endDate: rawEndDate } = filters;
 
-    // Validate and calculate dates
+    
     const { startDate, endDate } = this.validateAndCalculateDateRange(
       rawStartDate,
       rawEndDate,
@@ -729,7 +784,7 @@ export class ExportService {
     if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
     const [newSalesResults, renewalsResults] = await Promise.all([
-      // New sales
+      
       this.prisma.sales.aggregateRaw({
         pipeline: [
           { $match: matchConditions },
@@ -742,7 +797,7 @@ export class ExportService {
             },
           },
           {
-            $match: { items: { $ne: [] } }, // Only sales with items
+            $match: { items: { $ne: [] } }, 
           },
           { $unwind: { path: '$items', preserveNullAndEmptyArrays: true } },
           {
@@ -956,7 +1011,7 @@ export class ExportService {
           },
         },
         {
-          $match: { saleItems: { $ne: [] } }, // Only sales with items
+          $match: { saleItems: { $ne: [] } }, 
         },
         { $count: 'total' },
       ],
@@ -977,7 +1032,7 @@ export class ExportService {
           },
         },
         {
-          $match: { saleItems: { $ne: [] } }, // Only sales with items
+          $match: { saleItems: { $ne: [] } }, 
         },
         {
           $lookup: {
@@ -1027,6 +1082,32 @@ export class ExportService {
     }
 
     const saleIds = sales.map((s) => this.extractObjectId(s._id));
+
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = [...new Set(saleItems.flatMap((si) => si.deviceIDs))];
+    const devices =
+      deviceIds.length > 0
+        ? await this.prisma.device.findMany({
+            where: { id: { in: deviceIds } },
+            select: { id: true, serialNumber: true, installationStatus: true },
+          })
+        : [];
+
+    
+    const devicesBySale = new Map<string, any[]>();
+    saleItems.forEach((si) => {
+      const devs = si.deviceIDs
+        .map((dId) => devices.find((d) => d.id === dId))
+        .filter(Boolean);
+      if (devs.length > 0) {
+        devicesBySale.set(si.saleId, devs);
+      }
+    });
+
     const customerIds = [
       ...new Set(sales.map((s) => this.extractObjectId(s.customerId))),
     ];
@@ -1057,7 +1138,7 @@ export class ExportService {
       this.prisma.saleItem.findMany({
         where: { saleId: { in: saleIds } },
         select: { saleId: true, paymentMode: true },
-        take: saleIds.length, // One per sale
+        take: saleIds.length, 
       }),
       this.prisma.payment.findMany({
         where: { saleId: { in: saleIds }, paymentStatus: 'COMPLETED' },
@@ -1079,6 +1160,7 @@ export class ExportService {
       const customer = customerMap.get(this.extractObjectId(sale.customerId));
       const saleItem = saleItemMap.get(saleId);
       const payments = paymentsBySale.get(saleId) || [];
+      const saleDevices = devicesBySale.get(saleId) || [];
 
       return {
         saleId,
@@ -1104,6 +1186,7 @@ export class ExportService {
         lastPaymentDate: this.formatDate(payments[0]?.paymentDate),
         state: customer?.state || '',
         lga: customer?.lga || '',
+        devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
       };
     });
 
@@ -1125,6 +1208,7 @@ export class ExportService {
         'Last Payment Date',
         'State',
         'LGA',
+        'Devices (Serial Numbers)',
       ],
       jsonData,
     );
@@ -1183,10 +1267,47 @@ export class ExportService {
 
     const sales = await this.prisma.sales.findMany({
       where: { customerId: { in: customerIds } },
-      select: { customerId: true, totalPrice: true, totalPaid: true },
+      select: { id: true, customerId: true, totalPrice: true, totalPaid: true },
     });
 
-    // Group by customer
+    const saleIds = [...new Set(sales.map((s) => s.id))];
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = [...new Set(saleItems.flatMap((si) => si.deviceIDs))];
+    const devices = await this.prisma.device.findMany({
+      where: { id: { in: deviceIds } },
+      select: {
+        id: true,
+        serialNumber: true,
+        hardwareModel: true,
+        installationStatus: true,
+      },
+    });
+
+    
+    const devicesByCustomer = new Map<string, any[]>();
+    saleItems.forEach((si) => {
+      const sale = sales.find((s) => s.id === si.saleId);
+      if (sale) {
+        if (!devicesByCustomer.has(sale.customerId)) {
+          devicesByCustomer.set(sale.customerId, []);
+        }
+        si.deviceIDs.forEach((dId) => {
+          const device = devices.find((d) => d.id === dId);
+          if (
+            device &&
+            !devicesByCustomer.get(sale.customerId).some((d) => d.id === dId)
+          ) {
+            devicesByCustomer.get(sale.customerId).push(device);
+          }
+        });
+      }
+    });
+
+    
     const salesByCustomer = new Map<
       string,
       { totalSpent: number; outstandingDebt: number; count: number }
@@ -1213,8 +1334,9 @@ export class ExportService {
           outstandingDebt: 0,
           count: 0,
         };
+        const customerDevices = devicesByCustomer.get(customerId) || [];
 
-        // Apply hasOutstandingDebt filter
+        
         if (filters.hasOutstandingDebt && stats.outstandingDebt <= 0)
           return null;
 
@@ -1230,6 +1352,9 @@ export class ExportService {
           totalSpent: parseFloat(stats.totalSpent.toFixed(2)),
           outstandingDebt: parseFloat(stats.outstandingDebt.toFixed(2)),
           createdDate: this.formatDate(customer.createdAt),
+          devices: customerDevices
+            .map((d) => `${d.serialNumber} (${d.installationStatus})`)
+            .join('; '),
         };
       })
       .filter((item) => item !== null);
@@ -1247,6 +1372,7 @@ export class ExportService {
         'Total Spent',
         'Outstanding Debt',
         'Created Date',
+        'Devices (Serial Numbers)',
       ],
       jsonData,
     );
@@ -1355,6 +1481,31 @@ export class ExportService {
       ...new Set(payments.map((p) => this.extractObjectId(p.saleId))),
     ];
 
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = [...new Set(saleItems.flatMap((si) => si.deviceIDs))];
+    const devices =
+      deviceIds.length > 0
+        ? await this.prisma.device.findMany({
+            where: { id: { in: deviceIds } },
+            select: { id: true, serialNumber: true, installationStatus: true },
+          })
+        : [];
+
+    
+    const devicesBySale = new Map<string, any[]>();
+    saleItems.forEach((si) => {
+      const devs = si.deviceIDs
+        .map((dId) => devices.find((d) => d.id === dId))
+        .filter(Boolean);
+      if (devs.length > 0) {
+        devicesBySale.set(si.saleId, devs);
+      }
+    });
+
     const sales = await this.prisma.sales.findMany({
       where: { id: { in: saleIds } },
       select: { id: true, customerId: true, agentName: true },
@@ -1388,6 +1539,7 @@ export class ExportService {
     const jsonData = payments.map((payment) => {
       const sale = saleMap.get(this.extractObjectId(payment.saleId));
       const customer = customerMap.get(sale?.customerId);
+      const saleDevices = devicesBySale.get(sale.id) || [];
 
       return {
         paymentId: this.extractObjectId(payment._id) || '',
@@ -1405,6 +1557,7 @@ export class ExportService {
             ? sale?.agentName?.trim()
             : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
               '',
+        devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
       };
     });
 
@@ -1419,6 +1572,7 @@ export class ExportService {
         'Customer Name',
         'Customer Phone',
         'Agent Name',
+        'Devices (Serial Numbers)',
       ],
       jsonData,
     );
@@ -1655,7 +1809,7 @@ export class ExportService {
           },
         },
         {
-          $match: { saleItems: { $ne: [] } }, // Only sales with items
+          $match: { saleItems: { $ne: [] } }, 
         },
         {
           $group: {
@@ -1861,7 +2015,7 @@ export class ExportService {
     endDate?: string,
     period: 'WEEKLY' | 'MONTHLY' = 'WEEKLY',
   ): { startDate: Date; endDate: Date } {
-    // If both dates are provided, validate the range
+    
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
@@ -1870,7 +2024,7 @@ export class ExportService {
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
       if (period === 'WEEKLY') {
-        // For weekly: must be exactly 7 days or less (same week)
+        
         if (diffDays < 0 || diffDays > 6) {
           throw new BadRequestException(
             `Weekly report date range must be within a 7-day period. You provided ${diffDays + 1} days. Example: 2025-01-01 to 2025-01-07`,
@@ -1878,7 +2032,7 @@ export class ExportService {
         }
         return { startDate: start, endDate: end };
       } else if (period === 'MONTHLY') {
-        // For monthly: must be within same month or up to 31 days
+        
         const isNotSameMonthYear =
           start.getMonth() !== end.getMonth() ||
           start.getFullYear() !== end.getFullYear();
@@ -1892,17 +2046,17 @@ export class ExportService {
       }
     }
 
-    // If only one date is provided, calculate the other
+    
     if (startDate && !endDate) {
       const start = new Date(startDate);
       let end: Date;
 
       if (period === 'WEEKLY') {
-        // Add 6 days to start date to make a full week
+        
         end = new Date(start);
         end.setDate(end.getDate() + 6);
       } else if (period === 'MONTHLY') {
-        // Get the last day of the month
+        
         end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
       }
 
@@ -1914,18 +2068,18 @@ export class ExportService {
       let start: Date;
 
       if (period === 'WEEKLY') {
-        // Subtract 6 days from end date
+        
         start = new Date(end);
         start.setDate(start.getDate() - 6);
       } else if (period === 'MONTHLY') {
-        // Get the first day of the month
+        
         start = new Date(end.getFullYear(), end.getMonth(), 1);
       }
 
       return { startDate: start, endDate: end };
     }
 
-    // If neither date provided, use defaults (original behavior)
+    
     const end = new Date();
     let start: Date;
 

@@ -81,7 +81,7 @@ GET /export/data?exportType=debt_report&overdueDays=60
 - \`outstandingBalance\`: How much customer still owes (totalPrice - totalPaid)
 - \`remainingMonths\`: Months left to complete payment (calculated from monthlyPayment)
 - \`daysSinceLastPayment\`: Days since customer made their last payment
-- \`isOverdue\`: Whether payment is overdue (> 35 days by default)
+- \`isOverdue\`: Whether payment is overdue (> 30 days by default)
 - \`totalPaymentsMade\`: Number of payments received so far
 
 **Summary Includes:**
@@ -126,7 +126,7 @@ Device installation records
 
 **Debt Filters:**
 - \`hasOutstandingDebt\`: Only customers with debt (true/false)
-- \`overdueDays\`: Minimum days overdue (default: 35)
+- \`overdueDays\`: Minimum days overdue (default: 30)
 
 **Pagination:**
 - \`page\`: Page number (default: 1)
@@ -174,7 +174,7 @@ GET /export/data?exportType=payments&customerId=xxx
 **Debt Calculations:**
 - \`outstandingBalance = totalPrice - totalPaid\`
 - \`remainingMonths = outstandingBalance / monthlyPayment\` (rounded up)
-- \`isOverdue = daysSinceLastPayment > overdueDays (default: 35)\`
+- \`isOverdue = daysSinceLastPayment > overdueDays (default: 30)\`
 
 **Payment Tracking:**
 - First payment = Initial/down payment
@@ -351,7 +351,7 @@ GET /export/data?exportType=payments&customerId=xxx
 // - Total outstanding debt across all sales
 // - Count of debts and overdue debts
 // - Breakdown of overdue vs non-overdue amounts
-// - Overdue threshold applied (default: 35 days)
+// - Overdue threshold applied (default: 30 days)
 
 // **Use Cases:**
 // - Track total company receivables

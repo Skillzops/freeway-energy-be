@@ -4,7 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsEnum,
+  IsEnum, 
   Length,
   IsEmail,
 } from 'class-validator';

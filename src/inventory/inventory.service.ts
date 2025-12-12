@@ -193,7 +193,7 @@ export class InventoryService {
     const {
       page = 1,
       limit = 100,
-      sortField,
+      sortField = 'createdAt',
       sortOrder,
       inventoryCategoryId,
       inventorySubCategoryId,

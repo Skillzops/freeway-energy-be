@@ -48,7 +48,7 @@ export class TaskManagementService {
       page = 1,
       limit = 10,
       agentId,
-      sortField,
+      sortField = 'createdAt',
       sortOrder,
       search,
       status,

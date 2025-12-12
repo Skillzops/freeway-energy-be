@@ -57,6 +57,7 @@ model User {
   deletedAt DateTime?
 
   lastLogin DateTime?
+  auditLogs AuditLog[]
 
   @@map("users")
 }

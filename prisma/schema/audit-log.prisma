@@ -1,0 +1,61 @@
+model AuditLog {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  action   AuditActions
+  entity   String
+  entityId String? @db.ObjectId
+
+  userId String? @db.ObjectId
+  user   User?   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  oldValues Json? @db.Json
+  newValues Json? @db.Json
+  changes   Json? @db.Json
+
+  ipAddress     String?
+  userAgent     String?
+  statusCode    Int?
+  requestUrl    String?
+
+  metadata     Json?   @db.Json
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([entity])
+  @@index([entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model ApplicationLog {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  level    String
+  message  String
+  context  String?
+  metadata Json?   @db.Json
+  userId   String? @db.ObjectId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([level])
+  @@index([context])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("application_logs")
+}
+
+enum AuditActions {
+  POST
+  PUT
+  PATCH
+  DELETE
+  ERROR
+}

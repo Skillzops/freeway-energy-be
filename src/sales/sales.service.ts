@@ -360,157 +360,414 @@ export class SalesService {
   }
 
   async getAllSales(query: ListSalesQueryDto, agent?: string) {
-    const { page = 1, limit = 100, search, paymentMethod, agentId } = query;
+    const {
+      page = 1,
+      limit = 100,
+      search,
+      paymentMethod,
+      agentId,
+      creatorId,
+      customerId,
+    } = query;
+
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
     const skip = (pageNumber - 1) * limitNumber;
-    const take = limitNumber;
-    const searchTerm = search?.trim();
 
-    const baseWhere: Prisma.SaleItemWhereInput = {};
+    const searchTerm = search?.trim().toLowerCase();
 
-    if (agentId || agent || paymentMethod) {
-      baseWhere.sale = {
-        ...(agent || agentId ? { creatorId: agent || agentId } : {}),
-        ...(paymentMethod ? { paymentMethod } : {}),
-      };
+    // Build match conditions for aggregation pipeline
+    const matchConditions: any = {};
+
+    if (agentId || agent) {
+      matchConditions.creatorId = { $oid: agentId || agent };
     }
 
-    // If no search, use simple query
-    if (!searchTerm) {
-      const [totalCount, saleItems, total] = await Promise.all([
-        this.prisma.saleItem.count({
-          where: {
-            ...baseWhere,
-            NOT: {
-              sale: {
-                customer: null,
-              },
-            },
-          },
-        }),
-        this.prisma.saleItem.findMany({
-          where: {
-            ...baseWhere,
-            NOT: {
-              sale: null,
-            },
-          },
-          include: {
-            sale: {
-              include: {
-                customer: true,
-                creatorDetails: true,
-                agent: { include: { user: true } },
-                payment: {
-                  include: {
-                    recordedBy: {
-                      select: { id: true, firstname: true, lastname: true },
-                    },
-                  },
-                },
-              },
-            },
-            devices: {
-              include: {
-                tokens: true,
-              },
-            },
-            SaleRecipient: true,
-            product: true,
-          },
-          orderBy: { sale: { createdAt: 'desc' } },
-          skip,
-          take,
-        }),
-        this.prisma.saleItem.count({
-          where: {
-            ...(agent ? { sale: { creatorId: agent } } : {}),
-            NOT: {
-              sale: null,
-            },
-          },
-        }),
-      ]);
+    if (creatorId) {
+      matchConditions.creatorId = { $oid: creatorId };
+    }
 
-      return this.formatSalesResponse(
-        saleItems,
-        totalCount,
-        total,
-        pageNumber,
+    if (customerId) {
+      matchConditions.customerId = { $oid: customerId };
+    }
+
+    if (paymentMethod) {
+      matchConditions.paymentMethod = paymentMethod;
+    }
+
+    // If search is provided, use aggregation for better performance
+    if (searchTerm) {
+      const { saleItems, total } = await this.performSearchWithAggregation(
+        matchConditions,
+        searchTerm,
+        skip,
         limitNumber,
       );
+
+      return this.formatResponse(saleItems, total, pageNumber, limitNumber);
     }
 
-    // For search, get all matching records and filter in application
-    const allSaleItems = await this.prisma.saleItem.findMany({
-      where: baseWhere,
-      include: {
-        sale: {
-          include: {
-            customer: true,
-            creatorDetails: true,
-            agent: { include: { user: true } },
-            payment: {
-              include: {
-                recordedBy: {
-                  select: { id: true, firstname: true, lastname: true },
-                },
-              },
-            },
-          },
-        },
-        devices: {
-          include: {
-            tokens: true,
-          },
-        },
-        SaleRecipient: true,
-        product: true,
-      },
-      orderBy: { sale: { createdAt: 'desc' } },
-    });
-
-    // Filter in memory
-    const searchTermLower = searchTerm.toLowerCase();
-    const filteredItems = allSaleItems.filter((item) => {
-      // Search in product name
-      if (item.product?.name?.toLowerCase().includes(searchTermLower)) {
-        return true;
-      }
-
-      // Search in customer fields
-      const customer = item.sale?.customer;
-      if (customer) {
-        if (
-          customer.firstname?.toLowerCase().includes(searchTermLower) ||
-          customer.lastname?.toLowerCase().includes(searchTermLower) ||
-          customer.phone?.toLowerCase().includes(searchTermLower) ||
-          customer.alternatePhone?.toLowerCase().includes(searchTermLower) ||
-          customer.email?.toLowerCase().includes(searchTermLower)
-        ) {
-          return true;
-        }
-      }
-
-      return false;
-    });
-
-    // Paginate filtered results
-    const paginatedItems = filteredItems.slice(skip, skip + take);
-    const searchTotalCount = filteredItems.length;
-
-    const total = await this.prisma.saleItem.count({
-      where: { ...(agent ? { sale: { creatorId: agent } } : {}) },
-    });
-
+    // For non-search queries, use optimized simple query
+    const { saleItems, total, totalCount } = await this.performSimpleQuery(
+      matchConditions,
+      skip,
+      limitNumber,
+    );
     return this.formatSalesResponse(
-      paginatedItems,
-      searchTotalCount,
+      saleItems,
+      totalCount,
       total,
       pageNumber,
       limitNumber,
     );
+  }
+
+
+  private async performSearchWithAggregation(
+    matchConditions: any,
+    searchTerm: string,
+    skip: number,
+    limit: number,
+  ) {
+    const searchRegex = { $regex: searchTerm, $options: 'i' };
+  
+    const basePipeline = [
+      {
+        $match: matchConditions,
+      },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: {
+          saleItems: { $ne: [] },
+        },
+      },
+      {
+        $unwind: {
+          path: '$saleItems',
+          preserveNullAndEmptyArrays: false,
+        },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      {
+        $unwind: {
+          path: '$customer',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $lookup: {
+          from: 'devices',
+          localField: 'saleItems.deviceIDs',
+          foreignField: '_id',
+          as: 'devices',
+        },
+      },
+      {
+        $lookup: {
+          from: 'token', 
+          localField: 'devices._id',
+          foreignField: 'deviceId',
+          as: 'deviceTokens',
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { 'customer.firstname': searchRegex },
+            { 'customer.lastname': searchRegex },
+            { 'customer.phone': searchRegex },
+            { 'customer.alternatePhone': searchRegex },
+            { 'customer.email': searchRegex },
+            { 'saleItems.product': searchRegex },
+            { 'devices.serialNumber': searchRegex },
+          ],
+        },
+      },
+    ];
+  
+    const countPipeline = [...basePipeline, { $count: 'total' }];
+  
+    const dataPipeline = [
+      ...basePipeline,
+      {
+        $sort: { 'saleItems.createdAt': -1 },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: limit,
+      },
+      // Lookup creator user
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'creatorId',
+          foreignField: '_id',
+          as: 'creatorDetails',
+        },
+      },
+      {
+        $unwind: {
+          path: '$creatorDetails',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup agent
+      {
+        $lookup: {
+          from: 'agents',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'agent',
+        },
+      },
+      {
+        $unwind: {
+          path: '$agent',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup agent's user
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'agent.userId',
+          foreignField: '_id',
+          as: 'agentUser',
+        },
+      },
+      {
+        $unwind: {
+          path: '$agentUser',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup payments
+      {
+        $lookup: {
+          from: 'payments',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'payment',
+        },
+      },
+      // Lookup sale recipient
+      {
+        $lookup: {
+          from: 'sale_recipients',
+          localField: 'saleItems.saleRecipientId',
+          foreignField: '_id',
+          as: 'SaleRecipient',
+        },
+      },
+      {
+        $unwind: {
+          path: '$SaleRecipient',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup product
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'saleItems.productId',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      {
+        $unwind: {
+          path: '$product',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          id: '$saleItems._id',
+          productId: '$saleItems.productId',
+          quantity: '$saleItems.quantity',
+          saleId: '$saleItems.saleId',
+          discount: '$saleItems.discount',
+          totalPrice: '$saleItems.totalPrice',
+          monthlyPayment: '$saleItems.monthlyPayment',
+          paymentMode: '$saleItems.paymentMode',
+          installmentDuration: '$saleItems.installmentDuration',
+          installmentStartingPrice: '$saleItems.installmentStartingPrice',
+          miscellaneousPrices: '$saleItems.miscellaneousPrices',
+          saleRecipientId: '$saleItems.saleRecipientId',
+          deviceIDs: '$saleItems.deviceIDs',
+          createdAt: '$saleItems.createdAt',
+          updatedAt: '$saleItems.updatedAt',
+
+          sale: {
+            id: '$_id',
+            category: '$category',
+            applyMargin: '$applyMargin',
+            status: '$status',
+            customerId: '$customerId',
+            creatorId: '$creatorId',
+            installerName: '$installerName',
+            agentName: '$agentName',
+            agentId: '$agentId',
+            paymentGateway: '$paymentGateway',
+            paymentMethod: '$paymentMethod',
+            totalPrice: '$totalPrice',
+            totalMiscellaneousPrice: '$totalMiscellaneousPrice',
+            totalPaid: '$totalPaid',
+            totalMonthlyPayment: '$totalMonthlyPayment',
+            installmentStartingPrice: '$installmentStartingPrice',
+            totalInstallmentDuration: '$totalInstallmentDuration',
+            remainingInstallments: '$remainingInstallments',
+            installmentAccountDetailsId: '$installmentAccountDetailsId',
+            deliveredAccountDetails: '$deliveredAccountDetails',
+            contractId: '$contractId',
+            transactionDate: '$transactionDate',
+            createdAt: '$createdAt',
+            updatedAt: '$updatedAt',
+            deletedAt: '$deletedAt',
+            customer: '$customer',
+            creatorDetails: '$creatorDetails',
+            agent: {
+              _id: '$agent._id',
+              userId: '$agent.userId',
+              user: '$agentUser',
+            },
+            payment: '$payment',
+          },
+
+          devices: {
+            $map: {
+              input: '$devices',
+              as: 'device',
+              in: {
+                id: '$$device._id',
+                serialNumber: '$$device.serialNumber',
+                key: '$$device.key',
+                startingCode: '$$device.startingCode',
+                count: '$$device.count',
+                timeDivider: '$$device.timeDivider',
+                restrictedDigitMode: '$$device.restrictedDigitMode',
+                hardwareModel: '$$device.hardwareModel',
+                firmwareVersion: '$$device.firmwareVersion',
+                isTokenable: '$$device.isTokenable',
+                isUsed: '$$device.isUsed',
+                installationStatus: '$$device.installationStatus',
+                installationLocation: '$$device.installationLocation',
+                installationLongitude: '$$device.installationLongitude',
+                installationLatitude: '$$device.installationLatitude',
+                gpsVerified: '$$device.gpsVerified',
+                saleItemIDs: '$$device.saleItemIDs',
+                creatorId: '$$device.creatorId',
+                createdAt: '$$device.createdAt',
+                updatedAt: '$$device.updatedAt',
+                tokens: {
+                  $filter: {
+                    input: '$deviceTokens',
+                    as: 'token',
+                    cond: { $eq: ['$$token.deviceId', '$$device._id'] },
+                  },
+                },
+              },
+            },
+          },
+          SaleRecipient: '$SaleRecipient',
+          product: '$product',
+        },
+      },
+    ];
+  
+    const [countResult, saleData] = await Promise.all([
+      this.prisma.sales.aggregateRaw({
+        pipeline: countPipeline,
+      }) as any,
+      this.prisma.sales.aggregateRaw({
+        pipeline: dataPipeline,
+      }) as any,
+    ]);
+  
+    const total = countResult[0]?.total || 0;
+  
+    return {
+      saleItems: saleData,
+      total,
+    };
+  }
+  
+  private async performSimpleQuery(
+    matchConditions: any,
+    skip: number,
+    limit: number,
+  ) {
+    const where: Prisma.SaleItemWhereInput = {
+      sale: {
+        ...(matchConditions.creatorId && {
+          creatorId: matchConditions.creatorId.$oid,
+        }),
+        ...(matchConditions.customerId && {
+          customerId: matchConditions.customerId.$oid,
+        }),
+        ...(matchConditions.paymentMethod && {
+          paymentMethod: matchConditions.paymentMethod,
+        }),
+        ...(matchConditions.status && { status: matchConditions.status }),
+        ...(matchConditions.createdAt && {
+          createdAt: matchConditions.createdAt,
+        }),
+      },
+    };
+
+    const [saleItems, totalCount] = await Promise.all([
+      this.prisma.saleItem.findMany({
+        where,
+        include: {
+          sale: {
+            include: {
+              customer: true,
+              creatorDetails: true,
+              agent: { include: { user: true } },
+              payment: {
+                include: {
+                  recordedBy: {
+                    select: { id: true, firstname: true, lastname: true },
+                  },
+                },
+              },
+            },
+          },
+          devices: {
+            include: {
+              tokens: true,
+            },
+          },
+          product: true,
+        },
+        orderBy: { sale: { createdAt: 'desc' } },
+        skip,
+        take: limit,
+      }),
+      this.prisma.saleItem.count({ where }),
+    ]);
+
+    return {
+      saleItems,
+      total: totalCount,
+      totalCount,
+    };
   }
 
   private formatSalesResponse(
@@ -521,19 +778,27 @@ export class SalesService {
     limitNumber: number,
   ) {
     return {
-      saleItems: saleItems.map((item) => ({
-        ...item,
-        sale: {
-          ...item.sale,
-          creatorDetails: plainToInstance(UserEntity, item.sale.creatorDetails),
-          agent: {
-            ...item.sale.agent,
-            user: item.sale.agent?.user
-              ? plainToInstance(UserEntity, item.sale.agent.user)
+      saleItems: saleItems.map((item) => {
+        const sale = item.sale || item;
+
+        return {
+          ...item,
+          sale: {
+            ...sale,
+            creatorDetails: sale.creatorDetails
+              ? plainToInstance(UserEntity, sale.creatorDetails)
+              : undefined,
+            agent: sale.agent
+              ? {
+                  ...sale.agent,
+                  user: sale.agent?.user
+                    ? plainToInstance(UserEntity, sale.agent.user)
+                    : undefined,
+                }
               : undefined,
           },
-        },
-      })),
+        };
+      }),
       total,
       page: pageNumber,
       limit: limitNumber,
@@ -979,9 +1244,9 @@ export class SalesService {
 
   private async validateDeviceAvailability(saleItems: SaleItemDto[]) {
     const allDeviceIds = saleItems.flatMap((item) => item.devices);
-  
+
     if (allDeviceIds.length === 0) return;
-  
+
     const usedDevices = await this.prisma.device.findMany({
       where: {
         id: { in: allDeviceIds },
@@ -1000,7 +1265,7 @@ export class SalesService {
         serialNumber: true,
       },
     });
-  
+
     if (usedDevices.length > 0) {
       throw new BadRequestException(
         `The following devices have already been used in previous sales: ${usedDevices.map((d) => d.serialNumber).join(', ')}`,
@@ -1095,4 +1360,324 @@ export class SalesService {
       remainingToAllocate -= quantityToAllocate;
     }
   }
-}
+
+  private cleanValue(value: any): any {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    // Handle MongoDB $oid format
+    if (typeof value === 'object' && '$oid' in value) {
+      return value.$oid;
+    }
+
+    // Handle MongoDB $date format
+    if (typeof value === 'object' && '$date' in value) {
+      return value.$date;
+    }
+
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return value.map((item) => this.cleanValue(item));
+    }
+
+    // Handle nested objects
+    if (typeof value === 'object' && value !== null) {
+      const cleaned: any = {};
+      for (const [key, val] of Object.entries(value)) {
+        // Skip _id if we have id
+        if (key === '_id' && 'id' in value) {
+          continue;
+        }
+        cleaned[key] = this.cleanValue(val);
+      }
+      return cleaned;
+    }
+
+    return value;
+  }
+
+  private transformSaleItem(item: any) {
+    
+    const cleaned = this.cleanValue(item);
+
+    
+    const sale = cleaned.sale || cleaned;
+
+    return {
+      
+      id: cleaned.id || cleaned._id,
+      productId: cleaned.productId,
+      quantity: cleaned.quantity,
+      saleId: cleaned.saleId,
+      discount: cleaned.discount,
+      totalPrice: cleaned.totalPrice,
+      monthlyPayment: cleaned.monthlyPayment,
+      paymentMode: cleaned.paymentMode,
+      installmentDuration: cleaned.installmentDuration,
+      installmentStartingPrice: cleaned.installmentStartingPrice,
+      miscellaneousPrices: cleaned.miscellaneousPrices,
+      saleRecipientId: cleaned.saleRecipientId,
+      deviceIDs: cleaned.deviceIDs,
+      createdAt: cleaned.createdAt,
+      updatedAt: cleaned.updatedAt,
+
+      
+      sale: {
+        
+        id: sale.id || sale._id,
+        category: sale.category,
+        status: sale.status,
+        paymentMethod: sale.paymentMethod,
+        paymentGateway: sale.paymentGateway,
+        createdAt: sale.createdAt,
+        updatedAt: sale.updatedAt,
+
+        
+        customerId: sale.customerId,
+        creatorId: sale.creatorId,
+        agentId: sale.agentId,
+        agentName: sale.agentName,
+        installerName: sale.installerName,
+        contractId: sale.contractId,
+
+        
+        totalPrice: sale.totalPrice,
+        totalMiscellaneousPrice: sale.totalMiscellaneousPrice,
+        totalPaid: sale.totalPaid,
+        totalMonthlyPayment: sale.totalMonthlyPayment,
+        remainingInstallments: sale.remainingInstallments,
+        totalInstallmentDuration: sale.totalInstallmentDuration,
+        installmentStartingPrice: sale.installmentStartingPrice,
+        applyMargin: sale.applyMargin,
+        deliveredAccountDetails: sale.deliveredAccountDetails,
+
+        
+        installmentAccountDetailsId: sale.installmentAccountDetailsId,
+        transactionDate: sale.transactionDate,
+        deletedAt: sale.deletedAt,
+
+        
+        customer: sale.customer
+          ? {
+              id: sale.customer.id || sale.customer._id,
+              firstname: sale.customer.firstname,
+              lastname: sale.customer.lastname,
+              phone: sale.customer.phone,
+              alternatePhone: sale.customer.alternatePhone,
+              email: sale.customer.email,
+              gender: sale.customer.gender,
+              passportPhotoUrl: sale.customer.passportPhotoUrl,
+              idType: sale.customer.idType,
+              idNumber: sale.customer.idNumber,
+              idImageUrl: sale.customer.idImageUrl,
+              contractFormImageUrl: sale.customer.contractFormImageUrl,
+              addressType: sale.customer.addressType,
+              installationAddress: sale.customer.installationAddress,
+              lga: sale.customer.lga,
+              state: sale.customer.state,
+              location: sale.customer.location,
+              longitude: sale.customer.longitude,
+              latitude: sale.customer.latitude,
+              approvalStatus: sale.customer.approvalStatus,
+              isApproved: sale.customer.isApproved,
+              approvedAt: sale.customer.approvedAt,
+              approvedBy: sale.customer.approvedBy,
+              rejectedAt: sale.customer.rejectedAt,
+              rejectedBy: sale.customer.rejectedBy,
+              rejectionReason: sale.customer.rejectionReason,
+              resubmissionCount: sale.customer.resubmissionCount,
+              lastResubmittedAt: sale.customer.lastResubmittedAt,
+              requiresReview: sale.customer.requiresReview,
+              status: sale.customer.status,
+              type: sale.customer.type,
+              creatorId: sale.customer.creatorId,
+              createdAt: sale.customer.createdAt,
+              updatedAt: sale.customer.updatedAt,
+              deletedAt: sale.customer.deletedAt,
+            }
+          : null,
+
+        
+        creatorDetails: sale.creatorDetails
+          ? plainToInstance(UserEntity, {
+              id: sale.creatorDetails.id || sale.creatorDetails._id,
+              firstname: sale.creatorDetails.firstname,
+              lastname: sale.creatorDetails.lastname,
+              email: sale.creatorDetails.email,
+              username: sale.creatorDetails.username,
+              phone: sale.creatorDetails.phone,
+              location: sale.creatorDetails.location,
+              addressType: sale.creatorDetails.addressType,
+              staffId: sale.creatorDetails.staffId,
+              longitude: sale.creatorDetails.longitude,
+              latitude: sale.creatorDetails.latitude,
+              emailVerified: sale.creatorDetails.emailVerified,
+              isBlocked: sale.creatorDetails.isBlocked,
+              status: sale.creatorDetails.status,
+              roleId: sale.creatorDetails.roleId,
+              createdAt: sale.creatorDetails.createdAt,
+              updatedAt: sale.creatorDetails.updatedAt,
+              deletedAt: sale.creatorDetails.deletedAt,
+              lastLogin: sale.creatorDetails.lastLogin,
+            })
+          : null,
+
+        
+        agent:
+          sale.agent && Object.keys(sale.agent).length > 0
+            ? {
+                id: sale.agent.id || sale.agent._id,
+                user: sale.agent.user
+                  ? plainToInstance(UserEntity, {
+                      id: sale.agent.user.id || sale.agent.user._id,
+                      firstname: sale.agent.user.firstname,
+                      lastname: sale.agent.user.lastname,
+                      email: sale.agent.user.email,
+                      phone: sale.agent.user.phone,
+                    })
+                  : null,
+              }
+            : null,
+
+        
+        payment: Array.isArray(sale.payment)
+          ? sale.payment.map((payment: any) => ({
+              id: payment.id || payment._id,
+              transactionRef: payment.transactionRef,
+              amount: payment.amount,
+              paymentStatus: payment.paymentStatus,
+              paymentMethod: payment.paymentMethod,
+              paymentDate: payment.paymentDate,
+              ogaranyaOrderId: payment.ogaranyaOrderId,
+              ogaranyaOrderRef: payment.ogaranyaOrderRef,
+              ogaranyaSmsNumber: payment.ogaranyaSmsNumber,
+              ogaranyaSmsMessage: payment.ogaranyaSmsMessage,
+              flutterwaveTransactionId: payment.flutterwaveTransactionId,
+              flutterwavePaymentId: payment.flutterwavePaymentId,
+              flutterwavePaymentLink: payment.flutterwavePaymentLink,
+              recordedById: payment.recordedById,
+              notes: payment.notes,
+              saleId: payment.saleId,
+              recordedBy: payment.recordedBy,
+              createdAt: payment.createdAt,
+              updatedAt: payment.updatedAt,
+              deletedAt: payment.deletedAt,
+            }))
+          : sale.payment
+            ? [
+                {
+                  id: sale.payment.id || sale.payment._id,
+                  transactionRef: sale.payment.transactionRef,
+                  amount: sale.payment.amount,
+                  paymentStatus: sale.payment.paymentStatus,
+                  paymentMethod: sale.payment.paymentMethod,
+                  paymentDate: sale.payment.paymentDate,
+                  ogaranyaOrderId: sale.payment.ogaranyaOrderId,
+                  ogaranyaOrderRef: sale.payment.ogaranyaOrderRef,
+                  ogaranyaSmsNumber: sale.payment.ogaranyaSmsNumber,
+                  ogaranyaSmsMessage: sale.payment.ogaranyaSmsMessage,
+                  flutterwaveTransactionId: sale.payment.flutterwaveTransactionId,
+                  flutterwavePaymentId: sale.payment.flutterwavePaymentId,
+                  flutterwavePaymentLink: sale.payment.flutterwavePaymentLink,
+                  recordedById: sale.payment.recordedById,
+                  notes: sale.payment.notes,
+                  saleId: sale.payment.saleId,
+                  recordedBy: sale.payment.recordedBy,
+                  createdAt: sale.payment.createdAt,
+                  updatedAt: sale.payment.updatedAt,
+                  deletedAt: sale.payment.deletedAt,
+                },
+              ]
+            : [],
+      },
+
+      
+      devices: Array.isArray(cleaned.devices)
+        ? cleaned.devices.map((device: any) => ({
+            id: device.id || device._id,
+            serialNumber: device.serialNumber,
+            key: device.key,
+            startingCode: device.startingCode,
+            count: device.count,
+            timeDivider: device.timeDivider,
+            restrictedDigitMode: device.restrictedDigitMode,
+            hardwareModel: device.hardwareModel,
+            firmwareVersion: device.firmwareVersion,
+            isTokenable: device.isTokenable,
+            isUsed: device.isUsed,
+            installationStatus: device.installationStatus,
+            installationLocation: device.installationLocation,
+            installationLongitude: device.installationLongitude,
+            installationLatitude: device.installationLatitude,
+            gpsVerified: device.gpsVerified,
+            saleItemIDs: device.saleItemIDs,
+            creatorId: device.creatorId,
+            createdAt: device.createdAt,
+            updatedAt: device.updatedAt,
+            tokens: Array.isArray(device.tokens)
+              ? device.tokens.map((token: any) => ({
+                  id: token.id || token._id,
+                  token: token.token,
+                  duration: token.duration,
+                  tokenReleased: token.tokenReleased,
+                  createdAt: token.createdAt,
+                  deviceId: token.deviceId,
+                  creatorId: token.creatorId,
+                }))
+              : [],
+          }))
+        : [],
+
+      
+      SaleRecipient: cleaned.SaleRecipient
+        ? {
+            id: cleaned.SaleRecipient.id,
+            firstname: cleaned.SaleRecipient.firstname,
+            lastname: cleaned.SaleRecipient.lastname,
+            address: cleaned.SaleRecipient.address,
+            phone: cleaned.SaleRecipient.phone,
+            email: cleaned.SaleRecipient.email,
+            createdAt: cleaned.SaleRecipient.createdAt,
+            updatedAt: cleaned.SaleRecipient.updatedAt,
+          }
+        : null,
+
+      
+      product: cleaned.product
+        ? {
+            id: cleaned.product.id,
+            name: cleaned.product.name,
+            description: cleaned.product.description,
+            image: cleaned.product.image,
+            currency: cleaned.product.currency,
+            paymentModes: cleaned.product.paymentModes,
+            creatorId: cleaned.product.creatorId,
+            categoryId: cleaned.product.categoryId,
+            createdAt: cleaned.product.createdAt,
+            updatedAt: cleaned.product.updatedAt,
+          }
+        : null,
+    };
+  }
+
+  private transformSaleItems(items: any[]) {
+    return items.map((item) => this.transformSaleItem(item));
+  }
+
+  formatResponse(
+    saleItems: any[],
+    total: number,
+    page: number,
+    limit: number,
+  ) {
+    const cleanedItems = this.transformSaleItems(saleItems);
+
+    return {
+      saleItems: cleanedItems,
+      total,
+      page,
+      limit,
+      totalPages: limit === 0 ? 0 : Math.ceil(total / limit),
+    };
+  }}

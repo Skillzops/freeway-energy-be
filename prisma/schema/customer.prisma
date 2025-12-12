@@ -62,6 +62,10 @@ model Customer {
   @@index([status])
   @@index([state])
   @@index([lga])
+  @@index([firstname])
+  @@index([lastname])
+  @@index([phone])
+  @@index([email])
 }
 
 model RejectionHistory {

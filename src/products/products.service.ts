@@ -118,7 +118,7 @@ export class ProductsService {
       createdAt,
       agentId,
       updatedAt,
-      sortField,
+      sortField = "createdAt",
       sortOrder,
       search,
     } = getProductsDto;

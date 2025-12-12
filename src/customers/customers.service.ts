@@ -274,26 +274,20 @@ export class CustomersService {
   }
 
   async getCustomers(query: ListCustomersQueryDto) {
-    const { page = 1, limit = 100, sortField, sortOrder } = query;
-
+    const { page = 1, limit = 100, sortField = "createdAt", sortOrder } = query;
     const filterConditions = await this.customerFilter(query);
-
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
-    const take = limitNumber;
 
     const orderBy = {
       [sortField || 'createdAt']: sortOrder || 'desc',
     };
 
-    const result = await this.prisma.customer.findMany({
+    const customers = await this.prisma.customer.findMany({
       skip,
-      take,
-      where: {
-        ...filterConditions,
-      },
+      take: limitNumber,
+      where: filterConditions,
       orderBy,
       include: {
         creatorDetails: {
@@ -304,18 +298,24 @@ export class CustomersService {
             email: true,
           },
         },
-        // assignedAgents: true
+      },
+    });
 
-        assignedAgents: {
-          where: {
-            agentId: { not: null },
-          },
-          select: {
-            agent: {
-              include: {
-                user: {
-                  select: { firstname: true, lastname: true, email: true },
-                },
+    const customerIds = customers.map((c) => c.id);
+
+    const agents = await this.prisma.agentCustomer.findMany({
+      where: {
+        customerId: { in: customerIds },
+        agentId: { not: null },
+      },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                firstname: true,
+                lastname: true,
+                email: true,
               },
             },
           },
@@ -323,19 +323,77 @@ export class CustomersService {
       },
     });
 
-    const customers = plainToInstance(UserEntity, result);
-
-    const totalCount = await this.prisma.customer.count({
+    const devices = await this.prisma.saleItem.findMany({
       where: {
-        ...filterConditions,
+        sale: {
+          customerId: { in: customerIds },
+        },
+      },
+      select: {
+        sale: {
+          select: {
+            customerId: true,
+          },
+        },
+        devices: {
+          select: {
+            id: true,
+            serialNumber: true,
+            key: true,
+            // productId: true,
+            tokens: {
+              select: {
+                id: true,
+                duration: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
       },
     });
 
+    const agentMap = new Map();
+    agents.forEach((ag) => {
+      if (!agentMap.has(ag.customerId)) {
+        agentMap.set(ag.customerId, []);
+      }
+      agentMap.get(ag.customerId).push({ agent: ag.agent });
+    });
+
+    const customerDevicesMap = new Map();
+    const deviceIdSet = new Set();
+    devices.forEach((item) => {
+      const customerId = item.sale.customerId;
+      if (!customerDevicesMap.has(customerId)) {
+        customerDevicesMap.set(customerId, []);
+      }
+      item.devices.forEach((device) => {
+        if (!deviceIdSet.has(device.id)) {
+          customerDevicesMap.get(customerId).push(device);
+          deviceIdSet.add(device.id); // Avoid duplicates
+        }
+      });
+    });
+
+    const mappedCustomers = customers.map((customer) => ({
+      // All original customer fields
+      ...customer,
+      // Override with mapped agents from separate query
+      assignedAgents: agentMap.get(customer.id) || [],
+      // Append devices array
+      devices: customerDevicesMap.get(customer.id) || [],
+    }));
+
+    const totalCount = await this.prisma.customer.count({
+      where: filterConditions,
+    });
+
     return {
-      customers,
+      customers: mappedCustomers,
       total: totalCount,
-      page,
-      limit,
+      page: pageNumber,
+      limit: limitNumber,
       totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
     };
   }
@@ -344,7 +402,7 @@ export class CustomersService {
     if (!ObjectId.isValid(id)) {
       throw new BadRequestException(`Invalid customer  ID: ${id}`);
     }
-    
+
     let creatorId;
 
     if (agent) {

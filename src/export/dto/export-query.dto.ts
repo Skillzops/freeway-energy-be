@@ -51,7 +51,7 @@ export class ExportDataQueryDto {
 **RENEWAL_REPORT**: See customers who haven't paid monthly reactivations
 - Shows: Customers with overdue installments, days/months defaulted
 - Use for: Identifying payment defaulters
-- Filter by: overdueDays (default: 35)
+- Filter by: overdueDays (default: 30)
 
 **WEEKLY_SUMMARY**: Generate weekly reports
 - Shows: Total new sales (stock & cash), total renewals (quantities & amounts)
@@ -151,14 +151,14 @@ export class ExportDataQueryDto {
     description: `
 **Overdue Days Threshold:**
 Minimum number of days since last payment to consider overdue.
-- Default: 35 days
+- Default: 30 days
 - Use for: Renewal Report to find defaulters
 - Example: overdueDays=60 finds customers who haven't paid in 60+ days
 
 (Applicable to only export_type=debt_report|renewal_report)
     `,
-    example: 35,
-    default: 35,
+    example: 30,
+    default: 30,
   })
   @IsOptional()
   @Type(() => Number)

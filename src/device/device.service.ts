@@ -1039,7 +1039,7 @@ export class DeviceService {
   }
 
   async fetchDevices(query: ListDevicesQueryDto, agent?: string) {
-    const { page = 1, limit = 100, sortField, sortOrder } = query;
+    const { page = 1, limit = 100, sortField = 'createdAt', sortOrder } = query;
 
     const filterConditions = await this.devicesFilter({
       ...query,

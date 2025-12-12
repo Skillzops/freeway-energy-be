@@ -22,6 +22,20 @@ export class ListSalesQueryDto extends PaginationQueryDto {
   agentId?: string;
 
   @ApiPropertyOptional({
+    description: 'Filter by creator - user ID (user who created the sale)',
+  })
+  @IsOptional()
+  @IsString()
+  creatorId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by customer ID',
+  })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @ApiPropertyOptional({
     description:
       'Search across multiple fields (customer name, phone, serial number, product name, sale ID)',
   })
