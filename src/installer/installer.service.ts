@@ -259,7 +259,7 @@ export class InstallerService {
       results.push(updatedDevice);
     }
 
-    // await this.completeTask(taskId, agent.id);
+    await this.completeTask(taskId, agent.id);
 
     return {
       message: 'Installation location updated and task completed',
@@ -279,6 +279,51 @@ export class InstallerService {
     });
     // return true;
   }
+
+  // async revertTasksAccepted() {
+  //   // First get installer task IDs with status
+  //   const tasks = await this.prisma.installerTask.findMany({
+  //     where: {
+  //       status: TaskStatus.ACCEPTED,
+  //     },
+  //     select: {
+  //       id: true,
+  //       saleId: true,
+  //     },
+  //   });
+
+  //   if (tasks.length === 0) return 0;
+
+  //   const saleIds = [...new Set(tasks.map((t) => t.saleId))];
+
+  //   // Get saleItems with devices in one query
+  //   const saleItems = await this.prisma.saleItem.findMany({
+  //     where: {
+  //       saleId: { in: saleIds },
+  //       devices: {
+  //         some: {
+  //           installationLocation: { not: null },
+  //         },
+  //       },
+  //     },
+  //     select: { saleId: true },
+  //     distinct: ['saleId'],
+  //   });
+
+  //   const validSaleIds = [...new Set(saleItems.map((si) => si.saleId))];
+
+  //   // Count tasks with valid sales
+  //   return await this.prisma.installerTask.updateMany({
+  //     where: {
+  //       saleId: { in: validSaleIds },
+  //       status: TaskStatus.ACCEPTED,
+  //     },
+  //     data: {
+  //       status: TaskStatus.COMPLETED,
+  //     }
+  //   });
+  //   // return true;
+  // }
 
   private async getInstallationStatistics(agentId: string) {
     const completedTasks = await this.prisma.installerTask.findMany({
