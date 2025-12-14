@@ -298,6 +298,22 @@ export class CustomersService {
             email: true,
           },
         },
+        approver: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+          }
+        },
+        rejecter: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+          }
+        }
       },
     });
 
@@ -457,6 +473,22 @@ export class CustomersService {
         products: {
           include: {
             product: true,
+          },
+        },
+        approver: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+          },
+        },
+        rejecter: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
           },
         },
       },

@@ -1112,13 +1112,23 @@ export class AgentsService {
     const where: Prisma.PaymentWhereInput = {
       sale: { creatorId: agent.userId },
       paymentStatus: PaymentStatus.COMPLETED,
+      ...(startDate || endDate
+        ? {
+            sale: {
+              createdAt: {
+                ...(startDate ? { gte: new Date(startDate) } : {}),
+                ...(endDate ? { lte: new Date(endDate) } : {}),
+              },
+            },
+          }
+        : {}),
     };
 
-    if (startDate || endDate) {
-      where.paymentDate = {};
-      if (startDate) where.paymentDate.gte = startDate;
-      if (endDate) where.paymentDate.lte = endDate;
-    }
+    // if (startDate || endDate) {
+    //   where.paymentDate = {};
+    //   if (startDate) where.paymentDate.gte = startDate;
+    //   if (endDate) where.paymentDate.lte = endDate;
+    // }
 
     const commissionRate = 0.07; // 7%
 
@@ -1223,14 +1233,24 @@ export class AgentsService {
     const where: Prisma.InstallerTaskWhereInput = {
       installerAgentId: installerId,
       status: TaskStatus.COMPLETED,
+      ...(startDate || endDate
+        ? {
+            sale: {
+              createdAt: {
+                ...(startDate ? { gte: new Date(startDate) } : {}),
+                ...(endDate ? { lte: new Date(endDate) } : {}),
+              },
+            },
+          }
+        : {}),
     };
 
     // Add date filters if provided
-    if (startDate || endDate) {
-      where.completedDate = {};
-      if (startDate) where.completedDate.gte = startDate;
-      if (endDate) where.completedDate.lte = endDate;
-    }
+    // if (startDate || endDate) {
+    //   // where.completedDate = {};
+    //   // if (startDate) where.completedDate.gte = startDate;
+    //   // if (endDate) where.completedDate.lte = endDate;
+    // }
 
     const commissionPerTask = 2000; // 2000 Naira per completed task
 
