@@ -11,7 +11,7 @@ import {
   CsvUploadStatsDto,
   SalesRowDto,
 } from './dto/csv-upload.dto';
-import { AgentCategory, PaymentMethod, PaymentMode, PaymentStatus, TaskStatus } from '@prisma/client';
+import { AgentCategory, InstallationStatus, PaymentMethod, PaymentMode, PaymentStatus, TaskStatus } from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -1365,6 +1365,7 @@ export class CsvUploadService {
           where: { id: deviceId },
           data: {
             isUsed: true,
+            installationStatus: InstallationStatus.installed,
             saleItemIDs: { push: saleItem.id },
           },
         });
