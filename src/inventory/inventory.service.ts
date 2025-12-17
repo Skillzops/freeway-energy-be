@@ -251,7 +251,7 @@ export class InventoryService {
     const result = await this.prisma.inventory.findMany({
       skip,
       take,
-      where: filterConditions,
+      where: {...filterConditions, hideInventory: false},
       orderBy,
       include: {
         batches: {
@@ -272,7 +272,7 @@ export class InventoryService {
     const updatedResults = result.map(this.mapInventoryToResponseDto);
 
     const totalCount = await this.prisma.inventory.count({
-      where: filterConditions,
+      where: {...filterConditions, hideInventory: false},
     });
 
     return {

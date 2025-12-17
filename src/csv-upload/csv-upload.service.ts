@@ -1170,6 +1170,7 @@ export class CsvUploadService {
           inventory = await this.prisma.inventory.create({
             data: {
               ...rest,
+              hideInventory: true,
               inventoryCategoryId: generatedDefaults.categories.inventory.id,
             },
           });

@@ -6,17 +6,19 @@ model Inventory {
   image             String?
   dateOfManufacture String?
 
+  hideInventory Boolean @default(false)
+
   status InventoryStatus @default(IN_STOCK)
   class  InventoryClass
 
   products ProductInventory[]
 
-  transferRequests    InventoryTransferRequest[]
+  transferRequests InventoryTransferRequest[]
 
   inventoryCategoryId String?   @db.ObjectId
   inventoryCategory   Category? @relation(name: "InventoryToCategory", fields: [inventoryCategoryId], references: [id])
 
-  inventorySubCategoryId String?  @db.ObjectId
+  inventorySubCategoryId String?   @db.ObjectId
   inventorySubCategory   Category? @relation(name: "InventoryToSubCategory", fields: [inventorySubCategoryId], references: [id])
 
   warehouseId String?    @db.ObjectId
@@ -28,8 +30,8 @@ model Inventory {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@map("inventories")
   @@index([status])
+  @@map("inventories")
 }
 
 model InventoryBatch {
@@ -54,8 +56,8 @@ model InventoryBatch {
 
   salesBatchAlocation BatchAlocation[]
 
-  @@map("inventory_batches")
   @@index([remainingQuantity])
+  @@map("inventory_batches")
 }
 
 enum InventoryStatus {
