@@ -6,6 +6,8 @@ model Product {
   currency     String? @default("NGN")
   paymentModes String?
 
+  hideProduct Boolean @default(false)
+
   assignedAgents AgentProduct[]
 
   creatorId      String? @db.ObjectId

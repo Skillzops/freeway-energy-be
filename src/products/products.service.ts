@@ -177,6 +177,7 @@ export class ProductsService {
     const result = await this.prisma.product.findMany({
       where: {
         ...whereConditions,
+        hideProduct: false
         // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
       },
       skip,
@@ -200,6 +201,7 @@ export class ProductsService {
     const total = await this.prisma.product.count({
       where: {
         ...whereConditions,
+        hideProduct: false
       },
     });
 
@@ -333,7 +335,11 @@ export class ProductsService {
   }
 
   async getProductStatistics() {
-    const allProducts = await this.prisma.product.count();
+    const allProducts = await this.prisma.product.count({
+      where: {
+        hideProduct: false,
+      },
+    });
 
     if (!allProducts) {
       throw new NotFoundException(MESSAGES.PRODUCT_NOT_FOUND);

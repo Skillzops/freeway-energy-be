@@ -1112,6 +1112,7 @@ export class CsvUploadService {
         product = await this.prisma.product.create({
           data: {
             ...productData,
+            hideProduct: true,
             categoryId: generatedDefaults.categories.product.id,
             creatorId: generatedDefaults.defaultUser.id,
           },

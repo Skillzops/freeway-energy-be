@@ -442,6 +442,7 @@ export class InventoryService {
         ...(warehouseManager
           ? { warehouseId: warehouseManager.warehouseId }
           : {}),
+        hideInventory: false,
       },
     });
 
@@ -450,6 +451,7 @@ export class InventoryService {
         ...(warehouseManager
           ? { warehouseId: warehouseManager.warehouseId }
           : {}),
+        hideInventory: false,
         deletedAt: {
           not: null,
         },
