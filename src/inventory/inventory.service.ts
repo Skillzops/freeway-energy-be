@@ -91,27 +91,31 @@ export class InventoryService {
       );
     }
 
-    const warehouseManager = await this.prisma.warehouseManager.findFirst({
-      where: {
-        userId: requestUserId,
-        warehouse: { isMain: true, isActive: true, deletedAt: null },
-      },
+    // const warehouseManager = await this.prisma.warehouseManager.findFirst({
+    //   where: {
+    //     userId: requestUserId,
+    //     warehouse: { isMain: true, isActive: true},
+    //   },
+    // });
+
+    // const warehouseId =
+    //   warehouseManager?.warehouseId ?? createInventoryDto.warehouseId;
+
+    // if(warehouseId){
+    //   const warehouse = await this.prisma.warehouse.findFirst({
+    //     where: {
+    //       id: warehouseId
+    //     }
+    //   })
+
+    //   if(!warehouse){
+    //     throw new NotFoundException("Warehouse not found")
+    //   }
+    // }
+
+    const { id: warehouseId } = await this.prisma.warehouse.findFirst({
+      where: { isMain: true, isActive: true },
     });
-
-    const warehouseId =
-      warehouseManager?.warehouseId ?? createInventoryDto.warehouseId;
-
-    if(warehouseId){
-      const warehouse = await this.prisma.warehouse.findFirst({
-        where: {
-          id: warehouseId
-        }
-      })
-
-      if(!warehouse){
-        throw new NotFoundException("Warehouse not found")
-      }
-    }
 
     const image = (await this.uploadInventoryImage(file)).secure_url;
 
