@@ -8,8 +8,6 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { MESSAGES } from '../constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApprovalStatus, Prisma, UserStatus } from '@prisma/client';
-import { plainToInstance } from 'class-transformer';
-import { UserEntity } from '../users/entity/user.entity';
 import { ListCustomersQueryDto } from './dto/list-customers.dto';
 import { getLastNDaysDate } from '../utils/helpers.util';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -498,7 +496,52 @@ export class CustomersService {
       throw new NotFoundException(MESSAGES.USER_NOT_FOUND);
     }
 
-    return customer;
+    const devices = await this.prisma.saleItem.findMany({
+      where: {
+        sale: {
+          customerId: customer.id
+        },
+      },
+      select: {
+        sale: {
+          select: {
+            customerId: true,
+          },
+        },
+        devices: {
+          select: {
+            id: true,
+            serialNumber: true,
+            key: true,
+            // productId: true,
+            tokens: {
+              select: {
+                id: true,
+                duration: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const customerDevicesMap = new Map();
+    const deviceIdSet = new Set();
+    devices.forEach((item) => {
+      const customerId = item.sale.customerId;
+      if (!customerDevicesMap.has(customerId)) {
+        customerDevicesMap.set(customerId, []);
+      }
+      item.devices.forEach((device) => {
+        if (!deviceIdSet.has(device.id)) {
+          customerDevicesMap.get(customerId).push(device);
+          deviceIdSet.add(device.id); // Avoid duplicates
+        }
+      });
+    });
+
+    return {...customer, devices: customerDevicesMap.get(customer.id) || [],};
   }
 
   async updateCustomer(
