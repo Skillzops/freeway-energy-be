@@ -427,6 +427,12 @@ export class InventoryService {
     //   },
     const inventoryClassCounts = await this.prisma.inventory.groupBy({
       by: ['class'],
+      where: {
+        hideInventory: false,
+        ...(warehouseManager
+          ? { warehouseId: warehouseManager.warehouseId }
+          : {}),
+      },
       _count: {
         class: true,
       },
