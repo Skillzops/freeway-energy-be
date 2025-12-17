@@ -251,7 +251,9 @@ export class InventoryService {
     const result = await this.prisma.inventory.findMany({
       skip,
       take,
-      where: {...filterConditions, hideInventory: false},
+      where: {...filterConditions, hideInventory: false, warehouse: {
+        isMain: true
+      }},
       orderBy,
       include: {
         batches: {
