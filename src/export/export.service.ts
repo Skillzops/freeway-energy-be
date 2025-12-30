@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExportDataQueryDto, ExportType } from './dto/export-query.dto';
+import { AgentCategory } from '@prisma/client';
 
 export interface ExportResult {
   data: string;
@@ -14,6 +15,13 @@ export interface ExportResult {
   generatedAt: Date;
   fileSize: number;
   summary?: any;
+}
+
+interface AgentInfo {
+  agentId: string;
+  userId: string;
+  agentName: string;
+  category: AgentCategory;
 }
 
 @Injectable()
@@ -77,10 +85,187 @@ export class ExportService {
     };
   }
 
+  /**
+   * Get agent info and validate existence
+   */
+  private async getAgentInfo(agentId: string): Promise<AgentInfo> {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      select: {
+        id: true,
+        category: true,
+        user: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+          },
+        },
+      },
+    });
+
+    if (!agent) {
+      throw new BadRequestException(`Agent with ID ${agentId} not found`);
+    }
+
+    return {
+      agentId: agent.id,
+      userId: agent.user.id,
+      agentName: `${agent.user.firstname} ${agent.user.lastname}`,
+      category: agent.category,
+    };
+  }
+
+  /**
+   * Build sales pipeline with agent filtering
+   */
+  private buildSalesPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+    page: number,
+    limit: number,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+    ];
+
+    // Add installer filter if needed
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          status: 1,
+          customerId: 1,
+          agentName: 1,
+          totalPrice: 1,
+          totalPaid: 1,
+          remainingInstallments: 1,
+          totalMonthlyPayment: 1,
+          totalInstallmentDuration: 1,
+          transactionDate: 1,
+          createdAt: 1,
+          'customer.firstname': 1,
+          'customer.lastname': 1,
+          'customer.phone': 1,
+          'customer.email': 1,
+          'customer.createdAt': 1,
+        },
+      },
+    );
+
+    return pipeline;
+  }
+
+  /**
+   * Build count pipeline for sales with agent filtering
+   */
+  private buildSalesCountPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push({ $count: 'total' });
+    return pipeline;
+  }
+
+  /**
+   * Get agent name display with installer label
+   */
+  private getDisplayAgentName(
+    saleAgentName: string | null,
+    customer: any,
+    agentInfo: AgentInfo | null,
+  ): string {
+    let displayName =
+      saleAgentName && saleAgentName.trim()
+        ? saleAgentName.trim()
+        : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${
+            customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''
+          }`.trim() || '';
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      displayName = displayName
+        ? `${displayName} (installer)`
+        : `${agentInfo.agentName} (installer)`;
+    }
+
+    return displayName;
+  }
+
   private async exportDebtReport(filters: ExportDataQueryDto): Promise<any> {
     const overdueDays = filters.overdueDays || 30;
     const page = filters.page || 1;
     const limit = filters.limit || 100;
+
+    let agentInfo: AgentInfo | null = null;
 
     const matchConditions: any = {
       status: { $in: ['IN_INSTALLMENT', 'COMPLETED'] },
@@ -95,24 +280,23 @@ export class ExportService {
 
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
-    if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
-    const countPipeline = [
-      { $match: matchConditions },
-      {
-        $lookup: {
-          from: 'sales_items',
-          localField: '_id',
-          foreignField: 'saleId',
-          as: 'saleItems',
-        },
-      },
-      {
-        $match: { saleItems: { $ne: [] } }, 
-      },
-      { $count: 'total' },
-    ];
+    // Handle agent filtering
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+      if (agentInfo.category === AgentCategory.SALES) {
+        matchConditions.$or = [
+          { agentId: { $oid: filters.agentId } },
+          { creatorId: { $oid: agentInfo.userId } },
+        ];
+      }
+      // For INSTALLER, filter in pipeline
+    }
 
+    const countPipeline = this.buildDebtReportCountPipeline(
+      matchConditions,
+      agentInfo,
+    );
     const countResult = await this.prisma.sales.aggregateRaw({
       pipeline: countPipeline,
       options: { allowDiskUse: true },
@@ -120,53 +304,12 @@ export class ExportService {
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
     const totalPages = Math.ceil(allRecordsCount / limit);
 
-    const salesPipeline = [
-      { $match: matchConditions },
-      {
-        $lookup: {
-          from: 'sales_items',
-          localField: '_id',
-          foreignField: 'saleId',
-          as: 'saleItems',
-        },
-      },
-      {
-        $match: { saleItems: { $ne: [] } }, 
-      },
-      {
-        $lookup: {
-          from: 'customers',
-          localField: 'customerId',
-          foreignField: '_id',
-          as: 'customer',
-        },
-      },
-      { $match: { customer: { $ne: [] } } },
-      { $unwind: '$customer' },
-      { $sort: { totalPrice: -1, _id: 1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-      {
-        $project: {
-          _id: 1,
-          customerId: 1,
-          agentId: 1,
-          agentName: 1,
-          totalPrice: 1,
-          totalPaid: 1,
-          totalMonthlyPayment: 1,
-          transactionDate: 1,
-          createdAt: 1,
-          status: 1,
-          'customer.firstname': 1,
-          'customer.lastname': 1,
-          'customer.phone': 1,
-          'customer.email': 1,
-          'customer.createdAt': 1,
-        },
-      },
-    ];
-
+    const salesPipeline = this.buildDebtReportPipeline(
+      matchConditions,
+      agentInfo,
+      page,
+      limit,
+    );
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: salesPipeline,
       options: { allowDiskUse: true },
@@ -178,6 +321,7 @@ export class ExportService {
     }
 
     const saleIds = sales.map((s) => this.extractObjectId(s._id));
+    const installerAgentMap = await this.buildInstallerAgentMap(saleIds);
     const customerIds = [
       ...new Set(sales.map((s) => this.extractObjectId(s.customerId))),
     ];
@@ -196,7 +340,6 @@ export class ExportService {
           })
         : [];
 
-    
     const devicesBySale = new Map<string, any[]>();
     saleItems.forEach((si) => {
       const devs = si.deviceIDs
@@ -321,11 +464,13 @@ export class ExportService {
           daysSinceLastPayment,
           isOverdue,
           status: sale.status || '',
-          agentName:
-            sale?.agentName && sale?.agentName?.trim()
-              ? sale?.agentName?.trim()
-              : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
-                '',
+          agentName: this.getDisplayAgentNameWithMap(
+            this.extractObjectId(sale._id),
+            sale?.agentName,
+            customer,
+            agentInfo,
+            installerAgentMap,
+          ),
           state: customer?.state || '',
           lga: customer?.lga || '',
           devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
@@ -355,7 +500,6 @@ export class ExportService {
       }),
     };
 
-    
     const csvData = this.buildCSV(
       [
         'Customer ID',
@@ -414,10 +558,132 @@ export class ExportService {
     };
   }
 
+  /**
+   * Build debt report pipeline with agent filtering
+   */
+  private buildDebtReportCountPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push({ $count: 'total' });
+    return pipeline;
+  }
+
+  /**
+   * Build debt report pipeline with agent filtering
+   */
+  private buildDebtReportPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+    page: number,
+    limit: number,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $match: { customer: { $ne: [] } } },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push(
+      { $unwind: '$customer' },
+      { $sort: { totalPrice: -1, _id: 1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          customerId: 1,
+          agentId: 1,
+          agentName: 1,
+          totalPrice: 1,
+          totalPaid: 1,
+          totalMonthlyPayment: 1,
+          transactionDate: 1,
+          createdAt: 1,
+          status: 1,
+          'customer.firstname': 1,
+          'customer.lastname': 1,
+          'customer.phone': 1,
+          'customer.email': 1,
+          'customer.createdAt': 1,
+        },
+      },
+    );
+
+    return pipeline;
+  }
+
   private async exportRenewalReport(filters: ExportDataQueryDto): Promise<any> {
     const overdueDays = filters.overdueDays || 30;
     const page = filters.page || 1;
     const limit = filters.limit || 100;
+
+    let agentInfo: AgentInfo | null = null;
 
     const matchConditions: any = {
       status: 'IN_INSTALLMENT',
@@ -432,78 +698,40 @@ export class ExportService {
 
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
-    if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
+    // Handle agent filtering
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+      if (agentInfo.category === AgentCategory.SALES) {
+        matchConditions.$or = [
+          { agentId: { $oid: filters.agentId } },
+          { creatorId: { $oid: agentInfo.userId } },
+        ];
+      }
+      // For INSTALLER, filter in pipeline
+    }
+
+    const countPipeline = this.buildRenewalReportCountPipeline(
+      matchConditions,
+      agentInfo,
+    );
     const countResult = await this.prisma.sales.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-        {
-          $lookup: {
-            from: 'sales_items',
-            localField: '_id',
-            foreignField: 'saleId',
-            as: 'saleItems',
-          },
-        },
-        {
-          $match: { saleItems: { $ne: [] } }, 
-        },
-        { $count: 'total' },
-      ],
+      pipeline: countPipeline,
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
     const totalPages = Math.ceil(allRecordsCount / limit);
 
+    const salesPipeline = this.buildRenewalReportPipeline(
+      matchConditions,
+      agentInfo,
+      page,
+      limit,
+    );
     const salesResults = await this.prisma.sales.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-        {
-          $lookup: {
-            from: 'sales_items',
-            localField: '_id',
-            foreignField: 'saleId',
-            as: 'saleItems',
-          },
-        },
-        {
-          $match: { saleItems: { $ne: [] } }, 
-        },
-        {
-          $lookup: {
-            from: 'customers',
-            localField: 'customerId',
-            foreignField: '_id',
-            as: 'customer',
-          },
-        },
-        { $match: { customer: { $ne: [] } } },
-        { $unwind: '$customer' },
-        { $sort: { createdAt: 1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-        {
-          $project: {
-            _id: 1,
-            customerId: 1,
-            agentName: 1,
-            totalPrice: 1,
-            totalPaid: 1,
-            totalMonthlyPayment: 1,
-            totalInstallmentDuration: 1,
-            transactionDate: 1,
-            createdAt: 1,
-            'customer.firstname': 1,
-            'customer.lastname': 1,
-            'customer.phone': 1,
-            'customer.email': 1,
-            'customer.createdAt': 1,
-          },
-        },
-      ],
+      pipeline: salesPipeline,
       options: { allowDiskUse: true },
     });
-
     const sales = this.extractResults(salesResults);
 
     if (sales.length === 0) {
@@ -516,6 +744,7 @@ export class ExportService {
     }
 
     const saleIds = sales.map((s) => this.extractObjectId(s._id));
+    const installerAgentMap = await this.buildInstallerAgentMap(saleIds);
     const customerIds = [
       ...new Set(sales.map((s) => this.extractObjectId(s.customerId))),
     ];
@@ -533,7 +762,6 @@ export class ExportService {
           })
         : [];
 
-    
     const devicesBySale = new Map<string, any[]>();
     saleItems.forEach((si) => {
       const devs = si.deviceIDs
@@ -571,7 +799,6 @@ export class ExportService {
       this.prisma.payment.findMany({
         where: {
           saleId: { in: saleIds },
-          sale: {},
           paymentStatus: 'COMPLETED',
         },
         select: { saleId: true, paymentDate: true },
@@ -623,10 +850,10 @@ export class ExportService {
             : new Date(sale.createdAt);
 
         const monthsSinceSale = Math.floor(
-          (now - saleDate.getTime()) / 2592000000, 
+          (now - saleDate.getTime()) / 2592000000,
         );
 
-        const totalDuration = sale.totalInstallmentDuration || 12; 
+        const totalDuration = sale.totalInstallmentDuration || 12;
         const expectedPayments = Math.max(
           0,
           Math.min(monthsSinceSale, totalDuration - 1),
@@ -660,11 +887,13 @@ export class ExportService {
           outstandingBalance: parseFloat(
             ((sale.totalPrice || 0) - (sale.totalPaid || 0)).toFixed(2),
           ),
-          agentName:
-            sale?.agentName && sale?.agentName?.trim()
-              ? sale?.agentName?.trim()
-              : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
-                '',
+          agentName: this.getDisplayAgentNameWithMap(
+            this.extractObjectId(sale._id),
+            sale?.agentName,
+            customer,
+            agentInfo,
+            installerAgentMap,
+          ),
           state: customer?.state || '',
           lga: customer?.lga || '',
           devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
@@ -739,10 +968,128 @@ export class ExportService {
     };
   }
 
+  /**
+   * Build renewal report count pipeline with agent filtering
+   */
+  private buildRenewalReportCountPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push({ $count: 'total' });
+    return pipeline;
+  }
+
+  /**
+   * Build renewal report pipeline with agent filtering
+   */
+  private buildRenewalReportPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+    page: number,
+    limit: number,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $match: { customer: { $ne: [] } } },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push(
+      { $unwind: '$customer' },
+      { $sort: { createdAt: 1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          customerId: 1,
+          agentName: 1,
+          totalPrice: 1,
+          totalPaid: 1,
+          totalMonthlyPayment: 1,
+          totalInstallmentDuration: 1,
+          transactionDate: 1,
+          createdAt: 1,
+          'customer.firstname': 1,
+          'customer.lastname': 1,
+          'customer.phone': 1,
+          'customer.email': 1,
+          'customer.createdAt': 1,
+        },
+      },
+    );
+
+    return pipeline;
+  }
+
   private async exportWeeklySummary(filters: ExportDataQueryDto): Promise<any> {
     const { startDate: rawStartDate, endDate: rawEndDate } = filters;
 
-    
     const { startDate, endDate } = this.validateAndCalculateDateRange(
       rawStartDate,
       rawEndDate,
@@ -757,7 +1104,6 @@ export class ExportService {
   ): Promise<any> {
     const { startDate: rawStartDate, endDate: rawEndDate } = filters;
 
-    
     const { startDate, endDate } = this.validateAndCalculateDateRange(
       rawStartDate,
       rawEndDate,
@@ -781,137 +1127,28 @@ export class ExportService {
       deletedAt: null,
     };
 
-    if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
+    let agentInfo: AgentInfo | null = null;
+
+    // Handle agent filtering
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+      if (agentInfo.category === AgentCategory.SALES) {
+        matchConditions.$or = [
+          { agentId: { $oid: filters.agentId } },
+          { creatorId: { $oid: agentInfo.userId } },
+        ];
+      }
+      // For INSTALLER, filter in pipeline
+    }
 
     const [newSalesResults, renewalsResults] = await Promise.all([
-      
-      this.prisma.sales.aggregateRaw({
-        pipeline: [
-          { $match: matchConditions },
-          {
-            $lookup: {
-              from: 'sales_items',
-              localField: '_id',
-              foreignField: 'saleId',
-              as: 'items',
-            },
-          },
-          {
-            $match: { items: { $ne: [] } }, 
-          },
-          { $unwind: { path: '$items', preserveNullAndEmptyArrays: true } },
-          {
-            $group: {
-              _id: null,
-              totalSales: { $sum: 1 },
-              totalQuantity: { $sum: '$items.quantity' },
-              cashCount: {
-                $sum: {
-                  $cond: [{ $eq: ['$items.paymentMode', 'ONE_OFF'] }, 1, 0],
-                },
-              },
-              cashQty: {
-                $sum: {
-                  $cond: [
-                    { $eq: ['$items.paymentMode', 'ONE_OFF'] },
-                    '$items.quantity',
-                    0,
-                  ],
-                },
-              },
-              installCount: {
-                $sum: {
-                  $cond: [{ $eq: ['$items.paymentMode', 'INSTALLMENT'] }, 1, 0],
-                },
-              },
-              installQty: {
-                $sum: {
-                  $cond: [
-                    { $eq: ['$items.paymentMode', 'INSTALLMENT'] },
-                    '$items.quantity',
-                    0,
-                  ],
-                },
-              },
-              totalRev: { $sum: '$totalPrice' },
-              cashRev: {
-                $sum: {
-                  $cond: [
-                    { $eq: ['$items.paymentMode', 'ONE_OFF'] },
-                    '$totalPrice',
-                    0,
-                  ],
-                },
-              },
-              installRev: {
-                $sum: {
-                  $cond: [
-                    { $eq: ['$items.paymentMode', 'INSTALLMENT'] },
-                    '$totalPrice',
-                    0,
-                  ],
-                },
-              },
-            },
-          },
-        ],
-        options: { allowDiskUse: true },
-      }),
-      this.prisma.payment.aggregateRaw({
-        pipeline: [
-          {
-            $match: {
-              paymentDate: {
-                $gte: { $date: startDate.toISOString() },
-                $lte: { $date: endDate.toISOString() },
-              },
-              paymentStatus: 'COMPLETED',
-            },
-          },
-          {
-            $lookup: {
-              from: 'sales',
-              localField: 'saleId',
-              foreignField: '_id',
-              as: 'sale',
-            },
-          },
-          { $unwind: '$sale' },
-          ...(filters.agentId
-            ? [{ $match: { 'sale.agentId': { $oid: filters.agentId } } }]
-            : []),
-          {
-            $lookup: {
-              from: 'payments',
-              let: { saleId: '$saleId' },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: { $eq: ['$saleId', '$$saleId'] },
-                    paymentStatus: 'COMPLETED',
-                  },
-                },
-                { $sort: { paymentDate: 1 } },
-              ],
-              as: 'allPayments',
-            },
-          },
-          {
-            $addFields: {
-              paymentIndex: { $indexOfArray: ['$allPayments._id', '$_id'] },
-            },
-          },
-          { $match: { paymentIndex: { $gt: 0 } } },
-          {
-            $group: {
-              _id: null,
-              totalRenewals: { $sum: 1 },
-              totalAmount: { $sum: '$amount' },
-            },
-          },
-        ],
-        options: { allowDiskUse: true },
-      }),
+      this.buildSummaryNewSalesPipeline(matchConditions, agentInfo),
+      this.buildSummaryRenewalsPipeline(
+        matchConditions,
+        agentInfo,
+        startDate,
+        endDate,
+      ),
     ]);
 
     const newSales = this.extractResults(newSalesResults)[0] || {};
@@ -978,9 +1215,207 @@ export class ExportService {
     };
   }
 
+  /**
+   * Build new sales pipeline for summary with agent filtering
+   */
+  private async buildSummaryNewSalesPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+  ): Promise<any> {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'items',
+        },
+      },
+      {
+        $match: { items: { $ne: [] } },
+      },
+    ];
+
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push(
+      { $unwind: { path: '$items', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: null,
+          totalSales: { $sum: 1 },
+          totalQuantity: { $sum: '$items.quantity' },
+          cashCount: {
+            $sum: {
+              $cond: [{ $eq: ['$items.paymentMode', 'ONE_OFF'] }, 1, 0],
+            },
+          },
+          cashQty: {
+            $sum: {
+              $cond: [
+                { $eq: ['$items.paymentMode', 'ONE_OFF'] },
+                '$items.quantity',
+                0,
+              ],
+            },
+          },
+          installCount: {
+            $sum: {
+              $cond: [{ $eq: ['$items.paymentMode', 'INSTALLMENT'] }, 1, 0],
+            },
+          },
+          installQty: {
+            $sum: {
+              $cond: [
+                { $eq: ['$items.paymentMode', 'INSTALLMENT'] },
+                '$items.quantity',
+                0,
+              ],
+            },
+          },
+          totalRev: { $sum: '$totalPrice' },
+          cashRev: {
+            $sum: {
+              $cond: [
+                { $eq: ['$items.paymentMode', 'ONE_OFF'] },
+                '$totalPrice',
+                0,
+              ],
+            },
+          },
+          installRev: {
+            $sum: {
+              $cond: [
+                { $eq: ['$items.paymentMode', 'INSTALLMENT'] },
+                '$totalPrice',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    );
+
+    return this.prisma.sales.aggregateRaw({
+      pipeline,
+      options: { allowDiskUse: true },
+    });
+  }
+
+  /**
+   * Build renewals pipeline for summary with agent filtering
+   */
+  private async buildSummaryRenewalsPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<any> {
+    const pipeline: any[] = [
+      {
+        $match: {
+          paymentDate: {
+            $gte: { $date: startDate.toISOString() },
+            $lte: { $date: endDate.toISOString() },
+          },
+          paymentStatus: 'COMPLETED',
+        },
+      },
+      {
+        $lookup: {
+          from: 'sales',
+          localField: 'saleId',
+          foreignField: '_id',
+          as: 'sale',
+        },
+      },
+      { $unwind: '$sale' },
+    ];
+
+    // Handle agent filtering
+    if (agentInfo?.category === AgentCategory.SALES) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'sale.agentId': { $oid: agentInfo.agentId } },
+            { 'sale.creatorId': { $oid: agentInfo.userId } },
+          ],
+        },
+      });
+    } else if (agentInfo?.category === AgentCategory.INSTALLER) {
+      pipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: 'saleId',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$saleId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: 1 } },
+          ],
+          as: 'allPayments',
+        },
+      },
+      {
+        $addFields: {
+          paymentIndex: { $indexOfArray: ['$allPayments._id', '$_id'] },
+        },
+      },
+      { $match: { paymentIndex: { $gt: 0 } } },
+      {
+        $group: {
+          _id: null,
+          totalRenewals: { $sum: 1 },
+          totalAmount: { $sum: '$amount' },
+        },
+      },
+    );
+
+    return this.prisma.payment.aggregateRaw({
+      pipeline,
+      options: { allowDiskUse: true },
+    });
+  }
+
   private async exportSales(filters: ExportDataQueryDto): Promise<any> {
     const page = filters.page || 1;
     const limit = filters.limit || 100;
+
+    let agentInfo: AgentInfo | null = null;
 
     const matchConditions: any = { deletedAt: null };
     if (filters.startDate || filters.endDate) {
@@ -997,74 +1432,40 @@ export class ExportService {
     if (filters.salesStatus) matchConditions.status = filters.salesStatus;
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
-    if (filters.agentId) matchConditions.agentId = { $oid: filters.agentId };
 
+    // Handle agent filtering
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+      if (agentInfo.category === AgentCategory.SALES) {
+        matchConditions.$or = [
+          { agentId: { $oid: filters.agentId } },
+          { creatorId: { $oid: agentInfo.userId } },
+        ];
+      }
+      // For INSTALLER, we'll use pipeline aggregation
+    }
+
+    // Count
+    const countPipeline = this.buildSalesCountPipeline(
+      matchConditions,
+      agentInfo,
+    );
     const countResult = await this.prisma.sales.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-        {
-          $lookup: {
-            from: 'sales_items',
-            localField: '_id',
-            foreignField: 'saleId',
-            as: 'saleItems',
-          },
-        },
-        {
-          $match: { saleItems: { $ne: [] } }, 
-        },
-        { $count: 'total' },
-      ],
+      pipeline: countPipeline,
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
     const totalPages = Math.ceil(allRecordsCount / limit);
 
+    // Get sales
+    const salesPipeline = this.buildSalesPipeline(
+      matchConditions,
+      agentInfo,
+      page,
+      limit,
+    );
     const salesResults = await this.prisma.sales.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-        {
-          $lookup: {
-            from: 'sales_items',
-            localField: '_id',
-            foreignField: 'saleId',
-            as: 'saleItems',
-          },
-        },
-        {
-          $match: { saleItems: { $ne: [] } }, 
-        },
-        {
-          $lookup: {
-            from: 'customers',
-            localField: 'customerId',
-            foreignField: '_id',
-            as: 'customer',
-          },
-        },
-        { $sort: { createdAt: -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-        {
-          $project: {
-            _id: 1,
-            customerId: 1,
-            agentName: 1,
-            totalPrice: 1,
-            totalPaid: 1,
-            remainingInstallments: 1,
-            totalMonthlyPayment: 1,
-            totalInstallmentDuration: 1,
-            transactionDate: 1,
-            createdAt: 1,
-            'customer.firstname': 1,
-            'customer.lastname': 1,
-            'customer.phone': 1,
-            'customer.email': 1,
-            'customer.createdAt': 1,
-          },
-        },
-      ],
+      pipeline: salesPipeline,
       options: { allowDiskUse: true },
     });
     const sales = this.extractResults(salesResults);
@@ -1082,7 +1483,7 @@ export class ExportService {
     }
 
     const saleIds = sales.map((s) => this.extractObjectId(s._id));
-
+    const installerAgentMap = await this.buildInstallerAgentMap(saleIds);
     const saleItems = await this.prisma.saleItem.findMany({
       where: { saleId: { in: saleIds } },
       select: { saleId: true, deviceIDs: true },
@@ -1097,7 +1498,6 @@ export class ExportService {
           })
         : [];
 
-    
     const devicesBySale = new Map<string, any[]>();
     saleItems.forEach((si) => {
       const devs = si.deviceIDs
@@ -1138,7 +1538,6 @@ export class ExportService {
       this.prisma.saleItem.findMany({
         where: { saleId: { in: saleIds } },
         select: { saleId: true, paymentMode: true },
-        take: saleIds.length, 
       }),
       this.prisma.payment.findMany({
         where: { saleId: { in: saleIds }, paymentStatus: 'COMPLETED' },
@@ -1168,10 +1567,13 @@ export class ExportService {
           sale.transactionDate || sale.createdAt,
         ),
         status: sale.status || '',
-        agentName:
-          sale?.agentName ||
-          `${customer.assignedAgents?.[0].agent.user.firstname} ${customer.assignedAgents?.[0].agent.user.lastname}` ||
-          '',
+        agentName: this.getDisplayAgentNameWithMap(
+          this.extractObjectId(sale._id),
+          sale?.agentName,
+          customer,
+          agentInfo,
+          installerAgentMap,
+        ),
         customerName: customer
           ? `${customer.firstname} ${customer.lastname}`
           : '',
@@ -1265,8 +1667,45 @@ export class ExportService {
 
     const customerIds = customers.map((c) => this.extractObjectId(c._id));
 
+    // Build agent filter if provided
+    let agentFilter: any = undefined;
+    if (filters.agentId) {
+      const agentInfo = await this.getAgentInfo(filters.agentId);
+      if (agentInfo.category === AgentCategory.SALES) {
+        agentFilter = {
+          $or: [
+            { agentId: agentInfo.agentId },
+            { creatorId: agentInfo.userId },
+          ],
+        };
+      } else if (agentInfo.category === AgentCategory.INSTALLER) {
+        // For installers, we need to filter by installer tasks
+        const installerTasks = await this.prisma.installerTask.findMany({
+          where: { installerAgentId: agentInfo.agentId },
+          select: { saleId: true },
+          distinct: ['saleId'],
+        });
+        const saleIds = installerTasks.map((t) => t.saleId).filter(Boolean);
+        if (saleIds.length === 0) {
+          return {
+            data: '',
+            jsonData: [],
+            totalRecords: 0,
+            allRecordsCount,
+            currentPage: page,
+            totalPages,
+            exportType: ExportType.CUSTOMERS,
+          };
+        }
+        agentFilter = { id: { in: saleIds } };
+      }
+    }
+
     const sales = await this.prisma.sales.findMany({
-      where: { customerId: { in: customerIds } },
+      where: {
+        customerId: { in: customerIds },
+        ...agentFilter,
+      },
       select: { id: true, customerId: true, totalPrice: true, totalPaid: true },
     });
 
@@ -1287,7 +1726,6 @@ export class ExportService {
       },
     });
 
-    
     const devicesByCustomer = new Map<string, any[]>();
     saleItems.forEach((si) => {
       const sale = sales.find((s) => s.id === si.saleId);
@@ -1307,7 +1745,6 @@ export class ExportService {
       }
     });
 
-    
     const salesByCustomer = new Map<
       string,
       { totalSpent: number; outstandingDebt: number; count: number }
@@ -1336,7 +1773,6 @@ export class ExportService {
         };
         const customerDevices = devicesByCustomer.get(customerId) || [];
 
-        
         if (filters.hasOutstandingDebt && stats.outstandingDebt <= 0)
           return null;
 
@@ -1392,6 +1828,8 @@ export class ExportService {
     const page = filters.page || 1;
     const limit = filters.limit || 100;
 
+    let agentInfo: AgentInfo | null = null;
+
     const matchConditions: any = { deletedAt: null };
     if (filters.paymentMethod)
       matchConditions.paymentMethod = filters.paymentMethod;
@@ -1407,62 +1845,32 @@ export class ExportService {
         };
     }
 
+    // Get agent info if filtering
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+    }
+
+    const countPipeline = this.buildPaymentsCountPipeline(
+      matchConditions,
+      agentInfo,
+    );
     const countResult = await this.prisma.payment.aggregateRaw({
-      pipeline: [{ $match: matchConditions }, { $count: 'total' }],
+      pipeline: countPipeline,
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
     const totalPages = Math.ceil(allRecordsCount / limit);
 
+    const paymentsPipeline = this.buildPaymentsPipeline(
+      matchConditions,
+      agentInfo,
+      page,
+      limit,
+    );
     const paymentsResults = await this.prisma.payment.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-
-        {
-          $lookup: {
-            from: 'sales',
-            localField: 'saleId',
-            foreignField: '_id',
-            as: 'sale',
-          },
-        },
-        { $unwind: '$sale' },
-
-        {
-          $lookup: {
-            from: 'customers',
-            localField: 'sale.customerId',
-            foreignField: '_id',
-            as: 'customer',
-          },
-        },
-        { $unwind: '$customer' },
-
-        { $match: { customer: { $ne: null } } },
-
-        { $sort: { paymentDate: -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-
-        {
-          $project: {
-            _id: 1,
-            saleId: 1,
-            transactionRef: 1,
-            amount: 1,
-            paymentStatus: 1,
-            paymentMethod: 1,
-            paymentDate: 1,
-            'customer.firstname': 1,
-            'customer.lastname': 1,
-            'customer.phone': 1,
-            'sale.agentName': 1,
-          },
-        },
-      ],
+      pipeline: paymentsPipeline,
       options: { allowDiskUse: true },
     });
-
     const payments = this.extractResults(paymentsResults);
 
     if (payments.length === 0) {
@@ -1481,6 +1889,8 @@ export class ExportService {
       ...new Set(payments.map((p) => this.extractObjectId(p.saleId))),
     ];
 
+    const installerAgentMap = await this.buildInstallerAgentMap(saleIds);
+
     const saleItems = await this.prisma.saleItem.findMany({
       where: { saleId: { in: saleIds } },
       select: { saleId: true, deviceIDs: true },
@@ -1495,7 +1905,6 @@ export class ExportService {
           })
         : [];
 
-    
     const devicesBySale = new Map<string, any[]>();
     saleItems.forEach((si) => {
       const devs = si.deviceIDs
@@ -1552,11 +1961,13 @@ export class ExportService {
           ? `${customer.firstname} ${customer.lastname}`
           : '',
         customerPhone: customer?.phone || '',
-        agentName:
-          sale?.agentName && sale?.agentName?.trim()
-            ? sale?.agentName?.trim()
-            : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
-              '',
+        agentName: this.getDisplayAgentNameWithMap(
+          this.extractObjectId(payment.saleId),
+          sale?.agentName,
+          customer,
+          agentInfo,
+          installerAgentMap,
+        ),
         devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
       };
     });
@@ -1586,6 +1997,140 @@ export class ExportService {
       totalPages,
       exportType: ExportType.PAYMENTS,
     };
+  }
+
+  /**
+   * Build payments count pipeline with agent filtering
+   */
+  private buildPaymentsCountPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+  ): any[] {
+    const pipeline: any[] = [{ $match: matchConditions }];
+
+    if (agentInfo) {
+      pipeline.push({
+        $lookup: {
+          from: 'sales',
+          localField: 'saleId',
+          foreignField: '_id',
+          as: 'sale',
+        },
+      });
+      pipeline.push({ $unwind: '$sale' });
+
+      if (agentInfo.category === AgentCategory.SALES) {
+        pipeline.push({
+          $match: {
+            $or: [
+              { 'sale.agentId': { $oid: agentInfo.agentId } },
+              { 'sale.creatorId': { $oid: agentInfo.userId } },
+            ],
+          },
+        });
+      } else if (agentInfo.category === AgentCategory.INSTALLER) {
+        pipeline.push({
+          $lookup: {
+            from: 'installer_tasks',
+            localField: 'saleId',
+            foreignField: 'saleId',
+            as: 'installerTasks',
+          },
+        });
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      }
+    }
+
+    pipeline.push({ $count: 'total' });
+    return pipeline;
+  }
+
+  /**
+   * Build payments pipeline with agent filtering
+   */
+  private buildPaymentsPipeline(
+    matchConditions: any,
+    agentInfo: AgentInfo | null,
+    page: number,
+    limit: number,
+  ): any[] {
+    const pipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales',
+          localField: 'saleId',
+          foreignField: '_id',
+          as: 'sale',
+        },
+      },
+      { $unwind: '$sale' },
+      {
+        $lookup: {
+          from: 'customers',
+          localField: 'sale.customerId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      { $unwind: '$customer' },
+      { $match: { customer: { $ne: null } } },
+    ];
+
+    // Add agent filters if needed
+    if (agentInfo) {
+      if (agentInfo.category === AgentCategory.SALES) {
+        pipeline.push({
+          $match: {
+            $or: [
+              { 'sale.agentId': { $oid: agentInfo.agentId } },
+              { 'sale.creatorId': { $oid: agentInfo.userId } },
+            ],
+          },
+        });
+      } else if (agentInfo.category === AgentCategory.INSTALLER) {
+        pipeline.push({
+          $lookup: {
+            from: 'installer_tasks',
+            localField: 'sale._id',
+            foreignField: 'saleId',
+            as: 'installerTasks',
+          },
+        });
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      }
+    }
+
+    pipeline.push(
+      { $sort: { paymentDate: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          saleId: 1,
+          transactionRef: 1,
+          amount: 1,
+          paymentStatus: 1,
+          paymentMethod: 1,
+          paymentDate: 1,
+          'customer.firstname': 1,
+          'customer.lastname': 1,
+          'customer.phone': 1,
+          'sale.agentName': 1,
+        },
+      },
+    );
+
+    return pipeline;
   }
 
   private async exportDevices(filters: ExportDataQueryDto): Promise<any> {
@@ -1653,7 +2198,7 @@ export class ExportService {
     const saleIds = [...new Set(saleItems.map((si) => si.saleId))];
     const sales = await this.prisma.sales.findMany({
       where: { id: { in: saleIds } },
-      select: { id: true, customerId: true, agentId: true, agentName: true },
+      select: { id: true, customerId: true, creatorId: true, agentId: true, agentName: true },
     });
 
     let customerIds = [
@@ -1661,9 +2206,42 @@ export class ExportService {
     ];
     const agentIds = [...new Set(sales.map((s) => s.agentId).filter(Boolean))];
 
+    let agentInfo: AgentInfo | null = null;
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+    }
+
+    // Filter by agent if provided
+    let filteredSales = sales;
+    if (filters.agentId) {
+      if (agentInfo.category === AgentCategory.SALES) {
+        filteredSales = sales.filter(
+          (s) =>
+            s.agentId === agentInfo.agentId ||
+            s.creatorId === agentInfo.userId,
+        );
+      } else if (agentInfo.category === AgentCategory.INSTALLER) {
+        const installerTasks = await this.prisma.installerTask.findMany({
+          where: { installerAgentId: agentInfo.agentId },
+          select: { saleId: true },
+        });
+        const installerSaleIds = new Set(
+          installerTasks.map((t) => t.saleId).filter(Boolean),
+        );
+        filteredSales = sales.filter((s) => installerSaleIds.has(s.id));
+      }
+      customerIds = [
+        ...new Set(filteredSales.map((s) => s.customerId).filter(Boolean)),
+      ];
+    }
+
     if (filters.customerId) {
       customerIds = customerIds.filter((id) => id === filters.customerId);
     }
+
+    const filteredSaleIds = filteredSales.map((s) => s.id);
+    const installerAgentMap =
+      await this.buildInstallerAgentMap(filteredSaleIds);
 
     const customers =
       customerIds.length > 0
@@ -1711,7 +2289,7 @@ export class ExportService {
         deviceToSale.set(deviceId, si.saleId);
       });
     });
-    const saleMap = new Map(sales.map((s) => [s.id, s]));
+    const saleMap = new Map(filteredSales.map((s) => [s.id, s]));
     const customerMap = new Map(customers.map((c) => [c.id, c]));
     const agentMap = new Map(
       agents.map((a) => [
@@ -1729,10 +2307,11 @@ export class ExportService {
         const saleId = deviceToSale.get(deviceId);
         const sale = saleMap.get(saleId);
         const customer = customerMap.get(sale?.customerId);
-        const agent = agentMap.get(sale?.agentId);
 
         if (filters.customerId && sale?.customerId !== filters.customerId)
           return null;
+
+        if (!sale) return null;
 
         return {
           serialNumber: device.serialNumber || '',
@@ -1741,13 +2320,13 @@ export class ExportService {
             ? `${customer.firstname} ${customer.lastname}`
             : '',
           customerPhone: customer?.phone || '',
-          agentName:
-            sale?.agentName && sale?.agentName?.trim()
-              ? sale?.agentName?.trim()
-              : agent
-                ? `${agent.firstname} ${agent.lastname}`.trim()
-                : `${customer?.assignedAgents?.[0]?.agent?.user?.firstname ?? ''} ${customer?.assignedAgents?.[0]?.agent?.user?.lastname ?? ''}`.trim() ||
-                  '',
+          agentName: this.getDisplayAgentNameWithMap(
+            saleId,
+            sale?.agentName,
+            customer,
+            agentInfo,
+            installerAgentMap,
+          ),
           createdDate: this.formatDate(device.createdAt),
         };
       })
@@ -1782,6 +2361,11 @@ export class ExportService {
     const startDate = filters.startDate ? new Date(filters.startDate) : null;
     const endDate = filters.endDate ? new Date(filters.endDate) : null;
 
+    let agentInfo: AgentInfo | null = null;
+    if (filters.agentId) {
+      agentInfo = await this.getAgentInfo(filters.agentId);
+    }
+
     const matchConditions: any = {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
@@ -1797,32 +2381,60 @@ export class ExportService {
       }
     }
 
+    // Add agent filter for sales agents
+    if (agentInfo?.category === AgentCategory.SALES) {
+      matchConditions.$or = [
+        { agentId: { $oid: agentInfo.agentId } },
+        { creatorId: { $oid: agentInfo.userId } },
+      ];
+    }
+
+    const salesPipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales_items',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'saleItems',
+        },
+      },
+      {
+        $match: { saleItems: { $ne: [] } },
+      },
+    ];
+
+    // Add installer filter if needed
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      salesPipeline.push({
+        $lookup: {
+          from: 'installer_tasks',
+          localField: '_id',
+          foreignField: 'saleId',
+          as: 'installerTasks',
+        },
+      });
+      salesPipeline.push({
+        $match: {
+          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+        },
+      });
+    }
+
+    salesPipeline.push({
+      $group: {
+        _id: null,
+        totalOutstandingAmount: {
+          $sum: { $subtract: ['$totalPrice', '$totalPaid'] },
+        },
+        totalSalesCount: { $sum: 1 },
+        totalPriceSum: { $sum: '$totalPrice' },
+        totalPaidSum: { $sum: '$totalPaid' },
+      },
+    });
+
     const salesResults = await this.prisma.sales.aggregateRaw({
-      pipeline: [
-        { $match: matchConditions },
-        {
-          $lookup: {
-            from: 'sales_items',
-            localField: '_id',
-            foreignField: 'saleId',
-            as: 'saleItems',
-          },
-        },
-        {
-          $match: { saleItems: { $ne: [] } }, 
-        },
-        {
-          $group: {
-            _id: null,
-            totalOutstandingAmount: {
-              $sum: { $subtract: ['$totalPrice', '$totalPaid'] },
-            },
-            totalSalesCount: { $sum: 1 },
-            totalPriceSum: { $sum: '$totalPrice' },
-            totalPaidSum: { $sum: '$totalPaid' },
-          },
-        },
-      ],
+      pipeline: salesPipeline,
       options: { allowDiskUse: true },
     });
 
@@ -2015,7 +2627,6 @@ export class ExportService {
     endDate?: string,
     period: 'WEEKLY' | 'MONTHLY' = 'WEEKLY',
   ): { startDate: Date; endDate: Date } {
-    
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
@@ -2024,7 +2635,6 @@ export class ExportService {
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
       if (period === 'WEEKLY') {
-        
         if (diffDays < 0 || diffDays > 6) {
           throw new BadRequestException(
             `Weekly report date range must be within a 7-day period. You provided ${diffDays + 1} days. Example: 2025-01-01 to 2025-01-07`,
@@ -2032,7 +2642,6 @@ export class ExportService {
         }
         return { startDate: start, endDate: end };
       } else if (period === 'MONTHLY') {
-        
         const isNotSameMonthYear =
           start.getMonth() !== end.getMonth() ||
           start.getFullYear() !== end.getFullYear();
@@ -2046,17 +2655,14 @@ export class ExportService {
       }
     }
 
-    
     if (startDate && !endDate) {
       const start = new Date(startDate);
       let end: Date;
 
       if (period === 'WEEKLY') {
-        
         end = new Date(start);
         end.setDate(end.getDate() + 6);
       } else if (period === 'MONTHLY') {
-        
         end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
       }
 
@@ -2068,18 +2674,15 @@ export class ExportService {
       let start: Date;
 
       if (period === 'WEEKLY') {
-        
         start = new Date(end);
         start.setDate(start.getDate() - 6);
       } else if (period === 'MONTHLY') {
-        
         start = new Date(end.getFullYear(), end.getMonth(), 1);
       }
 
       return { startDate: start, endDate: end };
     }
 
-    
     const end = new Date();
     let start: Date;
 
@@ -2090,5 +2693,67 @@ export class ExportService {
     }
 
     return { startDate: start, endDate: end };
+  }
+
+  /**
+   * Build a map of saleId -> installer agent info
+   * Called once per export to avoid N+1 queries
+   */
+  private async buildInstallerAgentMap(
+    saleIds: string[],
+  ): Promise<Map<string, { firstname: string; lastname: string }>> {
+    const map = new Map<string, { firstname: string; lastname: string }>();
+
+    if (saleIds.length === 0) return map;
+
+    const installerTasks = await this.prisma.installerTask.findMany({
+      where: { saleId: { in: saleIds } },
+      select: {
+        saleId: true,
+        installerAgent: {
+          select: {
+            user: {
+              select: {
+                firstname: true,
+                lastname: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    installerTasks.forEach((task) => {
+      if (task.installerAgent?.user) {
+        map.set(task.saleId, task.installerAgent.user);
+      }
+    });
+
+    return map;
+  }
+
+  /**
+   * Get display agent name using pre-loaded installer agent map
+   */
+  private getDisplayAgentNameWithMap(
+    saleId: string,
+    saleAgentName: string | null,
+    customer: any,
+    agentInfo: AgentInfo | null,
+    installerAgentMap: Map<string, { firstname: string; lastname: string }>,
+  ): string {
+    // If filtering by installer, use the map
+    if (agentInfo?.category === AgentCategory.INSTALLER) {
+      const installerUser = installerAgentMap.get(saleId);
+      if (installerUser) {
+        const installerName =
+          `${installerUser.firstname} ${installerUser.lastname}`.trim();
+        return `${installerName} (installer)`;
+      }
+      return `${agentInfo.agentName} (installer)`;
+    }
+
+    // Otherwise use the normal logic
+    return this.getDisplayAgentName(saleAgentName, customer, agentInfo);
   }
 }

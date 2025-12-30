@@ -213,7 +213,7 @@ export class InstallerService {
       overview: {
         totalInstallations: installationStats.total,
         totalDevices: installationStats.devices,
-        newTasks: taskStats.pending,
+        newTasks: taskStats.pending + taskStats.accepted,
       },
       taskStatistics: {
         total: taskStats.total,
@@ -227,7 +227,7 @@ export class InstallerService {
         devices: installationStats.devices,
         completionRate: installationStats.completionRate,
       },
-      newTasks: newTasks.slice(0, 5),
+      newTasks: newTasks.slice(0, 50),
       recentActivity: recentInstallations.slice(0, 10),
     };
   }
@@ -421,7 +421,9 @@ export class InstallerService {
     return this.prisma.installerTask.findMany({
       where: {
         installerAgentId: agentId,
-        status: TaskStatus.PENDING,
+        status: {
+          in: [TaskStatus.PENDING, TaskStatus.ACCEPTED]
+        },
       },
       include: {
         customer: {
