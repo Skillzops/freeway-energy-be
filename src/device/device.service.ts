@@ -1040,7 +1040,6 @@ export class DeviceService {
 
   async fetchDevices(query: ListDevicesQueryDto, agent?: string) {
     const { page = 1, limit = 100, sortField = 'createdAt', sortOrder } = query;
-
     const filterConditions = await this.devicesFilter({
       ...query,
       ...(agent ? { agentId: agent } : {}),
@@ -1048,7 +1047,6 @@ export class DeviceService {
 
     const pageNumber = parseInt(String(page), 10);
     const limitNumber = parseInt(String(limit), 10);
-
     const skip = (pageNumber - 1) * limitNumber;
     const take = limitNumber;
 
@@ -1056,26 +1054,33 @@ export class DeviceService {
       [sortField || 'createdAt']: sortOrder || 'asc',
     };
 
-    const totalCount = await this.prisma.device.count({
-      where: filterConditions,
-    });
-
-    const result = await this.prisma.device.findMany({
-      skip,
-      take,
-      where: filterConditions,
-      include: {
-        _count: {
-          select: {
-            tokens: true,
+    const [devices, totalCount] = await Promise.all([
+      this.prisma.device.findMany({
+        skip,
+        take,
+        where: filterConditions,
+        include: {
+          _count: {
+            select: { tokens: true },
           },
         },
-      },
-      orderBy,
-    });
+        orderBy,
+      }),
+      this.prisma.device.count({ where: filterConditions }),
+    ]);
+
+    // Fetch customer details efficiently in one batch
+    const deviceIds = devices.map((d) => d.id);
+    const deviceCustomers = await this.getDeviceCustomers(deviceIds);
+
+    // Merge customer data into devices
+    const devicesWithCustomers = devices.map((device) => ({
+      ...device,
+      customer: deviceCustomers[device.id] || null,
+    }));
 
     return {
-      devices: result,
+      devices: devicesWithCustomers,
       total: totalCount,
       page,
       limit,
@@ -1084,7 +1089,7 @@ export class DeviceService {
   }
 
   async fetchDevice(fieldAndValue: Prisma.DeviceWhereUniqueInput) {
-    return await this.prisma.device.findUnique({
+    const device = await this.prisma.device.findUnique({
       where: { ...fieldAndValue },
       include: {
         tokens: {
@@ -1103,6 +1108,125 @@ export class DeviceService {
         },
       },
     });
+
+    if (!device) return null;
+
+    // Add customer details to single device
+    const customerDetails = await this.getDeviceCustomer(device.id);
+    return {
+      ...device,
+      customer: customerDetails,
+    };
+  }
+
+  /**
+   * Batch fetch customer details for multiple devices
+   * Uses sale items to find associated customers
+   */
+  private async getDeviceCustomers(
+    deviceIds: string[],
+  ): Promise<Record<string, any>> {
+    if (deviceIds.length === 0) return {};
+
+    // Get sale items containing these devices
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: {
+        deviceIDs: {
+          hasSome: deviceIds,
+        },
+      },
+      select: {
+        deviceIDs: true,
+        saleId: true,
+      },
+    });
+
+    if (saleItems.length === 0) return {};
+
+    // Get unique sale IDs
+    const saleIds = [...new Set(saleItems.map((si) => si.saleId))];
+
+    // Fetch sales with customer details
+    const sales = await this.prisma.sales.findMany({
+      where: {
+        id: { in: saleIds },
+      },
+      select: {
+        id: true,
+        customerId: true,
+        customer: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+            phone: true,
+            state: true,
+            lga: true,
+            installationAddress: true,
+          },
+        },
+      },
+    });
+
+    const saleMap = new Map(sales.map((s) => [s.id, s.customer]));
+
+    // Map devices to customers
+    const deviceCustomerMap: Record<string, any> = {};
+    saleItems.forEach((saleItem) => {
+      const customer = saleMap.get(saleItem.saleId);
+      if (customer) {
+        saleItem.deviceIDs.forEach((deviceId) => {
+          if (deviceIds.includes(deviceId)) {
+            // Only store first customer if device in multiple sales
+            if (!deviceCustomerMap[deviceId]) {
+              deviceCustomerMap[deviceId] = customer;
+            }
+          }
+        });
+      }
+    });
+
+    return deviceCustomerMap;
+  }
+
+  /**
+   * Get customer for single device
+   */
+  private async getDeviceCustomer(deviceId: string): Promise<any> {
+    const saleItem = await this.prisma.saleItem.findFirst({
+      where: {
+        deviceIDs: {
+          has: deviceId,
+        },
+      },
+      select: {
+        saleId: true,
+      },
+    });
+
+    if (!saleItem) return null;
+
+    const sale = await this.prisma.sales.findUnique({
+      where: { id: saleItem.saleId },
+      select: {
+        customerId: true,
+        customer: {
+          select: {
+            id: true,
+            firstname: true,
+            lastname: true,
+            email: true,
+            phone: true,
+            state: true,
+            lga: true,
+            installationAddress: true,
+          },
+        },
+      },
+    });
+
+    return sale?.customer || null;
   }
 
   async updateDevice(id: string, updateDeviceDto: UpdateDeviceDto) {
@@ -1266,7 +1390,7 @@ export class DeviceService {
       newTotalPaid / monthlyPayment,
     );
     const previousMonthsCovered = Math.floor(currentTotalPaid / monthlyPayment);
-    
+
     const monthsCoveredByThisPayment =
       totalMonthsCoveredByAllPayments - previousMonthsCovered;
 

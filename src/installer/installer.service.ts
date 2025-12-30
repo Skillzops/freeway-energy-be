@@ -284,7 +284,9 @@ export class InstallerService {
   //   // First get installer task IDs with status
   //   const tasks = await this.prisma.installerTask.findMany({
   //     where: {
-  //       status: TaskStatus.ACCEPTED,
+  //       status: {
+  //         in: [TaskStatus.ACCEPTED, TaskStatus.PENDING]
+  //       },
   //     },
   //     select: {
   //       id: true,
@@ -296,13 +298,16 @@ export class InstallerService {
 
   //   const saleIds = [...new Set(tasks.map((t) => t.saleId))];
 
-  //   // Get saleItems with devices in one query
   //   const saleItems = await this.prisma.saleItem.findMany({
   //     where: {
   //       saleId: { in: saleIds },
   //       devices: {
   //         some: {
-  //           installationLocation: { not: null },
+  //           // installationStatus: InstallationStatus.installed,
+  //           OR: [
+  //             {installationStatus: InstallationStatus.installed},
+  //            { installationLocation: { not: null }}
+  //           ]
   //         },
   //       },
   //     },
@@ -316,11 +321,13 @@ export class InstallerService {
   //   return await this.prisma.installerTask.updateMany({
   //     where: {
   //       saleId: { in: validSaleIds },
-  //       status: TaskStatus.ACCEPTED,
+  //       status: {
+  //         in: [TaskStatus.ACCEPTED, TaskStatus.PENDING],
+  //       },
   //     },
   //     data: {
   //       status: TaskStatus.COMPLETED,
-  //     }
+  //     },
   //   });
   //   // return true;
   // }
