@@ -262,6 +262,7 @@ export class ExportService {
     customer: any,
     agentInfo: AgentInfo | null,
   ): string {
+    console.log({ customer, saleAgentName, agentInfo });
     let displayName =
       saleAgentName && saleAgentName.trim()
         ? saleAgentName.trim()
@@ -275,8 +276,8 @@ export class ExportService {
         : `${agentInfo.agentName} (installer)`;
     }
 
-    if (agentInfo?.category === AgentCategory.SALES) {
-      displayName = `${displayName} (sales)`;
+    if (!agentInfo) {
+      displayName = `${displayName} (${customer?.assignedAgents?.[0]?.agent?.category?.toLowerCase()})`;
     }
 
     return displayName;
@@ -395,6 +396,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
+                  category: true
                 },
               },
             },
@@ -847,6 +849,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
+                  category: true
                 },
               },
             },
@@ -1632,6 +1635,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
+                  category: true
                 },
               },
             },
@@ -2058,6 +2062,7 @@ export class ExportService {
                 user: {
                   select: { firstname: true, lastname: true },
                 },
+                category: true
               },
             },
           },
@@ -2412,6 +2417,7 @@ export class ExportService {
                       user: {
                         select: { firstname: true, lastname: true },
                       },
+                      category: true
                     },
                   },
                 },

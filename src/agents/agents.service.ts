@@ -1306,6 +1306,7 @@ export class AgentsService {
           sale: {
             select: {
               totalPrice: true,
+              createdAt: true,
             },
           },
           requestingAgent: {
@@ -1343,7 +1344,8 @@ export class AgentsService {
         id: task.id,
         taskId: task.id,
         commissionAmount: commissionPerTask,
-        completedDate: task.completedDate,
+        // completedDate: task.completedDate,
+        completedDate: task.sale.createdAt,
         scheduledDate: task.scheduledDate,
         customer: {
           name: `${task.customer.firstname} ${task.customer.lastname}`,
