@@ -275,6 +275,10 @@ export class ExportService {
         : `${agentInfo.agentName} (installer)`;
     }
 
+    if (agentInfo?.category === AgentCategory.SALES) {
+      displayName = `${displayName} (sales)`;
+    }
+
     return displayName;
   }
 
