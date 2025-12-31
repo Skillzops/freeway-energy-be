@@ -8,7 +8,11 @@ import {
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateRandomPassword } from '../utils/generate-pwd';
-import { calculateDistance, cleanPhoneNumber, hashPassword } from '../utils/helpers.util';
+import {
+  calculateDistance,
+  cleanPhoneNumber,
+  hashPassword,
+} from '../utils/helpers.util';
 import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
@@ -79,7 +83,6 @@ export interface AgentBulkImportResult {
   credentialsFile?: string;
 }
 
-
 export interface AgentImportRow {
   name: string;
   surname: string;
@@ -124,13 +127,19 @@ export class AgentsService {
   ) {}
 
   async create(createAgentDto: CreateAgentDto, userId) {
-    const { email: emailFromDto, location, phone, category, ...otherData } = createAgentDto;
+    const {
+      email: emailFromDto,
+      location,
+      phone,
+      category,
+      ...otherData
+    } = createAgentDto;
 
     let email = emailFromDto;
     if (!email) {
       email = await this.generateUniqueEmail(
         createAgentDto.firstname,
-        createAgentDto.lastname
+        createAgentDto.lastname,
       );
     }
 
@@ -172,7 +181,6 @@ export class AgentsService {
         permissions: true,
       },
     });
-
 
     if (!defaultRole) {
       try {
@@ -222,22 +230,21 @@ export class AgentsService {
       },
     });
 
-
     if (newUser.phone) {
-      try{
+      try {
         await this.termiiService.sendSms({
           to: newUser.phone,
           message: await this.termiiService.formatAgentCredentialsMessage(
             newUser.firstname,
             email,
             password,
-            category
+            category,
           ),
           type: 'plain',
           channel: 'generic',
         });
-      }catch (error){
-        console.log({error})
+      } catch (error) {
+        console.log({ error });
       }
     }
 
@@ -356,7 +363,7 @@ export class AgentsService {
       page = 1,
       limit = 100,
       status,
-      sortField = "createdAt",
+      sortField = 'createdAt',
       sortOrder,
       search,
       createdAt,
@@ -396,7 +403,7 @@ export class AgentsService {
 
     // Fetch Agents with pagination and filters
     const agents = await this.prisma.agent.findMany({
-      where: whereConditions,
+      where: { ...whereConditions, NOT: { user: null } },
       include: {
         user: true,
         installerTask: true,
@@ -1108,31 +1115,24 @@ export class AgentsService {
       throw new NotFoundException('Agent not found');
     }
 
-    // Base filter
     const where: Prisma.PaymentWhereInput = {
-      sale: { creatorId: agent.userId },
+      sale: {
+        OR: [{ creatorId: agent.userId }, { agentId: agent.id }],
+      },
       paymentStatus: PaymentStatus.COMPLETED,
       ...(startDate || endDate
         ? {
-            sale: {
-              createdAt: {
-                ...(startDate ? { gte: new Date(startDate) } : {}),
-                ...(endDate ? { lte: new Date(endDate) } : {}),
-              },
+            paymentDate: {
+              ...(startDate ? { gte: new Date(startDate) } : {}),
+              ...(endDate ? { lte: new Date(endDate) } : {}),
             },
           }
         : {}),
     };
 
-    // if (startDate || endDate) {
-    //   where.paymentDate = {};
-    //   if (startDate) where.paymentDate.gte = startDate;
-    //   if (endDate) where.paymentDate.lte = endDate;
-    // }
+    const commissionRate = 0.07;
 
-    const commissionRate = 0.07; // 7%
-
-    const [payments, totalCount, allPaymentsTotal] = await Promise.all([
+    const [payments, allPaymentAmounts] = await Promise.all([
       this.prisma.payment.findMany({
         where,
         include: {
@@ -1152,41 +1152,83 @@ export class AgentsService {
         skip,
         take,
       }),
-      this.prisma.payment.count({ where }),
-      this.prisma.payment.aggregate({
-        _sum: { amount: true },
-        where,
+      this.prisma.payment.findMany({
+        where: {
+          paymentStatus: PaymentStatus.COMPLETED,
+          sale: {
+            OR: [{ creatorId: agent.userId }, { agentId: agent.id }],
+          },
+        },
+        select: {
+          amount: true,
+          saleId: true,
+        },
       }),
     ]);
 
-    const commissionsData = payments.map((payment) => ({
-      id: payment.id,
-      transactionRef: payment.transactionRef,
-      amount: payment.amount,
-      commissionAmount: (payment.amount * commissionRate).toFixed(2),
-      paymentDate: payment.paymentDate,
-      paymentMethod: payment.paymentMethod,
-      customer: {
-        name: `${payment.sale.customer.firstname} ${payment.sale.customer.lastname}`,
-        phone: payment.sale.customer.phone,
-      },
-      saleId: payment.saleId,
-    }));
+    const paginatedSaleIds = payments.map((p) => p.saleId);
+    const allSaleIds = allPaymentAmounts.map((p) => p.saleId);
 
-    // Calculate summary using all payments, not just paginated
-    const totalCommission =
-      (allPaymentsTotal._sum.amount || 0) * commissionRate;
+    const [paymentsWithTokens, paymentsForSummary] = await Promise.all([
+      this.filterPaymentsByTokens(paginatedSaleIds),
+      this.filterPaymentsByTokens(allSaleIds),
+    ]);
+
+    const commissionsData = payments
+      .filter((p) => paymentsWithTokens.has(p.saleId))
+      .map((payment) => ({
+        id: payment.id,
+        transactionRef: payment.transactionRef,
+        amount: payment.amount,
+        commissionAmount: (payment.amount * commissionRate).toFixed(2),
+        paymentDate: payment.paymentDate,
+        paymentMethod: payment.paymentMethod,
+        customer: {
+          name: `${payment.sale.customer.firstname} ${payment.sale.customer.lastname}`,
+          phone: payment.sale.customer.phone,
+        },
+        saleId: payment.saleId,
+      }));
+
+    const totalPaymentAmount = Array.from(paymentsWithTokens).reduce(
+      (sum, saleId) => {
+        return (
+          sum +
+          (allPaymentAmounts.find((p) => p.saleId === saleId)?.amount || 0)
+        );
+      },
+      0,
+    );
+
+    const overallPaymentAmount = Array.from(paymentsForSummary).reduce(
+      (sum, saleId) => {
+        return (
+          sum +
+          (allPaymentAmounts.find((p) => p.saleId === saleId)?.amount || 0)
+        );
+      },
+      0,
+    );
+
+    const totalCommission = (totalPaymentAmount * commissionRate).toFixed(2);
+    const overAllCommission = (overallPaymentAmount * commissionRate).toFixed(
+      2,
+    );
 
     return {
       data: commissionsData,
-      total: totalCount,
+      total: paymentsWithTokens.size,
       page,
       limit,
-      totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
+      totalPages:
+        limitNumber === 0
+          ? 0
+          : Math.ceil(paymentsWithTokens.size / limitNumber),
       summary: {
         agentType: agent.category,
         totalCommission,
-        totalPayments: totalCount,
+        overAllCommission,
+        totalPayments: paymentsForSummary.size,
         commissionRate: (commissionRate * 100).toFixed(2),
       },
     };
@@ -1198,15 +1240,19 @@ export class AgentsService {
   ) {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
-      include: { user: true },
+      select: { id: true, category: true },
     });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
 
     if (agent.category === AgentCategory.SALES) {
       return await this.getAgentCommissions(agent.id, query);
     } else if (agent.category === AgentCategory.INSTALLER) {
       return await this.getInstallerCommissions(agent.id, query);
     } else {
-      throw new BadRequestException('Invalid agent');
+      throw new BadRequestException('Invalid agent category');
     }
   }
 
@@ -1229,10 +1275,8 @@ export class AgentsService {
       throw new NotFoundException('Installer not found');
     }
 
-    // Base filter for completed tasks
     const where: Prisma.InstallerTaskWhereInput = {
       installerAgentId: installerId,
-      status: TaskStatus.COMPLETED,
       ...(startDate || endDate
         ? {
             sale: {
@@ -1245,16 +1289,9 @@ export class AgentsService {
         : {}),
     };
 
-    // Add date filters if provided
-    // if (startDate || endDate) {
-    //   // where.completedDate = {};
-    //   // if (startDate) where.completedDate.gte = startDate;
-    //   // if (endDate) where.completedDate.lte = endDate;
-    // }
+    const commissionPerTask = 2000;
 
-    const commissionPerTask = 2000; // 2000 Naira per completed task
-
-    const [completedTasks, totalCount, allTasksCount] = await Promise.all([
+    const [completedTasks, allTaskSaleIds] = await Promise.all([
       this.prisma.installerTask.findMany({
         where,
         include: {
@@ -1268,7 +1305,6 @@ export class AgentsService {
           },
           sale: {
             select: {
-              id: true,
               totalPrice: true,
             },
           },
@@ -1287,55 +1323,58 @@ export class AgentsService {
         skip,
         take,
       }),
-      this.prisma.installerTask.count({ where }),
-      this.prisma.installerTask.count({
+      this.prisma.installerTask.findMany({
         where: {
           installerAgentId: installerId,
-          status: TaskStatus.COMPLETED,
-          // ...(startDate || endDate
-          //   ? {
-          //       completedDate: {
-          //         ...(startDate ? { gte: startDate } : {}),
-          //         ...(endDate ? { lte: endDate } : {}),
-          //       },
-          //     }
-          //   : {}),
         },
+        select: { saleId: true },
+        distinct: ['saleId'],
       }),
     ]);
 
-    const commissionsData = completedTasks.map((task) => ({
-      id: task.id,
-      taskId: task.id,
-      commissionAmount: commissionPerTask,
-      completedDate: task.completedDate,
-      scheduledDate: task.scheduledDate,
-      customer: {
-        name: `${task.customer.firstname} ${task.customer.lastname}`,
-        phone: task.customer.phone,
-        address: task.customer.installationAddress,
-      },
-      requestingAgent: task.requestingAgent
-        ? `${task.requestingAgent.user.firstname} ${task.requestingAgent.user.lastname}`
-        : null,
-      saleId: task.saleId,
-      saleAmount: task.sale?.totalPrice || 0,
-      description: task.description,
-    }));
+    const [tasksToReturn, tasksForSummary] = await Promise.all([
+      this.filterTasksByTokens(completedTasks.map((t) => t.saleId)),
+      this.filterTasksByTokens(allTaskSaleIds.map((t) => t.saleId)),
+    ]);
 
-    // Calculate total commission using all completed tasks in date range
-    const totalCommission = allTasksCount * commissionPerTask;
+    const commissionsData = completedTasks
+      .filter((t) => tasksToReturn.has(t.saleId))
+      .map((task) => ({
+        id: task.id,
+        taskId: task.id,
+        commissionAmount: commissionPerTask,
+        completedDate: task.completedDate,
+        scheduledDate: task.scheduledDate,
+        customer: {
+          name: `${task.customer.firstname} ${task.customer.lastname}`,
+          phone: task.customer.phone,
+          address: task.customer.installationAddress,
+        },
+        requestingAgent: task.requestingAgent
+          ? `${task.requestingAgent.user.firstname} ${task.requestingAgent.user.lastname}`
+          : null,
+        saleId: task.saleId,
+        saleAmount: task.sale?.totalPrice || 0,
+        description: task.description,
+      }));
+
+    const totalCommission = (tasksToReturn.size * commissionPerTask).toFixed(2);
+    const overAllCommission = (
+      tasksForSummary.size * commissionPerTask
+    ).toFixed(2);
 
     return {
       data: commissionsData,
-      total: totalCount,
+      total: tasksToReturn.size,
       page,
       limit,
-      totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
+      totalPages:
+        limitNumber === 0 ? 0 : Math.ceil(tasksToReturn.size / limitNumber),
       summary: {
         agentType: installer.category,
         totalCommission,
-        totalCompletedTasks: allTasksCount,
+        overAllCommission,
+        totalCompletedTasks: tasksForSummary.size,
         commissionPerTask,
         installer: {
           id: installer.id,
@@ -1344,6 +1383,89 @@ export class AgentsService {
         },
       },
     };
+  }
+
+  /**
+   * Filter payments by checking if devices have tokens
+   * Only counts commissions for sales where devices have generated tokens
+   */
+  private async filterPaymentsByTokens(
+    saleIds: string[],
+  ): Promise<Set<string>> {
+    if (saleIds.length === 0) return new Set();
+
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    const deviceIds = new Set<string>();
+    saleItems.forEach((si) => {
+      si.deviceIDs?.forEach((dId) => deviceIds.add(dId));
+    });
+
+    if (deviceIds.size === 0) return new Set();
+
+    const devicesWithTokens = await this.prisma.device.findMany({
+      where: {
+        id: { in: Array.from(deviceIds) },
+        tokens: { some: {} },
+      },
+      select: { id: true },
+    });
+
+    const devicesWithTokensSet = new Set(devicesWithTokens.map((d) => d.id));
+
+    const salesWithTokens = new Set<string>();
+    saleItems.forEach((si) => {
+      if (si.deviceIDs?.some((dId) => devicesWithTokensSet.has(dId))) {
+        salesWithTokens.add(si.saleId);
+      }
+    });
+
+    return salesWithTokens;
+  }
+
+  /**
+   * Filter installer tasks by device tokens
+   */
+  private async filterTasksByTokens(saleIds: string[]): Promise<Set<string>> {
+    if (saleIds.length === 0) return new Set();
+
+    // Get saleItems ONLY for these specific sales
+    const saleItems = await this.prisma.saleItem.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true, deviceIDs: true },
+    });
+
+    // Extract unique device IDs
+    const deviceIds = new Set<string>();
+    saleItems.forEach((si) => {
+      si.deviceIDs?.forEach((dId) => deviceIds.add(dId));
+    });
+
+    if (deviceIds.size === 0) return new Set();
+
+    // Get devices with tokens
+    const devicesWithTokens = await this.prisma.device.findMany({
+      where: {
+        id: { in: Array.from(deviceIds) },
+        tokens: { some: {} },
+      },
+      select: { id: true },
+    });
+
+    const devicesWithTokensSet = new Set(devicesWithTokens.map((d) => d.id));
+
+    // Return sale IDs that have at least one token device
+    const salesWithTokens = new Set<string>();
+    saleItems.forEach((si) => {
+      if (si.deviceIDs?.some((dId) => devicesWithTokensSet.has(dId))) {
+        salesWithTokens.add(si.saleId);
+      }
+    });
+
+    return salesWithTokens;
   }
 
   async getAgentDashboardStats(agentId: string, filters: DashboardFilterDto) {
@@ -1627,7 +1749,7 @@ export class AgentsService {
       page = 1,
       limit = 10,
       agentId,
-      sortField = "createdAt",
+      sortField = 'createdAt',
       sortOrder,
       search,
       status,
@@ -1694,12 +1816,15 @@ export class AgentsService {
 
     const [tasks, total] = await Promise.all([
       this.prisma.installerTask.findMany({
-        where: {...finalWhereConditions,  NOT: {
-          // sale: null,
-          sale: {
-            customer: null,
+        where: {
+          ...finalWhereConditions,
+          NOT: {
+            // sale: null,
+            sale: {
+              customer: null,
+            },
           },
-        },},
+        },
         skip,
         take,
         orderBy,
@@ -2453,7 +2578,7 @@ export class AgentsService {
     lastName: string,
     attempt: number = 0,
   ): Promise<string> {
-    const baseEmail = `${firstName.toLowerCase() || "user"}.${lastName.toLowerCase() || "ln"}`;
+    const baseEmail = `${firstName.toLowerCase() || 'user'}.${lastName.toLowerCase() || 'ln'}`;
     const email =
       attempt === 0
         ? `${baseEmail}@gmail.com`
@@ -2952,7 +3077,6 @@ SECURITY NOTES:
       throw new BadRequestException(
         `Failed to import from JSON: ${error.message}`,
       );
-
     }
   }
 
