@@ -148,7 +148,6 @@ export class ExportService {
       },
     ];
 
-    // Add installer filter if needed
     if (agentInfo?.category === AgentCategory.INSTALLER) {
       pipeline.push({
         $lookup: {
@@ -158,11 +157,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push(
@@ -182,6 +190,7 @@ export class ExportService {
           totalInstallmentDuration: 1,
           transactionDate: 1,
           createdAt: 1,
+          installerTasks: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
@@ -225,11 +234,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push({ $count: 'total' });
@@ -293,6 +311,10 @@ export class ExportService {
       // For INSTALLER, filter in pipeline
     }
 
+    if (filters.agentCategory) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
+    }
+
     const countPipeline = this.buildDebtReportCountPipeline(
       matchConditions,
       agentInfo,
@@ -309,6 +331,7 @@ export class ExportService {
       agentInfo,
       page,
       limit,
+      filters.agentCategory,
     );
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: salesPipeline,
@@ -589,11 +612,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push({ $count: 'total' });
@@ -608,6 +640,7 @@ export class ExportService {
     agentInfo: AgentInfo | null,
     page: number,
     limit: number,
+    agentCategory?: AgentCategory,
   ): any[] {
     const pipeline: any[] = [
       { $match: matchConditions },
@@ -633,7 +666,10 @@ export class ExportService {
       { $match: { customer: { $ne: [] } } },
     ];
 
-    if (agentInfo?.category === AgentCategory.INSTALLER) {
+    if (
+      agentCategory === AgentCategory.INSTALLER ||
+      agentInfo?.category === AgentCategory.INSTALLER
+    ) {
       pipeline.push({
         $lookup: {
           from: 'installer_tasks',
@@ -642,11 +678,23 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (
+        agentInfo?.category === AgentCategory.INSTALLER &&
+        agentInfo?.agentId
+      ) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else if (agentCategory === AgentCategory.INSTALLER) {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push(
@@ -666,6 +714,7 @@ export class ExportService {
           transactionDate: 1,
           createdAt: 1,
           status: 1,
+          installerTasks: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
@@ -709,6 +758,10 @@ export class ExportService {
         ];
       }
       // For INSTALLER, filter in pipeline
+    }
+
+    if (filters.agentCategory) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     const countPipeline = this.buildRenewalReportCountPipeline(
@@ -999,11 +1052,21 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        // ANY installer
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push({ $count: 'total' });
@@ -1052,11 +1115,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push(
@@ -1075,6 +1147,7 @@ export class ExportService {
           totalInstallmentDuration: 1,
           transactionDate: 1,
           createdAt: 1,
+          installerTasks: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
@@ -1139,6 +1212,10 @@ export class ExportService {
         ];
       }
       // For INSTALLER, filter in pipeline
+    }
+
+    if (filters.agentCategory) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     const [newSalesResults, renewalsResults] = await Promise.all([
@@ -1246,11 +1323,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push(
@@ -1366,11 +1452,20 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-      pipeline.push({
-        $match: {
-          'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-        },
-      });
+
+      if (agentInfo.agentId) {
+        pipeline.push({
+          $match: {
+            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+          },
+        });
+      } else {
+        pipeline.push({
+          $match: {
+            installerTasks: { $ne: [] },
+          },
+        });
+      }
     }
 
     pipeline.push(
@@ -1443,6 +1538,10 @@ export class ExportService {
         ];
       }
       // For INSTALLER, we'll use pipeline aggregation
+    }
+
+    if (filters.agentCategory) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     // Count
@@ -1701,6 +1800,22 @@ export class ExportService {
       }
     }
 
+    if (filters.agentCategory) {
+      if (filters.agentCategory === AgentCategory.INSTALLER) {
+        const installerTasks = await this.prisma.installerTask.findMany({
+          where: { installerAgent: { category: AgentCategory.INSTALLER } },
+          select: { saleId: true },
+          distinct: ['saleId'],
+        });
+        const installerSaleIds = installerTasks
+          .map((t) => t.saleId)
+          .filter(Boolean);
+        agentFilter = { id: { in: installerSaleIds } };
+      } else if (filters.agentCategory === AgentCategory.SALES) {
+        agentFilter = { agentId: { not: null } };
+      }
+    }
+
     const sales = await this.prisma.sales.findMany({
       where: {
         customerId: { in: customerIds },
@@ -1848,6 +1963,10 @@ export class ExportService {
     // Get agent info if filtering
     if (filters.agentId) {
       agentInfo = await this.getAgentInfo(filters.agentId);
+    }
+
+    if (filters.agentCategory && !agentInfo) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     const countPipeline = this.buildPaymentsCountPipeline(
@@ -2037,11 +2156,20 @@ export class ExportService {
             as: 'installerTasks',
           },
         });
-        pipeline.push({
-          $match: {
-            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-          },
-        });
+
+        if (agentInfo.agentId) {
+          pipeline.push({
+            $match: {
+              'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+            },
+          });
+        } else {
+          pipeline.push({
+            $match: {
+              installerTasks: { $ne: [] },
+            },
+          });
+        }
       }
     }
 
@@ -2101,11 +2229,20 @@ export class ExportService {
             as: 'installerTasks',
           },
         });
-        pipeline.push({
-          $match: {
-            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-          },
-        });
+
+        if (agentInfo.agentId) {
+          pipeline.push({
+            $match: {
+              'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
+            },
+          });
+        } else {
+          pipeline.push({
+            $match: {
+              installerTasks: { $ne: [] },
+            },
+          });
+        }
       }
     }
 
@@ -2122,6 +2259,7 @@ export class ExportService {
           paymentStatus: 1,
           paymentMethod: 1,
           paymentDate: 1,
+          installerTasks: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
@@ -2198,7 +2336,13 @@ export class ExportService {
     const saleIds = [...new Set(saleItems.map((si) => si.saleId))];
     const sales = await this.prisma.sales.findMany({
       where: { id: { in: saleIds } },
-      select: { id: true, customerId: true, creatorId: true, agentId: true, agentName: true },
+      select: {
+        id: true,
+        customerId: true,
+        creatorId: true,
+        agentId: true,
+        agentName: true,
+      },
     });
 
     let customerIds = [
@@ -2211,18 +2355,23 @@ export class ExportService {
       agentInfo = await this.getAgentInfo(filters.agentId);
     }
 
+    if (filters.agentCategory && !agentInfo) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
+    }
+
     // Filter by agent if provided
     let filteredSales = sales;
-    if (filters.agentId) {
+    if (filters.agentId || filters.agentCategory) {
       if (agentInfo.category === AgentCategory.SALES) {
         filteredSales = sales.filter(
           (s) =>
-            s.agentId === agentInfo.agentId ||
-            s.creatorId === agentInfo.userId,
+            s.agentId === agentInfo.agentId || s.creatorId === agentInfo.userId,
         );
       } else if (agentInfo.category === AgentCategory.INSTALLER) {
         const installerTasks = await this.prisma.installerTask.findMany({
-          where: { installerAgentId: agentInfo.agentId },
+          where: agentInfo.agentId
+            ? { installerAgentId: agentInfo.agentId } // Specific installer
+            : { installerAgent: { category: AgentCategory.INSTALLER } },
           select: { saleId: true },
         });
         const installerSaleIds = new Set(
@@ -2366,6 +2515,10 @@ export class ExportService {
       agentInfo = await this.getAgentInfo(filters.agentId);
     }
 
+    if (filters.agentCategory && !agentInfo) {
+      agentInfo = { category: filters.agentCategory } as AgentInfo;
+    }
+
     const matchConditions: any = {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
@@ -2381,7 +2534,6 @@ export class ExportService {
       }
     }
 
-    // Add agent filter for sales agents
     if (agentInfo?.category === AgentCategory.SALES) {
       matchConditions.$or = [
         { agentId: { $oid: agentInfo.agentId } },
@@ -2404,7 +2556,6 @@ export class ExportService {
       },
     ];
 
-    // Add installer filter if needed
     if (agentInfo?.category === AgentCategory.INSTALLER) {
       salesPipeline.push({
         $lookup: {

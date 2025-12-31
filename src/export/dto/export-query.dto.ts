@@ -10,7 +10,7 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { PaymentMethod, SalesStatus } from '@prisma/client';
+import { AgentCategory, PaymentMethod, SalesStatus } from '@prisma/client';
 
 /**
  * Export Types:
@@ -90,6 +90,16 @@ export class ExportDataQueryDto {
   @IsOptional()
   @IsString()
   agentId?: string;
+
+  @ApiPropertyOptional({
+    enum: AgentCategory,
+    description:
+      'Filter by agent category (Applicable to only export_type=sales|debt_report|renewal_report|payments|devices)',
+    example: AgentCategory.SALES,
+  })
+  @IsOptional()
+  @IsEnum(AgentCategory)
+  agentCategory?: AgentCategory;
 
   @ApiPropertyOptional({
     enum: SalesStatus,
