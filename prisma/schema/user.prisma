@@ -50,6 +50,10 @@ model User {
   assignedTasks           InstallerTask[]            @relation("TaskAssigner")
   assignedAgentInstallers AgentInstallerAssignment[] @relation("AgentInstallerAssigner")
 
+  createdInteractions  CustomerInteraction[] @relation("InteractionCreator")
+  updatedInteractions  CustomerInteraction[] @relation("InteractionUpdater")
+  assignedInteractions CustomerInteraction[] @relation("InteractionAssignee")
+
   recordedPayments Payment[] @relation("RecordedPayments")
 
   createdAt DateTime  @default(now())

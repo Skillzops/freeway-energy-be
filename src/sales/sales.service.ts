@@ -54,9 +54,8 @@ export class SalesService {
 
     await this.validateDeviceAvailability(dto.saleItems);
 
-    
     const financialSettings = await this.prisma.financialSettings.findFirst();
-    
+
     if (!financialSettings) {
       throw new BadRequestException('Financial settings not configured');
     }
@@ -376,6 +375,9 @@ export class SalesService {
       agentId,
       creatorId,
       customerId,
+      startDate,
+      endDate,
+      formattedSaleId,
     } = query;
 
     const pageNumber = parseInt(String(page), 10);
@@ -401,6 +403,15 @@ export class SalesService {
 
     if (paymentMethod) {
       matchConditions.paymentMethod = paymentMethod;
+    }
+
+    if (formattedSaleId) {
+      matchConditions.formattedSaleId = formattedSaleId;
+    }
+
+    const dateRangeConditions = this.buildDateRangeFilter(startDate, endDate);
+    if (dateRangeConditions) {
+      matchConditions.createdAt = dateRangeConditions;
     }
 
     // If search is provided, use aggregation for better performance
@@ -501,6 +512,7 @@ export class SalesService {
             { 'customer.email': searchRegex },
             { 'saleItems.product': searchRegex },
             { 'devices.serialNumber': searchRegex },
+            { 'formattedSaleId': searchRegex },
           ],
         },
       },
@@ -625,6 +637,7 @@ export class SalesService {
             id: '$_id',
             category: '$category',
             applyMargin: '$applyMargin',
+            formattedSaleId: '$formattedSaleId',
             status: '$status',
             customerId: '$customerId',
             creatorId: '$creatorId',
@@ -730,6 +743,9 @@ export class SalesService {
         }),
         ...(matchConditions.paymentMethod && {
           paymentMethod: matchConditions.paymentMethod,
+        }),
+        ...(matchConditions.formattedSaleId && {
+          formattedSaleId: matchConditions.formattedSaleId,
         }),
         ...(matchConditions.status && { status: matchConditions.status }),
         ...(matchConditions.createdAt && {
@@ -996,7 +1012,6 @@ export class SalesService {
   }
 
   async fixSalesWithOvercalculatedTotal() {
-    const applyMargin = false;
     const AMOUNT_THRESHOLD = 200000;
     const sales = await this.prisma.sales.findMany({
       where: {
@@ -1016,7 +1031,8 @@ export class SalesService {
     const financialSettings = await this.prisma.financialSettings.findFirst();
 
     for (const sale of sales) {
-      let accurateSalePrice = 0
+      let accurateSalePrice = 0;
+      const applyMargin = sale.applyMargin;
       const totalBasePrice = (sale.batchAllocations || []).reduce(
         (sum: number, batchAllocation: BatchAlocation) =>
           sum + batchAllocation.price * batchAllocation.quantity,
@@ -1054,14 +1070,14 @@ export class SalesService {
       }
 
       await this.prisma.sales.update({
-        where: { id: sale.id},
+        where: { id: sale.id },
         data: {
-          totalPrice: accurateSalePrice
-        }
-      })
+          totalPrice: accurateSalePrice,
+        },
+      });
     }
 
-    console.log({sales: sales.length})
+    // console.log({ sales: sales.length });
 
     return sales;
   }
@@ -1503,6 +1519,7 @@ export class SalesService {
         status: sale.status,
         paymentMethod: sale.paymentMethod,
         paymentGateway: sale.paymentGateway,
+        formattedSaleId: sale.formattedSaleId,
         createdAt: sale.createdAt,
         updatedAt: sale.updatedAt,
 
@@ -1727,6 +1744,51 @@ export class SalesService {
 
   private transformSaleItems(items: any[]) {
     return items.map((item) => this.transformSaleItem(item));
+  }
+
+  private buildDateRangeFilter(fromDate?: string, toDate?: string): any {
+    if (!fromDate && !toDate) {
+      return null;
+    }
+
+    const dateRange: any = {};
+
+    if (fromDate) {
+      const from = new Date(fromDate);
+      if (isNaN(from.getTime())) {
+        throw new BadRequestException(
+          `Invalid fromDate format. Expected ISO 8601 format (YYYY-MM-DD or ISO string)`,
+        );
+      }
+      // Start of the day
+      from.setHours(0, 0, 0, 0);
+      dateRange.gte = from;
+    }
+
+    if (toDate) {
+      const to = new Date(toDate);
+      if (isNaN(to.getTime())) {
+        throw new BadRequestException(
+          `Invalid toDate format. Expected ISO 8601 format (YYYY-MM-DD or ISO string)`,
+        );
+      }
+      // End of the day
+      to.setHours(23, 59, 59, 999);
+      dateRange.lte = to;
+    }
+
+    // Validate that fromDate is not after toDate
+    if (fromDate && toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      if (from > to) {
+        throw new BadRequestException(
+          'fromDate must be before or equal to toDate',
+        );
+      }
+    }
+
+    return Object.keys(dateRange).length > 0 ? dateRange : null;
   }
 
   formatResponse(saleItems: any[], total: number, page: number, limit: number) {

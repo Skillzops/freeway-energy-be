@@ -34,8 +34,8 @@ model Customer {
   rejecter        User?     @relation("CustomerRejecter", fields: [rejectedBy], references: [id])
   rejectionReason String?
 
-  resubmissionCount  Int                @default(0) 
-  lastResubmittedAt  DateTime? 
+  resubmissionCount  Int                @default(0)
+  lastResubmittedAt  DateTime?
   previousRejections RejectionHistory[]
 
   requiresReview Boolean @default(false)
@@ -48,6 +48,8 @@ model Customer {
   installerTask  InstallerTask[]
   assignedAgents AgentCustomer[]
 
+  interactions CustomerInteraction[]
+
   sales Sales[]
 
   creatorId      String? @db.ObjectId
@@ -57,7 +59,6 @@ model Customer {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@map("customers")
   @@index([createdAt])
   @@index([status])
   @@index([state])
@@ -66,6 +67,7 @@ model Customer {
   @@index([lastname])
   @@index([phone])
   @@index([email])
+  @@map("customers")
 }
 
 model RejectionHistory {
@@ -78,18 +80,75 @@ model RejectionHistory {
   rejecter   User     @relation("CustomerRejecter", fields: [rejectedBy], references: [id])
 
   rejectionReason String
-  resubmittedAt   DateTime? 
+  resubmittedAt   DateTime?
 
   createdAt DateTime @default(now())
 
   @@index([customerId])
 }
 
+model CustomerInteraction {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  customerId String   @db.ObjectId
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  interactionType InteractionType @default(NOTE)
+
+  title       String
+  description String? @db.String
+
+  interactionDate  DateTime  @default(now())
+  nextFollowUpDate DateTime?
+
+  assignedToUserId String? @db.ObjectId
+  assignedToUser   User?   @relation("InteractionAssignee", fields: [assignedToUserId], references: [id], onDelete: NoAction)
+
+  createdByUserId String @db.ObjectId
+  createdByUser   User   @relation("InteractionCreator", fields: [createdByUserId], references: [id], onDelete: NoAction)
+
+  updatedByUserId String? @db.ObjectId
+  updatedByUser   User?   @relation("InteractionUpdater", fields: [updatedByUserId], references: [id], onDelete: NoAction)
+
+  status InteractionStatus @default(OPEN)
+
+  tags String[] // Array of tags for categorization
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  @@index([customerId])
+  @@index([createdByUserId])
+  @@index([assignedToUserId])
+  @@index([status])
+  @@index([interactionType])
+  @@index([createdAt])
+  @@index([customerId, createdAt])
+  @@map("customer_interactions")
+}
+
+enum InteractionType {
+  CALL
+  EMAIL
+  MEETING
+  VISIT
+  FOLLOW_UP
+  NOTE
+  OTHER
+}
+
+enum InteractionStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
 enum ApprovalStatus {
-  PENDING 
-  APPROVED 
-  REJECTED 
-  RESUBMITTED 
+  PENDING
+  APPROVED
+  REJECTED
+  RESUBMITTED
 }
 
 enum CustomerType {

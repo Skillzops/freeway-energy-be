@@ -37,11 +37,37 @@ export class ListSalesQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Search across multiple fields (customer name, phone, serial number, product name, sale ID)',
+      'Search across multiple fields (customer name, phone, serial number, product name, formattedSaleId)',
   })
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter sales created from this date (ISO 8601 format: YYYY-MM-DD or full ISO string)',
+    example: '2025-01-01',
+  })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter sales created until this date (ISO 8601 format: YYYY-MM-DD or full ISO string)',
+    example: '2025-01-31',
+  })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Search by formatted sale ID (e.g., SAL-250111-A1B2C)',
+    example: 'SAL-250111-A1B2C',
+  })
+  @IsOptional()
+  @IsString()
+  formattedSaleId?: string;
 }
 
 export class ListAgentSalesQueryDto extends OmitType(ListSalesQueryDto, [
