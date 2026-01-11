@@ -65,6 +65,7 @@ export class ProductsService {
         id: {
           in: productInventoryIds,
         },
+        hideInventory: false,
       },
       select: {
         id: true,
@@ -218,6 +219,7 @@ export class ProductsService {
     const product = await this.prisma.product.findUnique({
       where: {
         id,
+        hideProduct: false,
         assignedAgents: agent ? { some: { agentId: agent } } : undefined,
       },
       include: {
@@ -280,7 +282,7 @@ export class ProductsService {
 
   async getProductTabs(productId: string) {
     const product = await this.prisma.product.findUnique({
-      where: { id: productId },
+      where: { id: productId, hideProduct: false },
       select: {
         _count: {
           select: { customers: true },
@@ -317,7 +319,7 @@ export class ProductsService {
 
   async getProductInventory(productId: string) {
     const inventoryBatch = await this.prisma.product.findUnique({
-      where: { id: productId },
+      where: { id: productId, hideProduct: false },
       include: {
         inventories: {
           include: {

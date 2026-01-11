@@ -494,6 +494,7 @@ export class WarehouseService {
       where: {
         id: inventoryId,
         warehouseId: fromWarehouseId,
+        hideInventory: false,
       },
       include: {
         batches: {
@@ -710,6 +711,7 @@ export class WarehouseService {
           name: transferRequest.inventory.name,
           manufacturerName: transferRequest.inventory.manufacturerName,
           warehouseId: transferRequest.toWarehouseId,
+          hideInventory: false,
         },
       });
 

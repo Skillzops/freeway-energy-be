@@ -168,6 +168,7 @@ export class InventoryService {
     const isInventoryValid = await this.prisma.inventory.findFirst({
       where: {
         id: createInventoryBatchDto.inventoryId,
+        hideInventory: false,
         ...(warehouseId ? { warehouseId } : {}),
       },
     });
@@ -297,6 +298,7 @@ export class InventoryService {
     const inventory = await this.prisma.inventory.findUnique({
       where: {
         id: inventoryId,
+        hideInventory: false,
         ...(warehouseManager
           ? { warehouseId: warehouseManager.warehouseId }
           : {}),
@@ -475,7 +477,7 @@ export class InventoryService {
 
   async getInventoryTabs(inventoryId: string) {
     const inventory = await this.prisma.inventory.findUnique({
-      where: { id: inventoryId },
+      where: { id: inventoryId, hideInventory: false },
     });
 
     if (!inventory) throw new NotFoundException(MESSAGES.INVENTORY_NOT_FOUND);

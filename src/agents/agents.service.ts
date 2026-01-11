@@ -951,7 +951,7 @@ export class AgentsService {
     await this.findOne(agentId);
 
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: productIds }, hideProduct: false },
     });
 
     if (products.length !== productIds.length) {

@@ -1098,7 +1098,7 @@ export class SalesService {
     applyMargin: boolean,
   ): Promise<ProcessedSaleItem> {
     const product = await this.prisma.product.findUnique({
-      where: { id: saleItem.productId },
+      where: { id: saleItem.productId, hideProduct: false },
       include: {
         inventories: {
           include: {
@@ -1285,7 +1285,7 @@ export class SalesService {
 
     // Fetch products with inventories and batches
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: productIds }, hideProduct: false },
       include: {
         inventories: {
           include: {
