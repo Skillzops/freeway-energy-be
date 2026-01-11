@@ -1,5 +1,6 @@
 model Sales {
   id String @id @default(auto()) @map("_id") @db.ObjectId
+  formattedSaleId String? @unique
 
   category CategoryTypes
 
@@ -164,3 +165,25 @@ enum SalesStatus {
   UNPAID
   CANCELLED // The shows sales that were not paid for in time hence, all it's inventories were restored.
 }
+
+
+// real agent ID: 69022f8b16c1f0eb2f05087e, user ID  69022f8b16c1f0eb2f05087d
+// Wrong agent ID: 69408c5de286cf04b02a37ad, user ID 69408c5de286cf04b02a37ac
+
+// db('admin').collection('wallet_transactions').updateMany(
+//   { agentId: new ObjectId("69408c5de286cf04b02a37ad") },
+//   {
+//     $set: {
+//       agentId: ["69022f8b16c1f0eb2f05087e"]
+//     }
+//   }app
+// )
+
+// db('admin').collection('agent_customers').updatedMany(
+//   { agentId: ["69022f8b16c1f0eb2f05087e"] },
+//   {
+//     $set: {
+//       agentId: new ObjectId("69022f8b16c1f0eb2f05087e")
+//     }
+//   }
+// )

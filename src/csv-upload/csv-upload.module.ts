@@ -10,6 +10,7 @@ import { CsvProcessingProcessor } from './csv-processing.processor';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailModule } from 'src/mailer/email.module';
 import { PricingLookupService } from './pricing-lookup.service';
+import { SalesIdGeneratorService } from 'src/sales/saleid-generator';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { PricingLookupService } from './pricing-lookup.service';
     FileParserService,
     CsvProcessingProcessor,
     PricingLookupService,
+    SalesIdGeneratorService
   ],
   exports: [
     CsvUploadService,
@@ -35,6 +37,7 @@ import { PricingLookupService } from './pricing-lookup.service';
     DefaultsGeneratorService,
     FileParserService,
     PricingLookupService,
+    SalesIdGeneratorService
   ],
 })
 export class CsvUploadModule {}

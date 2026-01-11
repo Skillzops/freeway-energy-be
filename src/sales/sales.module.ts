@@ -14,6 +14,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { WalletModule } from 'src/wallet/wallet.module';
 import { PaymentModule } from 'src/payment/payment.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { SalesIdGeneratorService } from './saleid-generator';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { AuthModule } from 'src/auth/auth.module';
     FlutterwaveService,
     TermiiService,
     ConfigService,
+    SalesIdGeneratorService
   ],
   exports: [
     SalesService,
@@ -48,6 +50,7 @@ import { AuthModule } from 'src/auth/auth.module';
     FlutterwaveService,
     TermiiService,
     ConfigService,
+    SalesIdGeneratorService
   ],
 })
 export class SalesModule {}

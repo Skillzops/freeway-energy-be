@@ -855,26 +855,26 @@ export class PaymentService {
       },
     });
 
-    sale = await this.prisma.sales.update({
-      where: { id: sale.id },
-      data: {
-        totalPaid: {
-          increment: paymentData.amount,
-        },
-      },
-      include: {
-        saleItems: {
-          include: {
-            product: true,
-            devices: true,
-            SaleRecipient: true,
-          },
-        },
-        customer: true,
-        creatorDetails: true,
-        installmentAccountDetails: true,
-      },
-    });
+    // sale = await this.prisma.sales.update({
+    //   where: { id: sale.id },
+    //   data: {
+    //     totalPaid: {
+    //       increment: paymentData.amount,
+    //     },
+    //   },
+    //   include: {
+    //     saleItems: {
+    //       include: {
+    //         product: true,
+    //         devices: true,
+    //         SaleRecipient: true,
+    //       },
+    //     },
+    //     customer: true,
+    //     creatorDetails: true,
+    //     installmentAccountDetails: true,
+    //   },
+    // });
 
     if (!sale) {
       throw new NotFoundException('Sale not found');
@@ -887,13 +887,13 @@ export class PaymentService {
 
     console.log({ installmentInfo });
 
-    await this.prisma.sales.update({
-      where: { id: sale.id },
-      data: {
-        remainingInstallments: installmentInfo.newRemainingDuration,
-        status: installmentInfo.newStatus,
-      },
-    });
+    // await this.prisma.sales.update({
+    //   where: { id: sale.id },
+    //   data: {
+    //     remainingInstallments: installmentInfo.newRemainingDuration,
+    //     status: installmentInfo.newStatus,
+    //   },
+    // });
 
     await this.updateDeviceStatusAfterPayment(sale);
 

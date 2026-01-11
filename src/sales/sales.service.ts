@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalesDto, SaleItemDto } from './dto/create-sales.dto';
 import {
+  BatchAlocation,
   PaymentGateway,
   PaymentMethod,
   PaymentMode,
@@ -28,6 +29,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
+import { SalesIdGeneratorService } from './saleid-generator';
 
 @Injectable()
 export class SalesService {
@@ -37,6 +39,7 @@ export class SalesService {
     private readonly paymentService: PaymentService,
     private readonly walletService: WalletService,
     private readonly referenceGenerator: ReferenceGeneratorService,
+    private readonly salesIdGenerator: SalesIdGeneratorService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -51,11 +54,15 @@ export class SalesService {
 
     await this.validateDeviceAvailability(dto.saleItems);
 
+    
     const financialSettings = await this.prisma.financialSettings.findFirst();
-
+    
     if (!financialSettings) {
       throw new BadRequestException('Financial settings not configured');
     }
+
+    const formattedSaleId =
+      await this.salesIdGenerator.generateFormattedSaleId();
 
     const processedItems: ProcessedSaleItem[] = [];
     for (const item of dto.saleItems) {
@@ -148,6 +155,7 @@ export class SalesService {
           customerId: dto.customerId,
           totalPrice: totalAmount,
           installmentStartingPrice: totalInstallmentStartingPrice,
+          formattedSaleId,
           totalInstallmentDuration,
           // remainingInstallments: totalInstallmentDuration - 1,
           remainingInstallments: totalInstallmentDuration,
@@ -422,7 +430,6 @@ export class SalesService {
     );
   }
 
-
   private async performSearchWithAggregation(
     matchConditions: any,
     searchTerm: string,
@@ -430,7 +437,7 @@ export class SalesService {
     limit: number,
   ) {
     const searchRegex = { $regex: searchTerm, $options: 'i' };
-  
+
     const basePipeline = [
       {
         $match: matchConditions,
@@ -478,7 +485,7 @@ export class SalesService {
       },
       {
         $lookup: {
-          from: 'token', 
+          from: 'token',
           localField: 'devices._id',
           foreignField: 'deviceId',
           as: 'deviceTokens',
@@ -498,9 +505,9 @@ export class SalesService {
         },
       },
     ];
-  
+
     const countPipeline = [...basePipeline, { $count: 'total' }];
-  
+
     const dataPipeline = [
       ...basePipeline,
       {
@@ -690,7 +697,7 @@ export class SalesService {
         },
       },
     ];
-  
+
     const [countResult, saleData] = await Promise.all([
       this.prisma.sales.aggregateRaw({
         pipeline: countPipeline,
@@ -699,15 +706,15 @@ export class SalesService {
         pipeline: dataPipeline,
       }) as any,
     ]);
-  
+
     const total = countResult[0]?.total || 0;
-  
+
     return {
       saleItems: saleData,
       total,
     };
   }
-  
+
   private async performSimpleQuery(
     matchConditions: any,
     skip: number,
@@ -986,6 +993,77 @@ export class SalesService {
       sale.paymentGateway || PaymentGateway.OGARANYA,
       sale.paymentMethod || PaymentMethod.ONLINE,
     );
+  }
+
+  async fixSalesWithOvercalculatedTotal() {
+    const applyMargin = false;
+    const AMOUNT_THRESHOLD = 200000;
+    const sales = await this.prisma.sales.findMany({
+      where: {
+        totalPrice: {
+          gte: AMOUNT_THRESHOLD,
+        },
+      },
+      include: {
+        saleItems: true,
+        batchAllocations: true,
+      },
+      // select: {
+      //   batchAllocations: true
+      // }
+    });
+
+    const financialSettings = await this.prisma.financialSettings.findFirst();
+
+    for (const sale of sales) {
+      let accurateSalePrice = 0
+      const totalBasePrice = (sale.batchAllocations || []).reduce(
+        (sum: number, batchAllocation: BatchAlocation) =>
+          sum + batchAllocation.price * batchAllocation.quantity,
+        0,
+      );
+
+      for (const saleItem of sale.saleItems) {
+        const discountAmount = saleItem.discount
+          ? (totalBasePrice * Number(saleItem.discount)) / 100
+          : 0;
+
+        const priceAfterDiscount = totalBasePrice - discountAmount;
+
+        let totalPrice = priceAfterDiscount;
+
+        const principal = totalPrice;
+        const monthlyInterestRate = applyMargin
+          ? financialSettings.monthlyInterest
+          : 0;
+        const numberOfMonths = saleItem.installmentDuration;
+        const loanMargin = applyMargin ? financialSettings.loanMargin : 0;
+
+        const totalInterest = principal * monthlyInterestRate * numberOfMonths;
+        const totalWithMargin = (principal + totalInterest) * (1 + loanMargin);
+
+        totalPrice = totalWithMargin;
+        accurateSalePrice += totalPrice;
+
+        await this.prisma.saleItem.update({
+          where: { id: saleItem.id },
+          data: {
+            totalPrice,
+          },
+        });
+      }
+
+      await this.prisma.sales.update({
+        where: { id: sale.id},
+        data: {
+          totalPrice: accurateSalePrice
+        }
+      })
+    }
+
+    console.log({sales: sales.length})
+
+    return sales;
   }
 
   async getMargins() {
@@ -1398,14 +1476,11 @@ export class SalesService {
   }
 
   private transformSaleItem(item: any) {
-    
     const cleaned = this.cleanValue(item);
 
-    
     const sale = cleaned.sale || cleaned;
 
     return {
-      
       id: cleaned.id || cleaned._id,
       productId: cleaned.productId,
       quantity: cleaned.quantity,
@@ -1422,9 +1497,7 @@ export class SalesService {
       createdAt: cleaned.createdAt,
       updatedAt: cleaned.updatedAt,
 
-      
       sale: {
-        
         id: sale.id || sale._id,
         category: sale.category,
         status: sale.status,
@@ -1433,7 +1506,6 @@ export class SalesService {
         createdAt: sale.createdAt,
         updatedAt: sale.updatedAt,
 
-        
         customerId: sale.customerId,
         creatorId: sale.creatorId,
         agentId: sale.agentId,
@@ -1441,7 +1513,6 @@ export class SalesService {
         installerName: sale.installerName,
         contractId: sale.contractId,
 
-        
         totalPrice: sale.totalPrice,
         totalMiscellaneousPrice: sale.totalMiscellaneousPrice,
         totalPaid: sale.totalPaid,
@@ -1452,12 +1523,10 @@ export class SalesService {
         applyMargin: sale.applyMargin,
         deliveredAccountDetails: sale.deliveredAccountDetails,
 
-        
         installmentAccountDetailsId: sale.installmentAccountDetailsId,
         transactionDate: sale.transactionDate,
         deletedAt: sale.deletedAt,
 
-        
         customer: sale.customer
           ? {
               id: sale.customer.id || sale.customer._id,
@@ -1498,7 +1567,6 @@ export class SalesService {
             }
           : null,
 
-        
         creatorDetails: sale.creatorDetails
           ? plainToInstance(UserEntity, {
               id: sale.creatorDetails.id || sale.creatorDetails._id,
@@ -1523,7 +1591,6 @@ export class SalesService {
             })
           : null,
 
-        
         agent:
           sale.agent && Object.keys(sale.agent).length > 0
             ? {
@@ -1540,7 +1607,6 @@ export class SalesService {
               }
             : null,
 
-        
         payment: Array.isArray(sale.payment)
           ? sale.payment.map((payment: any) => ({
               id: payment.id || payment._id,
@@ -1577,7 +1643,8 @@ export class SalesService {
                   ogaranyaOrderRef: sale.payment.ogaranyaOrderRef,
                   ogaranyaSmsNumber: sale.payment.ogaranyaSmsNumber,
                   ogaranyaSmsMessage: sale.payment.ogaranyaSmsMessage,
-                  flutterwaveTransactionId: sale.payment.flutterwaveTransactionId,
+                  flutterwaveTransactionId:
+                    sale.payment.flutterwaveTransactionId,
                   flutterwavePaymentId: sale.payment.flutterwavePaymentId,
                   flutterwavePaymentLink: sale.payment.flutterwavePaymentLink,
                   recordedById: sale.payment.recordedById,
@@ -1592,7 +1659,6 @@ export class SalesService {
             : [],
       },
 
-      
       devices: Array.isArray(cleaned.devices)
         ? cleaned.devices.map((device: any) => ({
             id: device.id || device._id,
@@ -1629,7 +1695,6 @@ export class SalesService {
           }))
         : [],
 
-      
       SaleRecipient: cleaned.SaleRecipient
         ? {
             id: cleaned.SaleRecipient.id,
@@ -1643,7 +1708,6 @@ export class SalesService {
           }
         : null,
 
-      
       product: cleaned.product
         ? {
             id: cleaned.product.id,
@@ -1665,12 +1729,7 @@ export class SalesService {
     return items.map((item) => this.transformSaleItem(item));
   }
 
-  formatResponse(
-    saleItems: any[],
-    total: number,
-    page: number,
-    limit: number,
-  ) {
+  formatResponse(saleItems: any[], total: number, page: number, limit: number) {
     const cleanedItems = this.transformSaleItems(saleItems);
 
     return {
@@ -1680,4 +1739,5 @@ export class SalesService {
       limit,
       totalPages: limit === 0 ? 0 : Math.ceil(total / limit),
     };
-  }}
+  }
+}

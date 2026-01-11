@@ -21,6 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { EmailService } from 'src/mailer/email.service';
+import { SalesIdGeneratorService } from 'src/sales/saleid-generator';
 
 interface ProcessingSession {
   id: string;
@@ -70,6 +71,7 @@ export class CsvUploadService {
   private readonly sessions = new Map<string, ProcessingSession>();
   private readonly newAgentsCredentials = new Map<string, CreatedAgentInfo[]>();
   private readonly referenceGenerator: ReferenceGeneratorService;
+  private readonly salesIdGenerator: SalesIdGeneratorService;
 
   private readonly COLUMN_MAPPINGS = new Map([
     // Agent/Sales Person
@@ -1329,12 +1331,15 @@ export class CsvUploadService {
   ): Promise<any> {
     try {
       const { paymentMode, miscellaneousPrices, ...rest } = saleData;
+      const formattedSaleId =
+        await this.salesIdGenerator.generateFormattedSaleId();
       // Create sale
       const sale = await this.prisma.sales.create({
         data: {
           ...rest,
           agentName,
           customerId,
+          formattedSaleId,
           contractId,
           creatorId: agentId || generatedDefaults.defaultUser.id,
 

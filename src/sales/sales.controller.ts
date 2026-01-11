@@ -19,6 +19,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiExcludeEndpoint,
   ApiExtraModels,
   ApiHeader,
   ApiOperation,
@@ -35,6 +36,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
 import { AuthService } from 'src/auth/auth.service';
+import { SalesIdGeneratorService } from './saleid-generator';
 
 @SkipThrottle()
 @ApiTags('Sales')
@@ -53,6 +55,7 @@ export class SalesController {
   constructor(
     private readonly salesService: SalesService,
     private readonly authService: AuthService,
+    private readonly salesIdGenerator: SalesIdGeneratorService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -229,5 +232,39 @@ export class SalesController {
   @Get(':id/payment-data')
   async getSalePaymentData(@Param('id') id: string) {
     return await this.salesService.getSalesPaymentDetails(id);
+  }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @ApiBadRequestResponse({})
+  @HttpCode(HttpStatus.OK)
+  @Get('fix/sales-with-overcalculated-total')
+  async fixSalesWithOvercalculatedTotal() {
+    return await this.salesService.fixSalesWithOvercalculatedTotal();
+  }
+
+  @ApiExcludeEndpoint()
+  @Post('fix/populate-formatted-ids')
+  @HttpCode(HttpStatus.OK)
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.manage}:${SubjectEnum.Sales}`],
+  })
+  @ApiOperation({
+    summary: 'Populate existing sales with formatted IDs',
+    description:
+      'One-time migration endpoint to generate and assign formatted sale IDs to all existing sales records. Only accessible to super admins.',
+  })
+  async populateFormattedIds() {
+    const result = await this.salesIdGenerator.populateExistingSalesIds();
+    return {
+      message: 'Sales ID population completed',
+      result,
+    };
   }
 }
