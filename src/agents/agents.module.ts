@@ -12,7 +12,8 @@ import { OgaranyaModule } from '../ogaranya/ogaranya.module';
 import { DeviceModule } from 'src/device/device.module';
 import { BullModule } from '@nestjs/bullmq';
 import { AgentProcessor } from './agent.processor';
-import { TermiiModule  } from 'src/termii/termii.module';
+import { TermiiModule } from 'src/termii/termii.module';
+import { AgentCollapseService } from './collapse-duplicate-agents.service';
 
 @Module({
   imports: [
@@ -33,8 +34,14 @@ import { TermiiModule  } from 'src/termii/termii.module';
     PrismaService,
     WalletService,
     InstallerService,
+    AgentCollapseService,
     AgentProcessor,
   ],
-  exports: [AgentsService, WalletService, InstallerService],
+  exports: [
+    AgentsService,
+    WalletService,
+    InstallerService,
+    AgentCollapseService,
+  ],
 })
 export class AgentsModule {}

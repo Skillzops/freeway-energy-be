@@ -12,7 +12,7 @@ import { GetSessionUser } from '../auth/decorators/getUser';
 import { AgentAccessGuard } from '../auth/guards/agent-access.guard';
 import { Agent, AgentCategory } from '@prisma/client';
 import { InstallerService } from './installer.service';
-import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiExcludeEndpoint, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
 import { DeviceService } from 'src/device/device.service';
 import { AgentsService } from 'src/agents/agents.service';
@@ -130,6 +130,7 @@ export class InstallerController {
   }
 
   //hot-fix endpoint
+  @ApiExcludeEndpoint()
   @Get('revert-tasks-accepted')
   async revertTasksAccepted(
   ) {

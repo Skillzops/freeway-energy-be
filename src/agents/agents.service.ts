@@ -24,8 +24,6 @@ import {
   Prisma,
   SalesStatus,
   SubjectEnum,
-  TaskStatus,
-  TokenType,
   UserStatus,
 } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
@@ -2948,7 +2946,7 @@ SECURITY NOTES:
           const row = parsedRows[i];
 
           // Create agent user
-          const { user, agent, credentials } = await this.createAgentUser(row);
+          const { credentials } = await this.createAgentUser(row);
 
           result.usersCreated++;
           result.agentsCreated++;
@@ -3038,8 +3036,8 @@ SECURITY NOTES:
           };
 
           const {
-            user,
-            agent: createdAgent,
+            // user,
+            // agent: createdAgent,
             credentials,
           } = await this.createAgentUser(row);
 

@@ -11,7 +11,13 @@ import {
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { ConfigService } from '@nestjs/config';
-import { ApiBody, ApiOperation, ApiTags, ApiHeader, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiTags,
+  ApiHeader,
+  ApiQuery,
+  ApiExcludeEndpoint,
+} from '@nestjs/swagger';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
@@ -156,38 +162,36 @@ export class PaymentController {
     }
   }
 
-
   //Hot-fix endpoints
+  @ApiExcludeEndpoint()
   @Post('initiate-failed-post-payment')
   @HttpCode(HttpStatus.OK)
-  async handleFailedPostPayment(
-    @Body() body: any,
-  ) {
+  async handleFailedPostPayment(@Body() body: any) {
     return await this.paymentService.handlePostPayment(body.paymentData);
   }
 
+  @ApiExcludeEndpoint()
   @Post('initiate-failed-device-token-generation')
   @HttpCode(HttpStatus.OK)
-  async handleFailedDeviceTokenGeneration(
-    @Body() body: any,
-  ) {
-    return await this.deviceService.handleFailedDeviceTokenGeneration(body.serialNumber, body.saleId);
+  async handleFailedDeviceTokenGeneration(@Body() body: any) {
+    return await this.deviceService.handleFailedDeviceTokenGeneration(
+      body.serialNumber,
+      body.saleId,
+    );
   }
 
   @Get('find-zero-token-devices')
+  @ApiExcludeEndpoint()
   @HttpCode(HttpStatus.OK)
-  async findZeroTokenDevices(
-  ) {
+  async findZeroTokenDevices() {
     return await this.deviceService.findZeroTokenDevices();
   }
 
   @Get('find-sales-with-wrong-totals')
   @HttpCode(HttpStatus.OK)
-  async findSalesWithWrongTotals(
-  ) {
+  async findSalesWithWrongTotals() {
     return await this.deviceService.findSalesWithWrongTotals();
   }
-
 
   // @Post('webhook/ogaranya')
   // @ApiOperation({ summary: 'Ogaranya payment webhook (legacy endpoint)' })

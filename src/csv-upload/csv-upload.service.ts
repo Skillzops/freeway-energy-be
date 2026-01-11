@@ -1156,6 +1156,7 @@ export class CsvUploadService {
     customer: any,
     product: any,
   ): Promise<{ inventory: any; device: any }> {
+    console.log({product})
     try {
       let inventory = null;
       let device = null;

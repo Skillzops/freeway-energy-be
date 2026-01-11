@@ -92,6 +92,17 @@ export class TaskManagementController {
     return this.taskManagementService.getTasks(getTasksQuery);
   }
 
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @Get(':id')
+  @ApiOperation({ summary: 'Get Task Details' })
+  @ApiParam({ name: 'id', description: 'Task ID' })
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.read}:${SubjectEnum.Agents}`],
+  })
+  async getTaskById(@Param('id') taskId: string) {
+    return this.taskManagementService.getTaskById(taskId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     description:

@@ -13,7 +13,6 @@ import {
   UseInterceptors,
   UploadedFiles,
   ParseFilePipeBuilder,
-  Res,
   UploadedFile,
   Patch,
 } from '@nestjs/common';
@@ -24,6 +23,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExcludeEndpoint,
   ApiExtraModels,
   ApiHeader,
   ApiOkResponse,
@@ -73,8 +73,9 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
-import { Response } from 'express';
 import { UpdateAgentDto } from './dto/update-agent.dto';
+import { CollapseDuplicateAgentRecordsDto } from './dto/collapse-dupliacte-agent-record.dto';
+import { AgentCollapseService } from './collapse-duplicate-agents.service';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -87,6 +88,7 @@ export class AgentsController {
     private readonly salesService: SalesService,
     private readonly deviceService: DeviceService,
     private readonly installerService: InstallerService,
+    private readonly agentCollapseService: AgentCollapseService,
     @InjectQueue('agent-queue') private agentQueue: Queue,
   ) {}
 
@@ -1166,6 +1168,20 @@ export class AgentsController {
   @Get(':id/tabs')
   async getInventoryTabs(@Param('id') agentId: string) {
     return this.agentsService.getAgentTabs(agentId);
+  }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @ApiBearerAuth('access_token')
+  @Patch('fix/collapse-duplicate-agent-records')
+  async collapseDuplicateAgentRecords(@Body() body: CollapseDuplicateAgentRecordsDto) {
+    return this.agentCollapseService.collapseDuplicateAgentRecords(body);
   }
 
   @UseGuards(JwtAuthGuard, AgentAccessGuard)

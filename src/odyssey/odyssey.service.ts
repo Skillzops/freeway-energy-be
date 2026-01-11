@@ -241,6 +241,7 @@ export class OdysseyService {
   }
 
   private isInSite(payment: OdysseyPaymentDto, siteId: string): boolean {
+    console.log({payment, siteId})
     // Implement site-based filtering if you have site data
     // For now, return true to include all payments
     return true;

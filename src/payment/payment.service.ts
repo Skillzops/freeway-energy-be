@@ -9,7 +9,6 @@ import {
   PaymentMode,
   PaymentStatus,
   PaymentGateway,
-  SalesStatus,
   WalletTransactionStatus,
   WalletTransactionType,
   InstallationStatus,
@@ -552,32 +551,32 @@ export class PaymentService {
     }
   }
 
-  private async getFlutterwaveTransactionId(
-    payment: any,
-    transaction_id,
-  ): Promise<number> {
-    // Try to get transaction ID from payment responses
-    const paymentResponse = await this.prisma.paymentResponses.findFirst({
-      where: { paymentId: payment.id },
-      orderBy: { createdAt: 'desc' },
-    });
+  // private async getFlutterwaveTransactionId(
+  //   payment: any,
+  //   transaction_id,
+  // ): Promise<number> {
+  //   // Try to get transaction ID from payment responses
+  //   const paymentResponse = await this.prisma.paymentResponses.findFirst({
+  //     where: { paymentId: payment.id },
+  //     orderBy: { createdAt: 'desc' },
+  //   });
 
-    if (
-      paymentResponse?.data &&
-      typeof paymentResponse.data === 'object' &&
-      !Array.isArray(paymentResponse.data) &&
-      'transaction_id' in paymentResponse.data
-    ) {
-      const transactionId = (paymentResponse.data as any).transaction_id;
-      return transactionId;
-    }
+  //   if (
+  //     paymentResponse?.data &&
+  //     typeof paymentResponse.data === 'object' &&
+  //     !Array.isArray(paymentResponse.data) &&
+  //     'transaction_id' in paymentResponse.data
+  //   ) {
+  //     const transactionId = (paymentResponse.data as any).transaction_id;
+  //     return transactionId;
+  //   }
 
-    // If not found, we might need to search by reference
-    // This would require calling Flutterwave's transaction lookup endpoint
-    throw new BadRequestException(
-      'Transaction ID not found for Flutterwave payment verification',
-    );
-  }
+  //   // If not found, we might need to search by reference
+  //   // This would require calling Flutterwave's transaction lookup endpoint
+  //   throw new BadRequestException(
+  //     'Transaction ID not found for Flutterwave payment verification',
+  //   );
+  // }
 
   async verifyWalletTopUpManually(reference: string) {
     const topUpRequest = await this.prisma.walletTransaction.findFirst({
@@ -855,26 +854,26 @@ export class PaymentService {
       },
     });
 
-    // sale = await this.prisma.sales.update({
-    //   where: { id: sale.id },
-    //   data: {
-    //     totalPaid: {
-    //       increment: paymentData.amount,
-    //     },
-    //   },
-    //   include: {
-    //     saleItems: {
-    //       include: {
-    //         product: true,
-    //         devices: true,
-    //         SaleRecipient: true,
-    //       },
-    //     },
-    //     customer: true,
-    //     creatorDetails: true,
-    //     installmentAccountDetails: true,
-    //   },
-    // });
+    sale = await this.prisma.sales.update({
+      where: { id: sale.id },
+      data: {
+        totalPaid: {
+          increment: paymentData.amount,
+        },
+      },
+      include: {
+        saleItems: {
+          include: {
+            product: true,
+            devices: true,
+            SaleRecipient: true,
+          },
+        },
+        customer: true,
+        creatorDetails: true,
+        installmentAccountDetails: true,
+      },
+    });
 
     if (!sale) {
       throw new NotFoundException('Sale not found');
@@ -885,15 +884,15 @@ export class PaymentService {
       paymentData.amount,
     );
 
-    console.log({ installmentInfo });
+    // console.log({ installmentInfo });
 
-    // await this.prisma.sales.update({
-    //   where: { id: sale.id },
-    //   data: {
-    //     remainingInstallments: installmentInfo.newRemainingDuration,
-    //     status: installmentInfo.newStatus,
-    //   },
-    // });
+    await this.prisma.sales.update({
+      where: { id: sale.id },
+      data: {
+        remainingInstallments: installmentInfo.newRemainingDuration,
+        status: installmentInfo.newStatus,
+      },
+    });
 
     await this.updateDeviceStatusAfterPayment(sale);
 
