@@ -1,5 +1,5 @@
 model Sales {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
+  id              String  @id @default(auto()) @map("_id") @db.ObjectId
   formattedSaleId String? @unique
 
   category CategoryTypes
@@ -47,6 +47,9 @@ model Sales {
 
   deliveredAccountDetails Boolean @default(false)
 
+  version Int     @default(1) // Optimistic locking version
+  notes   String?
+
   contractId String?   @db.ObjectId
   contract   Contract? @relation(fields: [contractId], references: [id])
 
@@ -56,16 +59,17 @@ model Sales {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@map("sales")
+  @@index([version])
   @@index([creatorId])
   @@index([customerId])
   @@index([contractId])
   @@index([agentId])
   @@index([createdAt])
   @@index([status])
-  @@index([createdAt, status]) 
-  @@index([creatorId, createdAt]) 
+  @@index([createdAt, status])
+  @@index([creatorId, createdAt])
   @@index([customerId, createdAt])
+  @@map("sales")
 }
 
 model InstallmentAccountDetails {
@@ -131,10 +135,9 @@ model SaleItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-
-  @@map("sales_items")
   @@index([saleId])
   @@index([productId])
+  @@map("sales_items")
 }
 
 model SaleRecipient {
@@ -165,7 +168,6 @@ enum SalesStatus {
   UNPAID
   CANCELLED // The shows sales that were not paid for in time hence, all it's inventories were restored.
 }
-
 
 // real agent ID: 69022f8b16c1f0eb2f05087e, user ID  69022f8b16c1f0eb2f05087d
 // Wrong agent ID: 69408c5de286cf04b02a37ad, user ID 69408c5de286cf04b02a37ac

@@ -1,11 +1,16 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateSalesDto, SaleItemDto } from './dto/create-sales.dto';
+import {
+  CreateSalesDto,
+  SaleItemDto,
+  UpdateSaleDto,
+} from './dto/create-sales.dto';
 import {
   BatchAlocation,
   PaymentGateway,
@@ -371,9 +376,13 @@ export class SalesService {
     }
   }
 
-  private async validateAgentDevices(agentId: string, saleData: CreateSalesDto) {
-    const deviceSerials = saleData.saleItems
-      .flatMap((item) => item.devices || [])
+  private async validateAgentDevices(
+    agentId: string,
+    saleData: CreateSalesDto,
+  ) {
+    const deviceSerials = saleData.saleItems.flatMap(
+      (item) => item.devices || [],
+    );
 
     if (deviceSerials.length > 0) {
       const hasDeviceAccess =
@@ -465,6 +474,115 @@ export class SalesService {
     );
   }
 
+  async updateSale(saleId: string, data: UpdateSaleDto) {
+    const currentSale = await this.prisma.sales.findUnique({
+      where: { id: saleId },
+      include: {
+        saleItems: {
+          include: {
+            devices: { select: { id: true, serialNumber: true } },
+          },
+        },
+        customer: { select: { id: true } },
+      },
+    });
+
+    if (!currentSale) {
+      throw new NotFoundException(`Sale ${saleId} not found`);
+    }
+
+    // Optimistic locking: version check
+    if (data.version !== undefined && currentSale.version !== data.version) {
+      throw new ConflictException(
+        `Sale was modified. Current version: ${currentSale.version}, ` +
+          `provided version: ${data.version}. Please refresh and retry.`,
+      );
+    }
+
+    // Detect what actually changed (no-op check)
+    const changes = this.detectChanges(currentSale, data);
+
+    if (Object.keys(changes).length === 0) {
+      throw new BadRequestException(
+        'No changes detected. Provide different values.',
+      );
+    }
+
+    // Validate new references exist
+    if (data.customerId && data.customerId !== currentSale.customerId) {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: data.customerId },
+      });
+      if (!customer) {
+        throw new BadRequestException(`Customer ${data.customerId} not found`);
+      }
+    }
+
+    // Validate device updates
+    let deviceChanges = null;
+    if (data.deviceSerials && data.deviceSerials.length > 0) {
+      deviceChanges = await this.validateAndPrepareDeviceUpdates(
+        data.deviceSerials,
+      );
+    }
+
+    // Atomic transaction: update sale
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Update sale
+      const updatedSale = await tx.sales.update({
+        where: { id: saleId },
+        data: {
+          ...(data.notes !== undefined && { notes: data.notes }),
+          ...(data.customerId && { customerId: data.customerId }),
+          version: { increment: 1 },
+          updatedAt: new Date(),
+        },
+        include: {
+          saleItems: {
+            include: {
+              devices: { select: { serialNumber: true } },
+            },
+          },
+        },
+      });
+
+      // Update devices on sale items if provided
+      if (deviceChanges) {
+        for (const deviceChange of deviceChanges) {
+          // Disconnect old devices
+          await tx.saleItem.update({
+            where: { id: deviceChange.saleItemId },
+            data: {
+              devices: { disconnect: [] },
+            },
+          });
+
+          // Connect new devices
+          if (deviceChange.newDeviceIds.length > 0) {
+            await tx.saleItem.update({
+              where: { id: deviceChange.saleItemId },
+              data: {
+                devices: {
+                  connect: deviceChange.newDeviceIds.map((id) => ({ id })),
+                },
+              },
+            });
+          }
+        }
+      }
+
+      return { updatedSale };
+    });
+
+    return {
+      id: result.updatedSale.id,
+      version: result.updatedSale.version,
+      updatedAt: result.updatedSale.updatedAt,
+      changes,
+      message: 'Sale updated successfully',
+    };
+  }
+
   private async performSearchWithAggregation(
     matchConditions: any,
     searchTerm: string,
@@ -536,7 +654,7 @@ export class SalesService {
             { 'customer.email': searchRegex },
             { 'saleItems.product': searchRegex },
             { 'devices.serialNumber': searchRegex },
-            { 'formattedSaleId': searchRegex },
+            { formattedSaleId: searchRegex },
           ],
         },
       },
@@ -1813,6 +1931,82 @@ export class SalesService {
     }
 
     return Object.keys(dateRange).length > 0 ? dateRange : null;
+  }
+
+  /**
+   * Detect what fields actually changed
+   */
+  private detectChanges(
+    currentSale: any,
+    updateData: UpdateSaleDto,
+  ): Record<string, { old: any; new: any }> {
+    const changes = {};
+
+    // if (
+    //   updateData.notes !== undefined &&
+    //   updateData.notes !== currentSale.notes
+    // ) {
+    //   changes['notes'] = {
+    //     old: currentSale.notes,
+    //     new: updateData.notes,
+    //   };
+    // }
+
+    if (
+      updateData.customerId &&
+      updateData.customerId !== currentSale.customerId
+    ) {
+      changes['customerId'] = {
+        old: currentSale.customerId,
+        new: updateData.customerId,
+      };
+    }
+
+    if (updateData.deviceSerials) {
+      changes['devices'] = {
+        old: 'Multiple devices',
+        new: 'Multiple devices ',
+      };
+    }
+
+    return changes;
+  }
+
+  /**
+   * Validate device updates and prepare for transaction
+   */
+  private async validateAndPrepareDeviceUpdates(deviceSerials: string[]) {
+    const changes = [];
+
+    if (!deviceSerials.length) {
+      changes.push({
+        newDeviceIds: [],
+        newSerials: [],
+      });
+
+      return
+    }
+
+    const devices = await this.prisma.device.findMany({
+      where: { serialNumber: { in: deviceSerials }, isUsed: false },
+      select: { id: true, serialNumber: true },
+    });
+
+    if (devices.length !== deviceSerials.length) {  
+      const found = new Set(devices.map((d) => d.serialNumber));
+      const notFound = deviceSerials.filter((s) => !found.has(s));
+      throw new BadRequestException(
+        `Devices not found: ${notFound.join(', ')}`,
+      );
+    }
+
+    changes.push({
+      newDeviceIds: devices.map((d) => d.id),
+      newSerials: devices.map((d) => d.serialNumber),
+    });
+
+
+    return changes;
   }
 
   formatResponse(saleItems: any[], total: number, page: number, limit: number) {

@@ -9,6 +9,7 @@ import {
   Query,
   Param,
   BadRequestException,
+  Patch,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
@@ -28,7 +29,7 @@ import {
 } from '@nestjs/swagger';
 import { GetSessionUser } from '../auth/decorators/getUser';
 import { SalesService } from './sales.service';
-import { CreateSalesDto } from './dto/create-sales.dto';
+import { CreateSalesDto, UpdateSaleDto } from './dto/create-sales.dto';
 import { ValidateSaleProductDto } from './dto/validate-sale-product.dto';
 import { CreateFinancialMarginDto } from './dto/create-financial-margins.dto';
 import { CreateNextPaymentDto } from '../payment/dto/cash-payment.dto';
@@ -214,6 +215,33 @@ export class SalesController {
   @Get(':id')
   async getSale(@Param('id') id: string) {
     return await this.salesService.getSale(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Update Sale Details',
+    description:
+      'Update allowed sale fields: notes, customer, devices. ' +
+      'Financial fields (totals, amounts) are protected and cannot be modified. ' +
+      'All changes require a reason and are tracked in audit log.',
+  })
+  @ApiParam({ name: 'id', description: 'Sale ID' })
+  @ApiBody({
+    type: UpdateSaleDto,
+    description: 'Partial update with whitelisted fields. ',
+  })
+  async updateSale(
+    @Param('id') saleId: string,
+    @Body() dto: UpdateSaleDto,
+  ) {
+    return this.salesService.updateSale(saleId, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)

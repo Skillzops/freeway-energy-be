@@ -15,11 +15,11 @@ import {
   ValidateNested,
   IsNumber,
   IsObject,
-  IsEmail,
   ArrayNotEmpty,
   Min,
   Length,
   IsBoolean,
+  ArrayMinSize,
 } from 'class-validator';
 import { IsObjectId } from 'class-validator-mongo-object-id';
 import {
@@ -172,6 +172,7 @@ export class SaleItemDto {
   @Type(() => SaleRecipientDto)
   saleRecipient?: SaleRecipientDto;
 }
+
 export class CreateSalesDto {
   @ApiProperty({
     description:
@@ -282,4 +283,39 @@ export class CreateAgentSalesDto extends CreateSalesDto {
   @IsNotEmpty()
   @IsEnum([PaymentMethod.ONLINE])
   paymentMethod: PaymentMethod;
+}
+
+export class UpdateSaleDto {
+  @ApiPropertyOptional({
+    description: 'Update sale notes/comments',
+    example: 'Corrected customer for this sale',
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Update customer reference',
+  })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Array of device serial numbers to assign to this item',
+    example: ['SR27/SR/2501205268', 'SR27/SR/2501205268'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  deviceSerials?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Version number for optimistic locking',
+    example: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  version?: number;
 }
