@@ -12,6 +12,10 @@ model Agent {
   installerTask InstallerTask[] @relation("InstallerTasks")
   assignedTasks InstallerTask[] @relation("AssignedTasks")
 
+  deviceAssignments DeviceAssignment[]
+  assignmentHistoryFrom DeviceAssignmentHistory[] @relation("FromAgent")
+  assignmentHistoryTo DeviceAssignmentHistory[] @relation("ToAgent")
+
   assignedProducts AgentProduct[]
 
   assignedCustomers   AgentCustomer[]

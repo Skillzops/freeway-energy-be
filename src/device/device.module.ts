@@ -8,6 +8,9 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { DeviceProcessor } from './device.processor';
 import { AuthModule } from 'src/auth/auth.module';
 import { NotificationModule } from 'src/notification/notification.module';
+import { DeviceAssignmentService } from './device-assignment.service';
+import { DeviceAssignmentController } from './device-assignment.controller';
+import { DeviceAssignmentMigrationService } from './device-assignment-migration.service';
 
 @Module({
   imports: [
@@ -17,12 +20,14 @@ import { NotificationModule } from 'src/notification/notification.module';
     AuthModule,
     NotificationModule,
   ],
-  controllers: [DeviceController],
+  controllers: [DeviceController, DeviceAssignmentController],
   providers: [
     DeviceService,
     DeviceProcessor,
     OpenPayGoService,
     JobStatusService,
+    DeviceAssignmentService,
+    DeviceAssignmentMigrationService,
     PrismaService,
   ],
   exports: [
@@ -31,6 +36,8 @@ import { NotificationModule } from 'src/notification/notification.module';
     DeviceProcessor,
     DeviceService,
     JobStatusService,
+    DeviceAssignmentService,
+    DeviceAssignmentMigrationService,
   ],
 })
 export class DeviceModule {}

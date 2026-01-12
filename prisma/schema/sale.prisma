@@ -1,1 +1,189 @@
-db('admin').collection('sales').countDocuments({ formattedSaleId: { $exists: false } })
+model Sales {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  formattedSaleId String? @unique
+
+  category CategoryTypes
+
+  saleItems SaleItem[]
+
+  batchAllocations BatchAlocation[]
+
+  applyMargin Boolean @default(false)
+
+  status SalesStatus
+
+  customerId String?   @db.ObjectId
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  creatorId      String? @db.ObjectId
+  creatorDetails User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  installerName String?
+  agentName     String?
+
+  agentId String? @db.ObjectId
+  agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  payment Payment[]
+
+  paymentGateway PaymentGateway @default(OGARANYA)
+
+  walletTransactions WalletTransaction[]
+  installerTasks     InstallerTask[]
+
+  paymentMethod PaymentMethod @default(ONLINE)
+
+  totalPrice              Float @default(0)
+  totalMiscellaneousPrice Float @default(0)
+  totalPaid               Float @default(0)
+
+  totalMonthlyPayment      Float @default(0)
+  installmentStartingPrice Float @default(0)
+  totalInstallmentDuration Int   @default(0)
+  remainingInstallments    Int?  @default(0)
+
+  installmentAccountDetailsId String?                    @db.ObjectId
+  installmentAccountDetails   InstallmentAccountDetails? @relation(fields: [installmentAccountDetailsId], references: [id])
+
+  deliveredAccountDetails Boolean @default(false)
+
+  contractId String?   @db.ObjectId
+  contract   Contract? @relation(fields: [contractId], references: [id])
+
+  transactionDate DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("sales")
+  @@index([creatorId])
+  @@index([customerId])
+  @@index([contractId])
+  @@index([agentId])
+  @@index([createdAt])
+  @@index([status])
+  @@index([createdAt, status]) 
+  @@index([creatorId, createdAt]) 
+  @@index([customerId, createdAt])
+}
+
+model InstallmentAccountDetails {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  flw_ref        String
+  order_ref      String
+  account_number String
+  account_status String
+  frequency      Int
+  bank_name      String
+  expiry_date    String
+  note           String
+  amount         String
+
+  createdAt DateTime @default(now())
+
+  sales Sales[]
+}
+
+model BatchAlocation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  inventoryBatchId String         @db.ObjectId
+  inventoryBatch   InventoryBatch @relation(fields: [inventoryBatchId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  price Float
+
+  Sales   Sales?  @relation(fields: [salesId], references: [id])
+  salesId String? @db.ObjectId
+}
+
+model SaleItem {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  productId String  @db.ObjectId
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  saleId String? @db.ObjectId
+  sale   Sales?  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  discount   Float?
+  totalPrice Float
+
+  monthlyPayment Float?
+
+  paymentMode         PaymentMode
+  miscellaneousPrices Json?       @db.Json
+
+  SaleRecipient   SaleRecipient? @relation(fields: [saleRecipientId], references: [id])
+  saleRecipientId String?        @db.ObjectId
+
+  installmentDuration      Int? // Duration in months
+  installmentStartingPrice Float?
+
+  deviceIDs String[] @db.ObjectId
+  devices   Device[] @relation(fields: [deviceIDs], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@map("sales_items")
+  @@index([saleId])
+  @@index([productId])
+}
+
+model SaleRecipient {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  firstname String
+  lastname  String
+  address   String
+  phone     String
+  email     String?
+
+  saleItems SaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sale_recipients")
+}
+
+enum PaymentMode {
+  ONE_OFF
+  INSTALLMENT
+}
+
+enum SalesStatus {
+  COMPLETED
+  IN_INSTALLMENT
+  UNPAID
+  CANCELLED // The shows sales that were not paid for in time hence, all it's inventories were restored.
+}
+
+
+// real agent ID: 69022f8b16c1f0eb2f05087e, user ID  69022f8b16c1f0eb2f05087d
+// Wrong agent ID: 69408c5de286cf04b02a37ad, user ID 69408c5de286cf04b02a37ac
+
+// db('admin').collection('wallet_transactions').updateMany(
+//   { agentId: new ObjectId("69408c5de286cf04b02a37ad") },
+//   {
+//     $set: {
+//       agentId: ["69022f8b16c1f0eb2f05087e"]
+//     }
+//   }app
+// )
+
+// db('admin').collection('agent_customers').updatedMany(
+//   { agentId: ["69022f8b16c1f0eb2f05087e"] },
+//   {
+//     $set: {
+//       agentId: new ObjectId("69022f8b16c1f0eb2f05087e")
+//     }
+//   }
+// )

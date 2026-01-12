@@ -1,0 +1,77 @@
+model DeviceAssignment {
+    id           String                    @id @default(auto()) @map("_id") @db.ObjectId
+    deviceId     String                    @db.ObjectId
+    device       Device                    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+    agentId      String                    @db.ObjectId
+    assignedAt   DateTime                  @default(now())
+    unassignedAt DateTime?
+    isActive     Boolean                   @default(true)
+    batchId      String?                   @db.ObjectId
+    batch        DeviceAssignmentBatch?    @relation(fields: [batchId], references: [id])
+    history      DeviceAssignmentHistory[]
+    agent        Agent                     @relation(fields: [agentId], references: [id])
+
+    @@unique([deviceId, agentId, unassignedAt])
+    @@index([agentId])
+    @@index([deviceId])
+    @@index([batchId])
+}
+
+model DeviceAssignmentBatch {
+    id            String                      @id @default(auto()) @map("_id") @db.ObjectId
+    createdBy     String                      @db.ObjectId
+    createdByUser User                        @relation(fields: [createdBy], references: [id])
+    createdAt     DateTime                    @default(now())
+    mode          DeviceAssignmentBatchMode   @default(ATOMIC)
+    totalDevices  Int
+    successCount  Int                         @default(0)
+    failureCount  Int                         @default(0)
+    status        DeviceAssignmentBatchStatus @default(PENDING)
+    assignments   DeviceAssignment[]
+    history       DeviceAssignmentHistory[]
+
+    @@index([createdBy])
+    @@index([status])
+}
+
+model DeviceAssignmentHistory {
+    id                 String                        @id @default(auto()) @map("_id") @db.ObjectId
+    deviceId           String
+    device             Device                        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+    actorId            String
+    actor              User                          @relation(fields: [actorId], references: [id])
+    action             DeviceAssignmentHistoryAction
+    fromAgentId        String?                       @db.ObjectId
+    fromAgent          Agent?                        @relation("FromAgent", fields: [fromAgentId], references: [id])
+    toAgentId          String?                       @db.ObjectId
+    toAgent            Agent?                        @relation("ToAgent", fields: [toAgentId], references: [id])
+    reason             String?
+    batchId            String?                       @db.ObjectId
+    batch              DeviceAssignmentBatch?        @relation(fields: [batchId], references: [id])
+    createdAt          DateTime                      @default(now())
+    deviceAssignment   DeviceAssignment?             @relation(fields: [deviceAssignmentId], references: [id])
+    deviceAssignmentId String?                       @db.ObjectId
+
+    @@index([actorId])
+    @@index([deviceId])
+    @@index([batchId])
+    @@index([createdAt])
+}
+
+enum DeviceAssignmentBatchStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+}
+
+enum DeviceAssignmentHistoryAction {
+    ASSIGN
+    UNASSIGN
+    REASSIGN
+}
+
+enum DeviceAssignmentBatchMode {
+    ATOMIC
+    PARTIAL
+}

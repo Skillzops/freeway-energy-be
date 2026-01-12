@@ -30,6 +30,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { SalesIdGeneratorService } from './saleid-generator';
+import { DeviceAssignmentService } from 'src/device/device-assignment.service';
 
 @Injectable()
 export class SalesService {
@@ -40,11 +41,15 @@ export class SalesService {
     private readonly walletService: WalletService,
     private readonly referenceGenerator: ReferenceGeneratorService,
     private readonly salesIdGenerator: SalesIdGeneratorService,
+    private readonly deviceAssignmentService: DeviceAssignmentService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
   async createSale(creatorId: string, dto: CreateSalesDto, agentId?: string) {
-    if (agentId) await this.validateAgentAccess(agentId, dto);
+    if (agentId) {
+      await this.validateAgentAccess(agentId, dto);
+      // await this.validateAgentDevices(agentId, dto);
+    }
 
     // Validate sales relations
     await this.validateSalesRelations(dto);
@@ -361,6 +366,25 @@ export class SalesService {
       if (!productAccess) {
         throw new ForbiddenException(
           `You do not have access to product ${item.productId}`,
+        );
+      }
+    }
+  }
+
+  private async validateAgentDevices(agentId: string, saleData: CreateSalesDto) {
+    const deviceSerials = saleData.saleItems
+      .flatMap((item) => item.devices || [])
+
+    if (deviceSerials.length > 0) {
+      const hasDeviceAccess =
+        await this.deviceAssignmentService.validateDevicesForAgent(
+          deviceSerials,
+          agentId,
+        );
+
+      if (!hasDeviceAccess) {
+        throw new ForbiddenException(
+          `Some devices are not assigned to agent. Please check your device assignments.`,
         );
       }
     }

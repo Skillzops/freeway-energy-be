@@ -21,6 +21,9 @@ model Device {
   installationLongitude String?
   installationLatitude  String?
 
+  assignments DeviceAssignment[]
+  assignmentHistory DeviceAssignmentHistory[]
+
   gpsVerified Boolean @default(false)
 
   saleItemIDs String[]   @db.ObjectId
