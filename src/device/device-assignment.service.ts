@@ -23,8 +23,13 @@ export class DeviceAssignmentService {
     actorId: string,
     reason?: string,
   ) {
-    const device = await this.prisma.device.findUnique({
-      where: { serialNumber: deviceSerial },
+    const device = await this.prisma.device.findFirst({
+      where: {
+        serialNumber: {
+          equals: deviceSerial,
+          mode: 'insensitive',
+        },
+      },
     });
 
     if (!device) {

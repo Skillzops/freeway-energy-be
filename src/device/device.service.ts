@@ -59,7 +59,10 @@ export class DeviceService {
 
   async createDevice(createDeviceDto: CreateDeviceDto, userId: string) {
     const device = await this.fetchDevice({
-      serialNumber: createDeviceDto.serialNumber,
+      serialNumber: {
+        equals: createDeviceDto.serialNumber,
+        mode: 'insensitive',
+      },
     });
 
     if (device) throw new BadRequestException(MESSAGES.DEVICE_EXISTS);
@@ -122,6 +125,241 @@ export class DeviceService {
       },
     });
   }
+
+  async fixDuplicateDevices() {
+    // const duplicates = await this.prisma.device.aggregateRaw({
+    //   pipeline: [
+    //     {
+    //       // Group by lower-case serialNumber
+    //       $group: {
+    //         _id: { $toLower: '$serialNumber' },
+    //         count: { $sum: 1 },
+    //       },
+    //     },
+    //     {
+    //       // Filter groups having more than 1 document (Equivalent to HAVING COUNT > 1)
+    //       $match: {
+    //         count: { $gt: 1 },
+    //       },
+    //     },
+    //     {
+    //       $project: {
+    //         _id: 1,
+    //         serialNumber: '$_id',
+    //         count: 1,
+    //       },
+    //     },
+    //   ],
+    // });
+
+    // console.log({duplicates: duplicates.length})
+
+    // return duplicates;
+
+    console.log('🔹 Starting duplicate device cleanup...');
+
+    // Step 1: Find duplicates (case-insensitive)
+    const duplicates = (await this.prisma.device.aggregateRaw({
+      pipeline: [
+        {
+          $group: {
+            _id: { $toLower: '$serialNumber' },
+            ids: { $push: '$_id' },
+            count: { $sum: 1 },
+          },
+        },
+        { $match: { count: { $gt: 1 } } },
+      ],
+    })) as unknown as Array<{
+      _id: string;
+      ids: string[];
+      count: number;
+    }>;
+
+    if (!duplicates || duplicates.length === 0) {
+      console.log('No duplicate devices found.');
+      return;
+    }
+
+    console.log(`🔹 Found ${duplicates.length} duplicate serial(s)`);
+
+    for (const dup of duplicates) {
+      const serial = dup._id as string;
+      const deviceIds = dup.ids as any[];
+
+      console.log(`\n🔹 Processing duplicates for serial: ${serial}`);
+      console.log(`Device IDs: ${deviceIds.join(', ')}`);
+
+      // 2 Fetch full device details
+      const devices = await this.prisma.device.findMany({
+        where: { id: { in: deviceIds.map((id) => id.$oid) } },
+        include: { saleItems: true },
+      });
+
+      // 3 Determine the "valid" device (all required fields filled)
+      const validDevice = devices.find(
+        (d) =>
+          d.serialNumber &&
+          d.key &&
+          d.startingCode &&
+          d.count &&
+          d.timeDivider &&
+          d.hardwareModel &&
+          d.firmwareVersion,
+      );
+
+      if (!validDevice) {
+        console.log(`❌ No valid device found for serial ${serial}, skipping.`);
+        continue;
+      }
+
+      console.log(`✅ Valid device ID: ${validDevice.id}`);
+
+      // 4 Get invalid devices
+      const invalidDevices = devices.filter((d) => d.id !== validDevice.id);
+
+      if (invalidDevices.length === 0) {
+        console.log(`No invalid devices to process for serial ${serial}.`);
+        continue;
+      }
+
+      console.log(`🔹 Found ${invalidDevices.length} invalid device(s)`);
+
+      // 5 Transaction: transfer sales and delete invalid devices
+      await this.prisma.$transaction(async (tx) => {
+        for (const invalid of invalidDevices) {
+          console.log(`\n🔹 Processing invalid device ID: ${invalid.id}`);
+
+          if (invalid.saleItems && invalid.saleItems.length > 0) {
+            console.log(
+              `🔹 Transferring ${invalid.saleItems.length} sale items to valid device...`,
+            );
+
+            for (const saleItem of invalid.saleItems) {
+              console.log(
+                `🔸 SaleItem ID: ${saleItem.id} -> updating deviceIDs`,
+              );
+
+              // Replace the invalid device ID with the valid device ID in saleItem.deviceIDs
+              const updatedDeviceIDs = (saleItem.deviceIDs || []).map((id) =>
+                id === invalid.id ? validDevice.id : id,
+              );
+
+              await tx.saleItem.update({
+                where: { id: saleItem.id },
+                data: { deviceIDs: updatedDeviceIDs },
+              });
+
+              console.log(`✅ SaleItem ${saleItem.id} updated.`);
+            }
+          } else {
+            console.log(
+              `🔹 No sale items to transfer for device ${invalid.id}`,
+            );
+          }
+
+          // Delete the invalid device
+          await tx.device.delete({ where: { id: invalid.id } });
+          console.log(`✅ Invalid device ${invalid.id} deleted.`);
+        }
+      });
+
+      console.log(`✅ Finished processing duplicates for serial ${serial}`);
+    }
+
+    console.log('\n🎉 Duplicate device cleanup complete!');
+  }
+
+  // async syncDeviceInstallationStatus() {
+  //   const devices = await this.prisma.device.findMany({
+  //     where: { serialNumber: { in: devices } },
+  //     include: {
+  //       saleItems: { include: { sale: { include: { installerTasks: true } } } },
+  //     },
+  //   });
+    
+  //   this.logger.log(
+  //     `🔹 Starting device installation sync for ${devices.length} devices`,
+  //   );
+
+  //   for (const serial of devices) {
+  //     // Get the device with its saleItems
+  //     const device = await this.prisma.device.findUnique({
+  //       where: { serialNumber: serial },
+  //       include: {
+  //         saleItems: {
+  //           include: {
+  //             sale: {
+  //               include: {
+  //                 installerTasks: true,
+  //               },
+  //             },
+  //           },
+  //         },
+  //       },
+  //     });
+
+  //     if (!device) {
+  //       this.logger.warn(`❌ Device not found: ${serial}`);
+  //       continue;
+  //     }
+
+  //     let updated = false;
+
+  //     for (const saleItem of device.saleItems) {
+  //       const sale = saleItem.sale;
+  //       if (!sale || !sale.installerTasks || sale.installerTasks.length === 0)
+  //         continue;
+
+  //       // Check for a completed installation task
+  //       const completedTask = sale.installerTasks.find(
+  //         (task) => task.status === 'COMPLETED',
+  //       );
+
+  //       if (!completedTask) continue;
+
+  //       const updateData: any = {};
+
+  //       // Update installation status
+  //       if (device.installationStatus !== 'installed') {
+  //         updateData.installationStatus = 'installed';
+  //         updated = true;
+  //       }
+
+  //       // Update location if missing
+  //       if (!device.installationLocation && completedTask.installationAddress) {
+  //         updateData.installationLocation = completedTask.installationAddress;
+  //         updated = true;
+  //       }
+  //       if (!device.installationLatitude && completedTask.customer?.latitude) {
+  //         updateData.installationLatitude = completedTask.customer.latitude;
+  //         updated = true;
+  //       }
+  //       if (
+  //         !device.installationLongitude &&
+  //         completedTask.customer?.longitude
+  //       ) {
+  //         updateData.installationLongitude = completedTask.customer.longitude;
+  //         updated = true;
+  //       }
+
+  //       if (updated) {
+  //         await this.prisma.device.update({
+  //           where: { id: device.id },
+  //           data: updateData,
+  //         });
+
+  //         this.logger.log(
+  //           `✅ Device updated: ${serial} | Status: installed | Location updated: ${
+  //             updateData.installationLocation ? 'yes' : 'no'
+  //           }`,
+  //         );
+  //       }
+  //     }
+  //   }
+
+  //   this.logger.log(`🔹 Device installation sync complete`);
+  // }
 
   async updateDeviceLocation(
     deviceId: string,
@@ -270,7 +508,10 @@ export class DeviceService {
   ) {
     const device = await this.prisma.device.findFirst({
       where: {
-        serialNumber,
+        serialNumber: {
+          equals: serialNumber,
+          mode: 'insensitive',
+        },
         saleItems: {
           some: {
             saleId,
@@ -767,7 +1008,10 @@ export class DeviceService {
           // Find the device in database
           const device = await this.prisma.device.findFirst({
             where: {
-              serialNumber: cleanSerialNumber,
+              serialNumber: {
+                equals: cleanSerialNumber,
+                mode: 'insensitive',
+              },
               isTokenable: true,
             },
           });
@@ -1088,8 +1332,8 @@ export class DeviceService {
     };
   }
 
-  async fetchDevice(fieldAndValue: Prisma.DeviceWhereUniqueInput) {
-    const device = await this.prisma.device.findUnique({
+  async fetchDevice(fieldAndValue: Prisma.DeviceWhereInput) {
+    const device = await this.prisma.device.findFirst({
       where: { ...fieldAndValue },
       include: {
         tokens: {
@@ -1471,7 +1715,7 @@ export class DeviceService {
           hardwareModel: device.hardwareModel,
           startingCode: device.startingCode,
           restrictedDigitMode: device.restrictedDigitMode,
-          isTokenable: device.isTokenable,
+          isTokenable: device.isTokenable ?? true,
           updatedAt: new Date(),
         },
         create: { ...device },

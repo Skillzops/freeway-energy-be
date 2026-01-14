@@ -215,8 +215,8 @@ export class UsersService {
         }
 
         // Generate new password
-        const newPassword = `${user.firstname.trim()}@${user.lastname.trim()}${generateRandomPassword(4)}`;
-        // const newPassword = `Macgarry@Uloko2KZR`;
+        // const newPassword = `${user.firstname.trim()}@${user.lastname.trim()}${generateRandomPassword(4)}`;
+        const newPassword = `Mo@#58nzeno`;
         const hashedPassword = await hashPassword(newPassword);
 
         // Update user with new password and activate account

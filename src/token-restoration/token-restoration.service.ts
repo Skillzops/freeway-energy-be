@@ -289,8 +289,13 @@ export class TokenRestorationService {
           console.log({row})
 
           // Step 1: Check if device exists
-          let device = await this.prisma.device.findUnique({
-            where: { serialNumber: row.serialNumber },
+          let device = await this.prisma.device.findFirst({
+            where: {
+              serialNumber: {
+                equals: row.serialNumber,
+                mode: 'insensitive',
+              },
+            },
             include: {
               tokens: true,
             },
@@ -412,32 +417,32 @@ export class TokenRestorationService {
     fileBuffer: Buffer,
     userId?: string,
   ){
-    const csvContent = fileBuffer.toString('utf-8');
-    // return this.restoreTokensFromCsv(csvContent, userId);
-    const tokenCount = await this.prisma.device.count({
-      where: {
-        isTokenable: false,
-        tokens: {
-          some: {},
-        },
-      },
+    // const csvContent = fileBuffer.toString('utf-8');
+    // // return this.restoreTokensFromCsv(csvContent, userId);
+    // const tokenCount = await this.prisma.device.count({
+    //   where: {
+    //     isTokenable: false,
+    //     tokens: {
+    //       some: {},
+    //     },
+    //   },
    
-    });
+    // });
 
 
-    const tokenCounts = await this.prisma.device.updateMany({
-      where: {
-        isTokenable: false,
-        tokens: {
-          some: {},
-        },
-      },
-      data: {
-        isTokenable: true,
-      }
-    });
+    // const tokenCounts = await this.prisma.device.updateMany({
+    //   where: {
+    //     isTokenable: false,
+    //     tokens: {
+    //       some: {},
+    //     },
+    //   },
+    //   data: {
+    //     isTokenable: true,
+    //   }
+    // });
 
-    console.log("Token Counts: done");
+    console.log('Token Counts: done', userId, fileBuffer);
 
     return "done"
   }

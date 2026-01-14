@@ -11,7 +11,14 @@ import {
   CsvUploadStatsDto,
   SalesRowDto,
 } from './dto/csv-upload.dto';
-import { AgentCategory, InstallationStatus, PaymentMethod, PaymentMode, PaymentStatus, TaskStatus } from '@prisma/client';
+import {
+  AgentCategory,
+  InstallationStatus,
+  PaymentMethod,
+  PaymentMode,
+  PaymentStatus,
+  TaskStatus,
+} from '@prisma/client';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -1156,7 +1163,7 @@ export class CsvUploadService {
     customer: any,
     product: any,
   ): Promise<{ inventory: any; device: any }> {
-    console.log({product})
+    console.log({ product });
     try {
       let inventory = null;
       let device = null;
@@ -1195,14 +1202,20 @@ export class CsvUploadService {
 
       // Enhanced device creation with location mapping
       if (deviceData && deviceData.serialNumber) {
-        device = await this.prisma.device.findUnique({
-          where: { serialNumber: deviceData.serialNumber },
+        device = await this.prisma.device.findFirst({
+          where: {
+            serialNumber: {
+              equals: deviceData.serialNumber,
+              mode: "insensitive"
+            },
+          },
         });
 
         if (!device) {
           device = await this.prisma.device.create({
             data: {
               ...deviceData,
+              InstallationStatus: InstallationStatus.installed,
               installationLocation: customer.installationAddress || null,
               installationLatitude: customer.latitude || null,
               installationLongitude: customer.longitude || null,

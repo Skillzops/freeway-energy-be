@@ -28,6 +28,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExcludeEndpoint,
   ApiExtraModels,
   ApiHeader,
   ApiOperation,
@@ -416,4 +417,22 @@ export class DeviceController {
   ) {
     return this.deviceService.updateDeviceStatus(id, updateData, userId);
   }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard)
+  @Get('fix/duplicate-devices')
+  @HttpCode(HttpStatus.OK)
+  async fixDuplicateDevices(
+  ) {
+    return this.deviceService.fixDuplicateDevices();
+  }
+
+  // @ApiExcludeEndpoint()
+  // @UseGuards(JwtAuthGuard)
+  // @Get('fix/device-installation-status')
+  // @HttpCode(HttpStatus.OK)
+  // async syncDeviceInstallationStatus(
+  // ) {
+  //   return this.deviceService.syncDeviceInstallationStatus();
+  // }
 }
