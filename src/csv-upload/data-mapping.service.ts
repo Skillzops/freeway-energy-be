@@ -570,6 +570,7 @@ export class DataMappingService {
     return isNaN(parsed) ? null : parsed;
   }
 
+  //best format YYYY-MM-DDTHH:mm:ssZ
   private parseDate(dateString: any): Date | null {
     if (!dateString) return null;
 

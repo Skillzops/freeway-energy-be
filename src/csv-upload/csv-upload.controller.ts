@@ -22,6 +22,7 @@ import {
   ApiConsumes,
   ApiResponse,
   ApiBody,
+  ApiExcludeEndpoint,
 } from '@nestjs/swagger';
 import { Express, Response } from 'express';
 import { CsvUploadService } from './csv-upload.service';
@@ -413,6 +414,7 @@ export class CsvUploadController {
     }
   }
 
+  @ApiExcludeEndpoint()
   @Delete('flush')
   async flushQueue() {
     await this.csvQueue.obliterate({ force: true });
@@ -423,6 +425,7 @@ export class CsvUploadController {
     return { message: 'Queue drained and worker stopped.' };
   }
 
+  @ApiExcludeEndpoint()
   @Get('correct-missing')
   async correctMissingPayments() {
     await this.csvQueue.waitUntilReady();
@@ -448,5 +451,12 @@ export class CsvUploadController {
       message: 'Agent credentials generation proceessing',
     };
     // return await this.csvUploadService.previewCorrections();
+  }
+
+  @ApiExcludeEndpoint()
+  @Get('clean-upload')
+  async cleanUpload() {
+    return await this.csvUploadService.cleanUpload();
+
   }
 }

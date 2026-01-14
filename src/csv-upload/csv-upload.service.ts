@@ -934,11 +934,30 @@ export class CsvUploadService {
         // Create new agent record even if user exists
         const nextAgentId = Math.floor(10000000 + Math.random() * 90000000);
 
-        const agent = await this.prisma.agent.create({
-          data: {
+        // let agent = await this.prisma.agent.findFirst({
+        //   where: {
+        //     userId: user.id,
+        //     category: category,
+        //   },
+        // });
+
+        // if (!agent)
+        //   agent = await this.prisma.agent.create({
+        //     data: {
+        //       agentId: nextAgentId,
+        //       userId: user.id,
+        //       category: category,
+        //     },
+        //   });
+        const agent = await this.prisma.agent.upsert({
+          where: {
+            userId: user.id, // MUST be unique
+          },
+          update: {},
+          create: {
             agentId: nextAgentId,
             userId: user.id,
-            category: category,
+            category,
           },
         });
 
@@ -1206,7 +1225,7 @@ export class CsvUploadService {
           where: {
             serialNumber: {
               equals: deviceData.serialNumber,
-              mode: "insensitive"
+              mode: 'insensitive',
             },
           },
         });
@@ -1799,5 +1818,66 @@ export class CsvUploadService {
       totalDevicesToCorrect: previews.length,
       previews,
     };
+  }
+
+  async cleanUpload() {
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setUTCDate(startOfTomorrow.getUTCDate() + 1);
+
+    const tasks = await this.prisma.installerTask.findMany({
+      where: {
+        createdAt: {
+          gte: startOfToday,
+          lt: startOfTomorrow,
+        },
+        sale: {
+          payment: {
+            some: {
+              notes: {
+                equals: "Initial deposit",
+                mode: "insensitive"
+              }
+            }
+          }
+        }
+      },
+      include: {
+        sale: true,
+      },
+    });
+
+    if (tasks.length === 0) {
+      console.log('✅ No invalid installer tasks found');
+      return 0;
+    }
+
+    console.log(`⚠️ Found ${tasks.length} installer tasks with stale sales`);
+    
+    for (const task of tasks) {
+      if (!task.saleId) continue;
+
+      console.log(
+        `🧹 Deleting installer task ${task.id} linked to sale ${task.saleId}`,
+      );
+
+      // 1. Delete installer task first (avoid FK issues)
+      await this.prisma.installerTask.delete({
+        where: { id: task.id },
+      });
+
+      // 2. Delete sale (cascade deletes saleItems and payments)
+      await this.prisma.sales.delete({
+        where: { id: task.saleId },
+      });
+
+      console.log(`✅ Deleted sale ${task.saleId} and its related records`);
+    }
+
+    console.log('✅ Cleanup completed successfully');
+
+    return tasks.length;
   }
 }
