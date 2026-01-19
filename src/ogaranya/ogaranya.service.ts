@@ -1067,7 +1067,7 @@ export class OgaranyaService {
         paymentGateway: 'OGARANYA',
         amount: paidAmount,
         previousBalance,
-        newBalance: previousBalance,
+        newBalance: previousBalance + paidAmount,
         description: description || `Wallet top-up via Ogaranya`,
         reference,
         status: WalletTransactionStatus.PENDING,

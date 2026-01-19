@@ -274,6 +274,24 @@ export class DeviceService {
     console.log("Starting device installation sync...");
 
     // Step 1: Find devices that are not installed OR missing location/coordinates
+    const deviceCount = await this.prisma.device.count({
+      where: {
+        OR: [
+          { installationStatus: { not: InstallationStatus.installed } },
+          {
+            installationLocation: null,
+          },
+          {
+            installationLongitude: null,
+          },
+          {
+            installationLatitude: null,
+          },
+        ]
+      }
+    })
+
+    console.log({deviceCount})
     const devicesToUpdate = await this.prisma.device.findMany({
       where: {
         OR: [
@@ -358,6 +376,110 @@ export class DeviceService {
     console.log("Device installation sync completed.");
   }
 
+  async syncDeviceInstallationStatusStreaming() {
+    console.log('Starting device installation sync (Streaming)...');
+    const startTime = Date.now();
+
+    const batchSize = 5; // Process 1000 devices at a time
+    let processedCount = 0;
+    let updatedCount = 0;
+
+    // Count total devices needing update
+    // const totalCount = await this.prisma.device.count({
+    //   where: {
+    //     OR: [
+    //       { installationStatus: { not: InstallationStatus.installed } },
+    //       { installationLocation: null },
+    //     ],
+    //     saleItems: { some: {} },p
+    //   },
+    // });
+
+    const totalCount = 7000
+
+    console.log(`Total devices to process: ${totalCount}`);
+
+    // Process in batches
+    for (let skip = 0; skip < totalCount; skip += batchSize) {
+      // Fetch batch
+      const devices = await this.prisma.device.findMany({
+        where: {
+          OR: [
+            { installationStatus: { not: InstallationStatus.installed } },
+            { installationLocation: null },
+          ],
+          saleItems: { some: {} },
+        },
+        select: {
+          id: true,
+          serialNumber: true,
+          installationStatus: true,
+          installationLocation: true,
+          saleItems: {
+            select: {
+              sale: {
+                select: {
+                  installerTasks: {
+                    where: { status: TaskStatus.COMPLETED },
+                    select: {
+                      installationAddress: true,
+                    },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+        take: batchSize,
+        skip,
+      });
+
+      // Build updates for this batch
+      const updates = [];
+      for (const device of devices) {
+        const completedTask = device.saleItems[0]?.sale?.installerTasks[0];
+        if (!completedTask) continue;
+
+        const data: any = {};
+        if (device.installationStatus !== InstallationStatus.installed) {
+          data.installationStatus = InstallationStatus.installed;
+        }
+        if (!device.installationLocation && completedTask.installationAddress) {
+          data.installationLocation = completedTask.installationAddress;
+        }
+
+        if (Object.keys(data).length > 0) {
+          updates.push({ id: device.id, data });
+        }
+      }
+
+      // Apply batch update
+      if (updates.length > 0) {
+        await this.prisma.$transaction(
+          updates.map((u) => this.prisma.device.update({
+            where: { id: u.id },
+            data: u.data,
+          })),
+        );
+        updatedCount += updates.length;
+      }
+
+      processedCount += devices.length;
+      const progress = ((processedCount / totalCount) * 100).toFixed(1);
+      console.log(
+        `📊 Progress: ${processedCount}/${totalCount} (${progress}%) - Updated: ${updatedCount}`,
+      );
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(
+      `✅ Sync completed. Updated: ${updatedCount}, Duration: ${duration}ms`,
+    );
+
+    return { updated: updatedCount, duration };
+  }
+  
   async updateDeviceLocation(
     deviceId: string,
     locationData: UpdateDeviceLocationDto,

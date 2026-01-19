@@ -10,6 +10,7 @@ import {
   Param,
   BadRequestException,
   Patch,
+  Delete,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
@@ -38,6 +39,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
 import { AuthService } from 'src/auth/auth.service';
 import { SalesIdGeneratorService } from './saleid-generator';
+import { SaleReversalService } from './sale-reversal.service';
 
 @SkipThrottle()
 @ApiTags('Sales')
@@ -57,6 +59,7 @@ export class SalesController {
     private readonly salesService: SalesService,
     private readonly authService: AuthService,
     private readonly salesIdGenerator: SalesIdGeneratorService,
+    private readonly saleReversalService: SaleReversalService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -237,10 +240,7 @@ export class SalesController {
     type: UpdateSaleDto,
     description: 'Partial update with whitelisted fields. ',
   })
-  async updateSale(
-    @Param('id') saleId: string,
-    @Body() dto: UpdateSaleDto,
-  ) {
+  async updateSale(@Param('id') saleId: string, @Body() dto: UpdateSaleDto) {
     return this.salesService.updateSale(saleId, dto);
   }
 
@@ -275,6 +275,52 @@ export class SalesController {
   @Get('fix/sales-with-overcalculated-total')
   async fixSalesWithOvercalculatedTotal() {
     return await this.salesService.fixSalesWithOvercalculatedTotal();
+  }
+
+  @ApiExcludeEndpoint()
+  @Delete('undo/:id')
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.delete}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @ApiOperation({
+    summary: 'Undo Sale Creation',
+    description:
+      'Reverse a sale creation. Restores inventory, refunds agent wallet, ' +
+      'unassigns devices, and reverses payments. ' +
+      'Only works for UNPAID or PARTIALLY_PAID sales.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Sale ID to reverse',
+  })
+  async undoSale(
+    @Param('id') saleId: string,
+    @GetSessionUser('id') performedBy: string,
+  ) {
+    return await this.saleReversalService.undoSaleCreation(saleId, performedBy);
+  }
+
+  @ApiExcludeEndpoint()
+  @Post(':id/complete-payment')
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Sale ID to complete',
+  })
+  async completeSalePayment(
+    @Param('id') saleId: string,
+  ) {
+    return await this.salesService.completeSalePayment(saleId);
   }
 
   @ApiExcludeEndpoint()

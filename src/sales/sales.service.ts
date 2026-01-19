@@ -54,6 +54,7 @@ export class SalesService {
     if (agentId) {
       await this.validateAgentAccess(agentId, dto);
       // await this.validateAgentDevices(agentId, dto);
+      await this.validateCustomerForAgentSale(dto.customerId, agentId);
     }
 
     // Validate sales relations
@@ -1381,6 +1382,72 @@ export class SalesService {
     return { batchAllocations, totalBasePrice };
   }
 
+  async validateCustomerForAgentSale(
+    customerId: string,
+    creatingAgentId: string,
+  ): Promise<{ valid: boolean; message?: string }> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        approvalStatus: true,
+        isApproved: true,
+        creatorId: true,
+        creatorDetails: {
+          select: {
+            id: true,
+            agentDetails: {
+              select: { id: true, user: { select: { firstname: true, lastname: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer ${customerId} not found`);
+    }
+
+    // Check if customer was created by the current agent
+    const customerCreatorIsCurrentAgent =
+      customer.creatorId &&
+      customer.creatorDetails?.agentDetails?.id === creatingAgentId;
+
+    if (!customerCreatorIsCurrentAgent) {
+      // Customer created by someone else (other agent, admin) - should be assigned to current agent
+      const agentCustomer = await this.prisma.agentCustomer.findFirst({
+        where: {
+          customerId,
+          agentId: creatingAgentId,
+        }
+      })
+
+      if (!agentCustomer) {
+        throw new BadRequestException(
+          `Customer "${customer.firstname} ${customer.lastname}" not assigned to agent.`,
+        );
+      }
+    }
+
+    // Customer WAS created by current agent - MUST be approved
+    if (!customer.isApproved) {
+      throw new BadRequestException(
+        `Customer "${customer.firstname} ${customer.lastname}" (ID: ${customerId}) ` +
+        `was created by you but is not yet approved. ` +
+        `Approval status: ${customer.approvalStatus}. ` +
+        `Please wait for admin approval before creating sales.`,
+      );
+    }
+
+    // Customer is approved
+    return {
+      valid: true,
+      message: `Customer approved by creator agent`,
+    };
+  }
+
   private async validateSalesRelations(dto: CreateSalesDto) {
     const customer = await this.prisma.customer.findUnique({
       where: {
@@ -1984,7 +2051,7 @@ export class SalesService {
         newSerials: [],
       });
 
-      return
+      return;
     }
 
     const devices = await this.prisma.device.findMany({
@@ -1992,7 +2059,7 @@ export class SalesService {
       select: { id: true, serialNumber: true },
     });
 
-    if (devices.length !== deviceSerials.length) {  
+    if (devices.length !== deviceSerials.length) {
       const found = new Set(devices.map((d) => d.serialNumber));
       const notFound = deviceSerials.filter((s) => !found.has(s));
       throw new BadRequestException(
@@ -2005,8 +2072,187 @@ export class SalesService {
       newSerials: devices.map((d) => d.serialNumber),
     });
 
-
     return changes;
+  }
+
+  async completeSalePayment(saleId: string) {
+    const PAYMENT_AMOUNT = 2000;
+
+    // STEP 1: Validate sale exists (OUTSIDE transaction)
+    const sale = await this.prisma.sales.findUnique({
+      where: { id: saleId },
+      include: {
+        creatorDetails: {
+          select: { agentDetails: { select: { id: true } } },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException(`Sale ${saleId} not found`);
+    }
+
+    // STEP 2: Validate agent exists (OUTSIDE transaction)
+    if (!sale.creatorDetails?.agentDetails) {
+      throw new BadRequestException(
+        `Sale creator is not an agent. Cannot debit wallet.`,
+      );
+    }
+
+    const agentId = sale.creatorDetails.agentDetails.id;
+
+    // STEP 3: Validate and fetch wallet (OUTSIDE transaction)
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { agentId },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException(`Wallet for agent ${agentId} not found`);
+    }
+
+    if (wallet.balance < PAYMENT_AMOUNT) {
+      throw new BadRequestException(
+        `Insufficient wallet balance. Required: ₦${PAYMENT_AMOUNT}, Available: ₦${wallet.balance}`,
+      );
+    }
+
+    // STEP 4: Generate references (OUTSIDE transaction)
+    const walletTransactionRef =
+      await this.referenceGenerator.generatePaymentReference();
+    const paymentTransactionRef =
+      await this.referenceGenerator.generatePaymentReference();
+
+    // STEP 5: Execute atomic transaction
+    // All operations succeed or fail together
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // Update sale - increment totalPaid
+        const updatedSale = await tx.sales.update({
+          where: { id: saleId },
+          data: {
+            totalPaid: {
+              increment: PAYMENT_AMOUNT,
+            },
+          },
+          select: {
+            id: true,
+            formattedSaleId: true,
+            totalPrice: true,
+            totalPaid: true,
+          },
+        });
+
+        // Create wallet transaction record (audit trail)
+        const walletTx = await tx.walletTransaction.create({
+          data: {
+            agentId,
+            walletId: wallet.id,
+            amount: PAYMENT_AMOUNT,
+            type: 'DEBIT',
+            reference: walletTransactionRef,
+            description: `Payment completion for sale ${updatedSale.formattedSaleId}`,
+            previousBalance: wallet.balance,
+            newBalance: wallet.balance - PAYMENT_AMOUNT,
+          },
+          select: {
+            id: true,
+            reference: true,
+            createdAt: true,
+          },
+        });
+
+        // Debit wallet balance
+        const updatedWallet = await tx.wallet.update({
+          where: { agentId },
+          data: {
+            balance: {
+              decrement: PAYMENT_AMOUNT,
+            },
+            updatedAt: new Date(),
+          },
+          select: {
+            balance: true,
+          },
+        });
+
+        // Create payment record
+        // Or modify to update existing payment record if preferred 
+        const payment = await tx.payment.create({
+          data: {
+            saleId: saleId,
+            amount: PAYMENT_AMOUNT,
+            paymentMethod: PaymentMethod.WALLET,
+            paymentStatus: PaymentStatus.COMPLETED,
+            transactionRef: paymentTransactionRef,
+            notes: `Payment completion for sale ${updatedSale.formattedSaleId}`,
+            paymentDate: new Date(),
+          },
+          select: {
+            id: true,
+            transactionRef: true,
+            amount: true,
+            paymentStatus: true,
+            createdAt: true,
+          },
+        });
+
+        // Check if sale is now fully paid
+        const isFullyPaid = updatedSale.totalPaid >= updatedSale.totalPrice;
+
+        // Update sale status if fully paid
+        if (isFullyPaid) {
+          await tx.sales.update({
+            where: { id: saleId },
+            data: {
+              status: 'COMPLETED',
+            },
+          });
+        }
+
+        return {
+          sale: updatedSale,
+          wallet: updatedWallet,
+          walletTransaction: walletTx,
+          payment,
+          isFullyPaid,
+        };
+      },
+      {
+        timeout: 10000, // 10 second timeout
+        maxWait: 20000,
+      },
+    );
+
+    // STEP 6: Return success response
+    return {
+      success: true,
+      message: `Payment completed successfully for sale ${result.sale.formattedSaleId}`,
+      payment: {
+        id: result.payment.id,
+        transactionRef: result.payment.transactionRef,
+        amount: result.payment.amount,
+        paymentStatus: result.payment.paymentStatus,
+        paymentDate: result.payment.createdAt,
+      },
+      sale: {
+        id: result.sale.id,
+        formattedSaleId: result.sale.formattedSaleId,
+        totalPrice: result.sale.totalPrice,
+        totalPaid: result.sale.totalPaid,
+        remainingAmount: result.sale.totalPrice - result.sale.totalPaid,
+        isFullyPaid: result.isFullyPaid,
+      },
+      wallet: {
+        agentId,
+        previousBalance: wallet.balance,
+        newBalance: result.wallet.balance,
+        debitedAmount: PAYMENT_AMOUNT,
+      },
+      audit: {
+        walletTransactionRef: result.walletTransaction.reference,
+        paymentTransactionRef: result.payment.transactionRef,
+      },
+    };
   }
 
   formatResponse(saleItems: any[], total: number, page: number, limit: number) {

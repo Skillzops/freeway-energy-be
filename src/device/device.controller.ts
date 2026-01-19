@@ -433,6 +433,6 @@ export class DeviceController {
   @HttpCode(HttpStatus.OK)
   async syncDeviceInstallationStatus(
   ) {
-    return this.deviceService.syncDeviceInstallationStatus();
+    return this.deviceService.syncDeviceInstallationStatusStreaming();
   }
 }
