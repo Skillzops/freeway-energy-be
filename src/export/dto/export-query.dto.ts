@@ -121,7 +121,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
+      'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|payment|customers|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
     example: '2025-01-01',
   })
   @IsOptional()
@@ -131,7 +131,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'End date for filtering (ISO 8601: 2025-12-31) (Applicable to only export_type=sales|paymeny|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
+      'End date for filtering (ISO 8601: 2025-12-31) (Applicable to only export_type=sales|payment|customers|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
     example: '2025-12-31',
   })
   @IsOptional()

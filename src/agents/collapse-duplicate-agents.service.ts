@@ -77,6 +77,21 @@ export class AgentCollapseService {
         errors,
       );
 
+      recordsTransferred['deviceAssignmentHistory'] =
+        await this.transferDeviceAssignmentHistory(
+          correctAgentId,
+          duplicateAgentIds,
+          errors,
+        );
+
+        recordsTransferred['deviceAssignments'] =
+          await this.transferDeviceAssignments(
+            correctAgentId,
+            duplicateAgentIds,
+            errors,
+          );
+
+
       recordsTransferred['walletTransactions'] =
         await this.transferWalletTransactions(
           correctAgentId,
@@ -528,6 +543,87 @@ export class AgentCollapseService {
       return 0;
     }
   }
+
+  /**
+ * Transfer DeviceAssignmentHistory records from duplicate agents' users
+ * to the correct agent's user
+ */
+private async transferDeviceAssignmentHistory(
+  correctAgentId: string,
+  duplicateAgentIds: string[],
+  errors: string[],
+): Promise<number> {
+  try {
+    // Get correct agent user
+    const correctUser = await this.prisma.user.findFirst({
+      where: { agentDetails: { id: correctAgentId } },
+      select: { id: true },
+    });
+
+    if (!correctUser) return 0;
+
+    // Get duplicate users
+    const duplicateUsers = await this.prisma.user.findMany({
+      where: {
+        agentDetails: { id: { in: duplicateAgentIds } },
+      },
+      select: { id: true },
+    });
+
+    if (duplicateUsers.length === 0) return 0;
+
+    const duplicateUserIds = duplicateUsers.map((u) => u.id);
+
+    // Reassign history actor
+    const result = await this.prisma.deviceAssignmentHistory.updateMany({
+      where: {
+        actorId: { in: duplicateUserIds },
+      },
+      data: {
+        actorId: correctUser.id,
+      },
+    });
+
+    return result.count;
+  } catch (error) {
+    errors.push(
+      `Error transferring DeviceAssignmentHistory: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return 0;
+  }
+}
+
+/**
+ * Transfer active DeviceAssignment records from duplicate agents
+ * to the correct agent
+ */
+private async transferDeviceAssignments(
+  correctAgentId: string,
+  duplicateAgentIds: string[],
+  errors: string[],
+): Promise<number> {
+  try {
+    const result = await this.prisma.deviceAssignment.updateMany({
+      where: {
+        agentId: { in: duplicateAgentIds },
+      },
+      data: {
+        agentId: correctAgentId,
+      },
+    });
+
+    return result.count;
+  } catch (error) {
+    errors.push(
+      `Error transferring DeviceAssignments: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return 0;
+  }
+}
 
   /**
    * Delete duplicate agents after all records have been transferred

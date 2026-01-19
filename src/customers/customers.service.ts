@@ -1080,4 +1080,43 @@ export class CustomersService {
       customer: updatedCustomer,
     };
   }
+
+  async cleanCustomers(
+  ) {
+    const startOf1925 = new Date('1925-01-01T00:00:00.000Z');
+    const startOf1926 = new Date('1926-01-01T00:00:00.000Z');
+  
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        createdAt: {
+          gte: startOf1925,
+          lt: startOf1926,
+        },
+      },
+      include: {
+        sales: true,
+      },
+    });
+
+    console.log(customers.length)
+
+    for (const customer of customers) {
+      const sale = customer.sales[0]
+
+      await this.prisma.customer.update({
+        where: {
+          id: customer.id,
+        },
+        data: {
+          createdAt: sale.createdAt,
+          updatedAt: sale.updatedAt
+        },
+      });
+  
+    }
+
+    console.log("done")
+  
+    return customers
+  }
 }

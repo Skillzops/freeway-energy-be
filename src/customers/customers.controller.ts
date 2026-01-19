@@ -27,6 +27,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExcludeEndpoint,
   ApiExtraModels,
   ApiHeader,
   ApiOkResponse,
@@ -491,5 +492,19 @@ export class CustomersController {
     @GetSessionUser('id') agentId: string,
   ) {
     return await this.customersService.listRejectedCustomers(agentId, query);
+  }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Customers}`,
+      `${ActionEnum.read}:${SubjectEnum.Customers}`,
+    ],
+  })
+  @Get('fix/clean')
+  async cleanCustomers(
+  ) {
+    return await this.customersService.cleanCustomers();
   }
 }

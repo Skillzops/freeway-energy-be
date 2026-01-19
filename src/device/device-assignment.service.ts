@@ -33,7 +33,7 @@ export class DeviceAssignmentService {
     });
 
     if (!device) {
-      throw new NotFoundException(`Device ${deviceSerial} not found`);
+      throw new NotFoundException(`Device with serial ${deviceSerial} not found`);
     }
 
     const agent = await this.prisma.agent.findUnique({
@@ -41,50 +41,39 @@ export class DeviceAssignmentService {
     });
 
     if (!agent) {
-      throw new NotFoundException(`Agent ${agentId} not found`);
+      throw new NotFoundException(
+        `Sales Agent with ID ${agentId} not found`,
+      );
     }
 
-    // Check if already assigned to this agent
-    const existing = await this.prisma.deviceAssignment.findFirst({
-      where: {
-        deviceId: device.id,
-        agentId,
-        isActive: true,
-      },
-    });
-
-    if (existing) {
-      throw new ConflictException(`Device already assigned to this agent`);
-    }
-
-    // Check if assigned to another agent
+    // Check if device is already assigned (to any agent)
     const activeAssignment = await this.prisma.deviceAssignment.findFirst({
       where: {
         deviceId: device.id,
         isActive: true,
       },
+      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
     });
 
-    const fromAgentId = activeAssignment?.agentId;
+    if (activeAssignment) {
+      throw new ConflictException(
+        `Device ${deviceSerial} is already assigned to agent ${activeAssignment.agent.user.firstname} ${activeAssignment.agent.user.lastname} (ID: ${activeAssignment.agentId}). ` +
+        `Use the reassign module to transfer this device to a different agent.`,
+      );
+    }
 
-    // Atomic transaction
+    // Create assignment
     const assignment = await this.prisma.$transaction(async (tx) => {
-      // Unassign from previous agent if exists
-      if (activeAssignment) {
-        await tx.deviceAssignment.update({
-          where: { id: activeAssignment.id },
-          data: { isActive: false, unassignedAt: new Date() },
-        });
-      }
-
-      // Create new assignment
       const newAssignment = await tx.deviceAssignment.create({
         data: {
           deviceId: device.id,
           agentId,
           isActive: true,
         },
-        include: { device: true, agent: true },
+        include: {
+          device: true,
+          agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+        },
       });
 
       // Log history
@@ -92,10 +81,7 @@ export class DeviceAssignmentService {
         data: {
           deviceId: device.id,
           actorId,
-          action: fromAgentId
-            ? DeviceAssignmentHistoryAction.REASSIGN
-            : DeviceAssignmentHistoryAction.ASSIGN,
-          fromAgentId,
+          action: DeviceAssignmentHistoryAction.ASSIGN,
           toAgentId: agentId,
           reason,
         },
@@ -104,9 +90,121 @@ export class DeviceAssignmentService {
       return newAssignment;
     });
 
-    return assignment;
+    return {
+      success: true,
+      message: `Device ${deviceSerial} successfully assigned to agent ${assignment.agent.user.firstname} ${assignment.agent.user.lastname}`,
+      assignment,
+    };
   }
 
+  /**
+   * Reassign device from one agent to another
+   * Only for already-assigned devices
+   */
+  async reassignDevice(
+    deviceId: string,
+    fromAgentId: string,
+    toAgentId: string,
+    actorId: string,
+    reason?: string,
+  ) {
+    const device = await this.prisma.device.findUnique({
+      where: { id: deviceId },
+    });
+
+    if (!device) {
+      throw new NotFoundException(`Device with ID ${deviceId} not found`);
+    }
+
+    const toAgent = await this.prisma.agent.findUnique({
+      where: { id: toAgentId, category: AgentCategory.SALES },
+    });
+
+    if (!toAgent) {
+      throw new NotFoundException(
+        `Sales Agent with ID ${toAgentId} not found`,
+      );
+    }
+
+    // Check if device is currently assigned to fromAgentId
+    const currentAssignment = await this.prisma.deviceAssignment.findFirst({
+      where: {
+        deviceId,
+        agentId: fromAgentId,
+        isActive: true,
+      },
+      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
+    });
+
+    if (!currentAssignment) {
+      throw new BadRequestException(
+        `Device ${device.serialNumber} is not currently assigned to agent ${fromAgentId}`,
+      );
+    }
+
+    // Check if device already assigned to toAgent
+    const existingAssignment = await this.prisma.deviceAssignment.findFirst({
+      where: {
+        deviceId,
+        agentId: toAgentId,
+        isActive: true,
+      },
+    });
+
+    if (existingAssignment) {
+      throw new ConflictException(
+        `Device ${device.serialNumber} is already assigned to agent ${toAgentId}`,
+      );
+    }
+
+    // Reassign
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Unassign from old agent
+      await tx.deviceAssignment.update({
+        where: { id: currentAssignment.id },
+        data: { isActive: false, unassignedAt: new Date() },
+      });
+
+      // Assign to new agent
+      const newAssignment = await tx.deviceAssignment.create({
+        data: {
+          deviceId,
+          agentId: toAgentId,
+          isActive: true,
+        },
+        include: {
+          device: true,
+          agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+        },
+      });
+
+      // Log history
+      await tx.deviceAssignmentHistory.create({
+        data: {
+          deviceId,
+          actorId,
+          action: DeviceAssignmentHistoryAction.REASSIGN,
+          fromAgentId,
+          toAgentId,
+          reason,
+        },
+      });
+
+      return newAssignment;
+    });
+
+    return {
+      success: true,
+      message: `Device ${device.serialNumber} successfully reassigned from ${currentAssignment.agent.user.firstname} ${currentAssignment.agent.user.lastname} to ${result.agent.user.firstname} ${result.agent.user.lastname}`,
+      fromAgent: currentAssignment.agent,
+      toAgent: result.agent,
+      device: result.device,
+    };
+  }
+
+  /**
+   * Bulk assign - ONLY unassigned devices, with detailed error reporting
+   */
   async bulkAssignDevices(
     deviceSerials: string[],
     agentId: string,
@@ -124,41 +222,61 @@ export class DeviceAssignmentService {
 
     // Get all devices
     const devices = await this.prisma.device.findMany({
-      where: { serialNumber: { in: deviceSerials } },
+      where: {
+        serialNumber: {
+          in: deviceSerials,
+          mode: 'insensitive',
+        },
+      },
     });
 
-    const deviceMap = new Map(devices.map((d) => [d.serialNumber, d]));
-    const notFound = deviceSerials.filter((s) => !deviceMap.has(s));
+    const deviceMap = new Map(devices.map((d) => [d.serialNumber.toUpperCase(), d]));
+    const notFoundSerials = deviceSerials.filter(
+      (s) => !deviceMap.has(s.toUpperCase()),
+    );
 
-    if (notFound.length > 0 && mode === DeviceAssignmentBatchMode.ATOMIC) {
+    if (notFoundSerials.length > 0 && mode === DeviceAssignmentBatchMode.ATOMIC) {
       throw new BadRequestException(
-        `Devices not found: ${notFound.join(', ')}`,
+        `ATOMIC mode: Cannot proceed. Devices not found: ${notFoundSerials.join(', ')}. ` +
+        `In ATOMIC mode, all devices must exist.`,
       );
     }
 
-    // Check for already assigned
+    // Check for already assigned devices
     const activeAssignments = await this.prisma.deviceAssignment.findMany({
       where: {
         deviceId: { in: devices.map((d) => d.id) },
         isActive: true,
       },
-      select: { deviceId: true, agentId: true },
+      // select: { deviceId: true, agentId: true },
+      include: {
+        agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+      },
     });
 
-    const assignmentMap = new Map(
-      activeAssignments.map((a) => [a.deviceId, a.agentId]),
-    );
+    const assignedDevices = new Map();
+    for (const assignment of activeAssignments) {
+      const device = devices.find((d) => d.id === assignment.deviceId);
+      if (device) {
+        assignedDevices.set(device.serialNumber.toUpperCase(), {
+          agentId: assignment.agentId,
+          agentName: `${assignment.agent.user.firstname} ${assignment.agent.user.lastname}`,
+        });
+      }
+    }
 
-    const alreadyAssigned = devices.filter(
-      (d) => assignmentMap.has(d.id) && assignmentMap.get(d.id) === agentId,
-    );
+    const alreadyAssignedSerials = Array.from(assignedDevices.keys());
 
     if (
-      alreadyAssigned.length > 0 &&
+      alreadyAssignedSerials.length > 0 &&
       mode === DeviceAssignmentBatchMode.ATOMIC
     ) {
       throw new ConflictException(
-        `Already assigned: ${alreadyAssigned.map((d) => d.serialNumber).join(', ')}`,
+        `ATOMIC mode: Cannot proceed. Devices already assigned: ` +
+        alreadyAssignedSerials
+          .map((s) => `${s} (to ${assignedDevices.get(s).agentName})`)
+          .join(', ') +
+        `. In ATOMIC mode, no device can be pre-assigned. Use PARTIAL mode to skip already-assigned devices.`,
       );
     }
 
@@ -172,68 +290,80 @@ export class DeviceAssignmentService {
       },
     });
 
+    // Categorize devices
+    const toAssign = [];
+    const skipped = [];
+    const failed = [];
+
+    for (const serial of deviceSerials) {
+      const device = deviceMap.get(serial.toUpperCase());
+
+      if (!device) {
+        skipped.push({
+          serial,
+          reason: 'Device not found in system',
+          status: 'NOT_FOUND',
+        });
+        continue;
+      }
+
+      const assignmentInfo = assignedDevices.get(device.serialNumber.toUpperCase());
+      if (assignmentInfo) {
+        skipped.push({
+          serial: device.serialNumber,
+          reason: `Already assigned to ${assignmentInfo.agentName}`,
+          status: 'ALREADY_ASSIGNED',
+          assignedAgentId: assignmentInfo.agentId,
+        });
+        continue;
+      }
+
+      toAssign.push(device);
+    }
+
     // Process assignments
-    const results = [];
+    const assigned = [];
     let successCount = 0;
     let failureCount = 0;
 
-    for (const device of devices) {
+    for (const device of toAssign) {
       try {
-        const existing = assignmentMap.get(device.id);
+        await this.prisma.$transaction(async (tx) => {
+          const assignment = await tx.deviceAssignment.create({
+            data: {
+              deviceId: device.id,
+              agentId,
+              batchId: batch.id,
+            },
+            include: { device: true },
+          });
 
-        const result = await this.prisma.$transaction(async (tx) => {
-          if (existing && existing !== agentId) {
-            await tx.deviceAssignment.updateMany({
-              where: { deviceId: device.id, isActive: true },
-              data: { isActive: false, unassignedAt: new Date() },
-            });
-          }
+          await tx.deviceAssignmentHistory.create({
+            data: {
+              deviceId: device.id,
+              actorId,
+              action: DeviceAssignmentHistoryAction.ASSIGN,
+              toAgentId: agentId,
+              reason,
+              batchId: batch.id,
+            },
+          });
 
-          // Only create if not already assigned to this agent
-          if (!existing || existing !== agentId) {
-            const assignment = await tx.deviceAssignment.create({
-              data: {
-                deviceId: device.id,
-                agentId,
-                batchId: batch.id,
-              },
-              include: { device: true },
-            });
-
-            await tx.deviceAssignmentHistory.create({
-              data: {
-                deviceId: device.id,
-                actorId,
-                action:
-                  existing && existing !== agentId
-                    ? DeviceAssignmentHistoryAction.REASSIGN
-                    : DeviceAssignmentHistoryAction.ASSIGN,
-                fromAgentId: existing,
-                toAgentId: agentId,
-                reason,
-                batchId: batch.id,
-              },
-            });
-
-            return { success: true, device: assignment.device, error: null };
-          }
-
-          return {
-            success: false,
-            device,
-            error: 'Already assigned to this agent',
-          };
+          return { success: true, device: assignment.device };
         });
 
-        results.push(result);
-        if (result.success) successCount++;
-        else failureCount++;
+        assigned.push({
+          serial: device.serialNumber,
+          deviceId: device.id,
+          status: 'SUCCESS',
+        });
+        successCount++;
       } catch (error) {
         failureCount++;
-        results.push({
-          success: false,
-          device,
+        failed.push({
+          serial: device.serialNumber,
           error: error instanceof Error ? error.message : 'Unknown error',
+          status: 'FAILED',
         });
       }
     }
@@ -251,24 +381,42 @@ export class DeviceAssignmentService {
       },
     });
 
-    return { batchId: batch.id, mode, results, successCount, failureCount };
+    return {
+      batchId: batch.id,
+      mode,
+      summary: {
+        totalRequested: deviceSerials.length,
+        assigned: successCount,
+        skipped: skipped.length,
+        failed: failureCount,
+      },
+      assigned,
+      skipped,
+      failed,
+    };
   }
 
+  /**
+   * Unassign device from agent
+   */
   async unassignDevice(deviceId: string, actorId: string, reason?: string) {
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
     });
 
     if (!device) {
-      throw new NotFoundException(`Device ${deviceId} not found`);
+      throw new NotFoundException(`Device with ID ${deviceId} not found`);
     }
 
     const assignment = await this.prisma.deviceAssignment.findFirst({
-      where: { deviceId: device.id, isActive: true },
+      where: { deviceId, isActive: true },
+      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
     });
 
     if (!assignment) {
-      throw new NotFoundException(`Device not assigned`);
+      throw new NotFoundException(
+        `Device ${device.serialNumber} is not currently assigned to any agent`,
+      );
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -279,7 +427,7 @@ export class DeviceAssignmentService {
 
       await tx.deviceAssignmentHistory.create({
         data: {
-          deviceId: device.id,
+          deviceId,
           actorId,
           action: DeviceAssignmentHistoryAction.UNASSIGN,
           fromAgentId: assignment.agentId,
@@ -287,12 +435,68 @@ export class DeviceAssignmentService {
         },
       });
 
-      return { deviceSerial: deviceId, unassignedFrom: assignment.agentId };
+      return {
+        success: true,
+        message: `Device ${device.serialNumber} successfully unassigned from ${assignment.agent.user.firstname} ${assignment.agent.user.lastname}`,
+        deviceSerial: device.serialNumber,
+        deviceId: device.id,
+        unassignedFrom: assignment.agent,
+      };
     });
 
     return result;
   }
 
+  /**
+   * Get unassigned devices
+   */
+  async getUnassignedDevices(page: number = 1, limit: number = 100) {
+    const pageNumber = parseInt(String(page), 10);
+    const limitNumber = parseInt(String(limit), 10);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    // Get device IDs that have NEVER been assigned
+    const neverAssignedDeviceIds = await this.prisma.device.findMany({
+      where: {
+        NOT: {
+          assignments: {
+            some: {}, // Has no assignments
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const [devices, total] = await Promise.all([
+      this.prisma.device.findMany({
+        where: {
+          id: { in: neverAssignedDeviceIds.map((d) => d.id) },
+        },
+        skip,
+        take: limitNumber,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.device.count({
+        where: {
+          id: { in: neverAssignedDeviceIds.map((d) => d.id) },
+        },
+      }),
+    ]);
+
+    return {
+      devices,
+      pagination: {
+        page: pageNumber,
+        limit: limitNumber,
+        total,
+        totalPages: Math.ceil(total / limitNumber),
+      },
+    };
+  }
+
+  /**
+   * Get agent's assigned devices
+   */
   async getAgentDevices(agentId: string, query: ListAgentDevicesQueryDto) {
     const { page = 1, limit = 100 } = query;
 
@@ -317,25 +521,28 @@ export class DeviceAssignmentService {
     return {
       devices: devices.map((d) => d.device),
       pagination: {
-        page,
-        limit,
+        page: pageNumber,
+        limit: limitNumber,
         total,
         totalPages: Math.ceil(total / limitNumber),
       },
     };
   }
 
+  /**
+   * Get device assignment history by device ID
+   */
   async getDeviceHistory(deviceId: string) {
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
     });
 
     if (!device) {
-      throw new NotFoundException(`Device ${deviceId} not found`);
+      throw new NotFoundException(`Device with ID ${deviceId} not found`);
     }
 
-    return this.prisma.deviceAssignmentHistory.findMany({
-      where: { deviceId: device.id },
+    const history = await this.prisma.deviceAssignmentHistory.findMany({
+      where: { deviceId },
       include: {
         actor: { select: { id: true, firstname: true, lastname: true } },
         fromAgent: { select: { id: true } },
@@ -343,19 +550,22 @@ export class DeviceAssignmentService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return {
+      deviceId,
+      deviceSerial: device.serialNumber,
+      totalChanges: history.length,
+      history,
+    };
   }
 
+  /**
+   * Validate devices for agent (for sales creation)
+   */
   async validateDevicesForAgent(
-    ids: string[],
+    deviceIds: string[],
     agentId: string,
   ): Promise<boolean> {
-    const devices = await this.prisma.device.findMany({
-      where: { id: { in: ids } },
-      select: { id: true },
-    });
-
-    const deviceIds = devices.map((d) => d.id);
-
     const assigned = await this.prisma.deviceAssignment.count({
       where: {
         deviceId: { in: deviceIds },
@@ -367,6 +577,9 @@ export class DeviceAssignmentService {
     return assigned === deviceIds.length;
   }
 
+  /**
+   * Get admin view of agent's assigned devices
+   */
   async getAgentAssignedDevices(
     agentId: string,
     query: ListAgentDevicesQueryDto,
@@ -404,8 +617,8 @@ export class DeviceAssignmentService {
       agentId,
       devices: assignments.map((a) => a.device),
       pagination: {
-        page,
-        limit,
+        page: pageNumber,
+        limit: limitNumber,
         total,
         totalPages: Math.ceil(total / limitNumber),
       },

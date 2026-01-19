@@ -1742,6 +1742,17 @@ export class ExportService {
     if (filters.state) matchConditions.state = new RegExp(filters.state, 'i');
     if (filters.lga) matchConditions.lga = new RegExp(filters.lga, 'i');
 
+    if (filters.startDate || filters.endDate) {
+      matchConditions.createdAt = {};
+      if (filters.startDate)
+        matchConditions.createdAt.$gte = {
+          $date: new Date(filters.startDate).toISOString(),
+        };
+      if (filters.endDate)
+        matchConditions.createdAt.$lte = {
+          $date: new Date(filters.endDate).toISOString(),
+        };
+    }
     const countResult = await this.prisma.customer.aggregateRaw({
       pipeline: [{ $match: matchConditions }, { $count: 'total' }],
       options: { allowDiskUse: true },

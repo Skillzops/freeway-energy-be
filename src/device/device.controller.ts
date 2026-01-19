@@ -427,12 +427,12 @@ export class DeviceController {
     return this.deviceService.fixDuplicateDevices();
   }
 
-  // @ApiExcludeEndpoint()
-  // @UseGuards(JwtAuthGuard)
-  // @Get('fix/device-installation-status')
-  // @HttpCode(HttpStatus.OK)
-  // async syncDeviceInstallationStatus(
-  // ) {
-  //   return this.deviceService.syncDeviceInstallationStatus();
-  // }
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard)
+  @Get('fix/device-installation-status')
+  @HttpCode(HttpStatus.OK)
+  async syncDeviceInstallationStatus(
+  ) {
+    return this.deviceService.syncDeviceInstallationStatus();
+  }
 }

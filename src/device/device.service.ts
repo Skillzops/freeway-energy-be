@@ -270,96 +270,93 @@ export class DeviceService {
     console.log('\n🎉 Duplicate device cleanup complete!');
   }
 
-  // async syncDeviceInstallationStatus() {
-  //   const devices = await this.prisma.device.findMany({
-  //     where: { serialNumber: { in: devices } },
-  //     include: {
-  //       saleItems: { include: { sale: { include: { installerTasks: true } } } },
-  //     },
-  //   });
-    
-  //   this.logger.log(
-  //     `🔹 Starting device installation sync for ${devices.length} devices`,
-  //   );
+  async syncDeviceInstallationStatus() {
+    console.log("Starting device installation sync...");
 
-  //   for (const serial of devices) {
-  //     // Get the device with its saleItems
-  //     const device = await this.prisma.device.findUnique({
-  //       where: { serialNumber: serial },
-  //       include: {
-  //         saleItems: {
-  //           include: {
-  //             sale: {
-  //               include: {
-  //                 installerTasks: true,
-  //               },
-  //             },
-  //           },
-  //         },
-  //       },
-  //     });
+    // Step 1: Find devices that are not installed OR missing location/coordinates
+    const devicesToUpdate = await this.prisma.device.findMany({
+      where: {
+        OR: [
+          { installationStatus: { not: InstallationStatus.installed } },
+          {
+            installationLocation: null,
+          },
+          {
+            installationLongitude: null,
+          },
+          {
+            installationLatitude: null,
+          },
+        ],
+        saleItems: {
+          some: {}
+        }
+      },
+      include: {
+        saleItems: {
+          include: {
+            sale: {
+              include: {
+                installerTasks: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-  //     if (!device) {
-  //       this.logger.warn(`❌ Device not found: ${serial}`);
-  //       continue;
-  //     }
+    console.log(`Found ${devicesToUpdate.length} devices to check for installation.`);
 
-  //     let updated = false;
+    if (devicesToUpdate.length === 0) return;
 
-  //     for (const saleItem of device.saleItems) {
-  //       const sale = saleItem.sale;
-  //       if (!sale || !sale.installerTasks || sale.installerTasks.length === 0)
-  //         continue;
+    // Step 2: Run updates in a transaction
+    await this.prisma.$transaction(async (tx) => {
+      for (const device of devicesToUpdate) {
+        let updated = false;
 
-  //       // Check for a completed installation task
-  //       const completedTask = sale.installerTasks.find(
-  //         (task) => task.status === 'COMPLETED',
-  //       );
+        for (const assignment of device.saleItems) {
+          const sale = assignment.sale;
 
-  //       if (!completedTask) continue;
+          if (!sale) continue;
 
-  //       const updateData: any = {};
+          // Check all installerTasks connected to the sale
+          const completedTask = sale.installerTasks.find(
+            (task) => task.status === TaskStatus.COMPLETED
+          );
 
-  //       // Update installation status
-  //       if (device.installationStatus !== 'installed') {
-  //         updateData.installationStatus = 'installed';
-  //         updated = true;
-  //       }
+          if (!completedTask) continue;
 
-  //       // Update location if missing
-  //       if (!device.installationLocation && completedTask.installationAddress) {
-  //         updateData.installationLocation = completedTask.installationAddress;
-  //         updated = true;
-  //       }
-  //       if (!device.installationLatitude && completedTask.customer?.latitude) {
-  //         updateData.installationLatitude = completedTask.customer.latitude;
-  //         updated = true;
-  //       }
-  //       if (
-  //         !device.installationLongitude &&
-  //         completedTask.customer?.longitude
-  //       ) {
-  //         updateData.installationLongitude = completedTask.customer.longitude;
-  //         updated = true;
-  //       }
+          const updates: any = {};
 
-  //       if (updated) {
-  //         await this.prisma.device.update({
-  //           where: { id: device.id },
-  //           data: updateData,
-  //         });
+          if (device.installationStatus !== InstallationStatus.installed) {
+            updates.installationStatus = InstallationStatus.installed;
+            updated = true;
+          }
 
-  //         this.logger.log(
-  //           `✅ Device updated: ${serial} | Status: installed | Location updated: ${
-  //             updateData.installationLocation ? 'yes' : 'no'
-  //           }`,
-  //         );
-  //       }
-  //     }
-  //   }
+          // Fill missing location/coordinates
+          if (!device.installationLocation && completedTask.installationAddress) {
+            updates.installationLocation = completedTask.installationAddress;
+            updated = true;
+          }
 
-  //   this.logger.log(`🔹 Device installation sync complete`);
-  // }
+          if (updated) {
+            await tx.device.update({
+              where: { id: device.id },
+              data: {
+                ...updates,
+              },
+            });
+
+            console.log(
+              `✅ Updated device ${device.serialNumber} (${device.id}) with installation info from completed task ${completedTask.id}`
+            );
+          }
+        }
+      }
+    });
+
+    console.log("Device installation sync completed.");
+  }
 
   async updateDeviceLocation(
     deviceId: string,
@@ -1581,14 +1578,14 @@ export class DeviceService {
     const currentRemainingDuration = sale.remainingInstallments || 0;
     const originalDuration = sale.totalInstallmentDuration || 0;
 
-    // console.log({
-    //   currentTotalPaid,
-    //   newTotalPaid,
-    //   monthlyPayment,
-    //   totalPrice,
-    //   currentRemainingDuration,
-    //   originalDuration
-    // });
+    console.log({
+      currentTotalPaid,
+      newTotalPaid,
+      monthlyPayment,
+      totalPrice,
+      currentRemainingDuration,
+      originalDuration
+    });
     if (sale.totalMonthlyPayment === 0 && paymentAmount >= totalPrice) {
       return {
         newStatus: SalesStatus.COMPLETED,
@@ -1638,7 +1635,7 @@ export class DeviceService {
     const monthsCoveredByThisPayment =
       totalMonthsCoveredByAllPayments - previousMonthsCovered;
 
-    // console.log({totalMonthsCoveredByAllPayments, previousMonthsCovered, monthsCoveredByThisPayment})
+    console.log({totalMonthsCoveredByAllPayments, previousMonthsCovered, monthsCoveredByThisPayment})
     let newRemainingDuration = Math.max(
       0,
       originalDuration - totalMonthsCoveredByAllPayments,
