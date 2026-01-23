@@ -209,6 +209,7 @@ export class SaleReversalService {
           walletId: wallet.id,
           amount: amountToCredit,
           type: 'CREDIT',
+          status: "COMPLETED",
           reference: `sale-reversal-${sale.id}`,
           description: `Credit: Reversal of sale ${sale.formattedSaleId}`,
           previousBalance: wallet.balance,

@@ -324,6 +324,26 @@ export class SalesController {
   }
 
   @ApiExcludeEndpoint()
+  @Post(':id/restore-overpayment')
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Sale ID to complete',
+  })
+  async restoreSaleOverpayment(
+    @Param('id') saleId: string,
+    @Body("amount") amount: number
+  ) {
+    return await this.salesService.restoreSaleOverpayment(saleId, amount);
+  }
+
+  @ApiExcludeEndpoint()
   @Post('fix/populate-formatted-ids')
   @HttpCode(HttpStatus.OK)
   @RolesAndPermissions({

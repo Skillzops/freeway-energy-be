@@ -848,27 +848,7 @@ export class PaymentService {
             SaleRecipient: true,
           },
         },
-        customer: true,
-        creatorDetails: true,
-        installmentAccountDetails: true,
-      },
-    });
-
-    sale = await this.prisma.sales.update({
-      where: { id: sale.id },
-      data: {
-        totalPaid: {
-          increment: paymentData.amount,
-        },
-      },
-      include: {
-        saleItems: {
-          include: {
-            product: true,
-            devices: true,
-            SaleRecipient: true,
-          },
-        },
+        payment: true,
         customer: true,
         creatorDetails: true,
         installmentAccountDetails: true,
@@ -879,12 +859,40 @@ export class PaymentService {
       throw new NotFoundException('Sale not found');
     }
 
+    const newTotalPaid = sale.payment.reduce(
+      (sum, payment) =>
+        payment.paymentStatus === PaymentStatus.COMPLETED
+          ? sum + payment.amount
+          : sum,
+      0,
+    );
+
+    sale = await this.prisma.sales.update({
+      where: { id: sale.id },
+      data: {
+        totalPaid: newTotalPaid,
+      },
+      include: {
+        saleItems: {
+          include: {
+            product: true,
+            devices: true,
+            SaleRecipient: true,
+          },
+        },
+        payment: true,
+        customer: true,
+        creatorDetails: true,
+        installmentAccountDetails: true,
+      },
+    });
+
     const installmentInfo = this.deviceService.calculateInstallmentProgress(
       sale,
       paymentData.amount,
     );
 
-    // console.log({ installmentInfo });
+    console.log({ installmentInfo });
 
     await this.prisma.sales.update({
       where: { id: sale.id },

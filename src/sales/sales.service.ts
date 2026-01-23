@@ -1399,7 +1399,10 @@ export class SalesService {
           select: {
             id: true,
             agentDetails: {
-              select: { id: true, user: { select: { firstname: true, lastname: true } } },
+              select: {
+                id: true,
+                user: { select: { firstname: true, lastname: true } },
+              },
             },
           },
         },
@@ -1421,8 +1424,8 @@ export class SalesService {
         where: {
           customerId,
           agentId: creatingAgentId,
-        }
-      })
+        },
+      });
 
       if (!agentCustomer) {
         throw new BadRequestException(
@@ -1435,9 +1438,9 @@ export class SalesService {
     if (!customer.isApproved) {
       throw new BadRequestException(
         `Customer "${customer.firstname} ${customer.lastname}" (ID: ${customerId}) ` +
-        `was created by you but is not yet approved. ` +
-        `Approval status: ${customer.approvalStatus}. ` +
-        `Please wait for admin approval before creating sales.`,
+          `was created by you but is not yet approved. ` +
+          `Approval status: ${customer.approvalStatus}. ` +
+          `Please wait for admin approval before creating sales.`,
       );
     }
 
@@ -2153,6 +2156,7 @@ export class SalesService {
             description: `Payment completion for sale ${updatedSale.formattedSaleId}`,
             previousBalance: wallet.balance,
             newBalance: wallet.balance - PAYMENT_AMOUNT,
+            status: "COMPLETED"
           },
           select: {
             id: true,
@@ -2176,7 +2180,7 @@ export class SalesService {
         });
 
         // Create payment record
-        // Or modify to update existing payment record if preferred 
+        // Or modify to update existing payment record if preferred
         const payment = await tx.payment.create({
           data: {
             saleId: saleId,
@@ -2252,6 +2256,132 @@ export class SalesService {
         walletTransactionRef: result.walletTransaction.reference,
         paymentTransactionRef: result.payment.transactionRef,
       },
+    };
+  }
+
+  async restoreSaleOverpayment(saleId: string, amount: number) {
+    // STEP 1: Validate sale exists (OUTSIDE transaction)
+    const sale = await this.prisma.sales.findUnique({
+      where: { id: saleId },
+      include: {
+        creatorDetails: {
+          select: { agentDetails: { select: { id: true } } },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException(`Sale ${saleId} not found`);
+    }
+
+    // STEP 2: Validate agent exists (OUTSIDE transaction)
+    if (!sale.creatorDetails?.agentDetails) {
+      throw new BadRequestException(
+        `Sale creator is not an agent. Cannot debit wallet.`,
+      );
+    }
+
+    const agentId = sale.creatorDetails.agentDetails.id;
+
+    // STEP 3: Validate and fetch wallet (OUTSIDE transaction)
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { agentId },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException(`Wallet for agent ${agentId} not found`);
+    }
+
+    // STEP 4: Generate references (OUTSIDE transaction)
+    const walletTransactionRef =
+      await this.referenceGenerator.generatePaymentReference();
+
+    // STEP 5: Execute atomic transaction
+    // All operations succeed or fail together
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const updatedSale = await tx.sales.update({
+          where: { id: saleId },
+          data: {
+            totalPaid: {
+              decrement: amount,
+            },
+            installmentStartingPrice: {
+              decrement: amount,
+            },
+          },
+          select: {
+            id: true,
+            formattedSaleId: true,
+            totalPrice: true,
+            totalPaid: true,
+            payment: true,
+          },
+        });
+
+        const walletTx = await tx.walletTransaction.create({
+          data: {
+            agentId,
+            walletId: wallet.id,
+            amount: amount,
+            type: 'CREDIT',
+            reference: walletTransactionRef,
+            description: `Overpayment restoration for sale ${updatedSale.formattedSaleId}`,
+            previousBalance: wallet.balance,
+            newBalance: wallet.balance + amount,
+            status: 'COMPLETED',
+          },
+          select: {
+            id: true,
+            reference: true,
+            createdAt: true,
+          },
+        });
+
+        // Debit wallet balance
+        const updatedWallet = await tx.wallet.update({
+          where: { agentId },
+          data: {
+            balance: {
+              increment: amount,
+            },
+            updatedAt: new Date(),
+          },
+          select: {
+            balance: true,
+          },
+        });
+
+        const salePayment = updatedSale.payment[0];
+
+        await tx.payment.update({
+          where: {
+            id: salePayment.id
+          },
+          data: {
+            amount: salePayment.amount - amount,
+          },
+        
+        });
+       
+        return {
+          sale: updatedSale,
+          wallet: updatedWallet,
+          walletTransaction: walletTx,
+          // payment,
+        };
+      },
+      {
+        timeout: 10000, // 10 second timeout
+        maxWait: 20000,
+      },
+    );
+
+    // STEP 6: Return success response
+    return {
+      success: true,
+      message: `Payment completed successfully for sale ${result.sale.formattedSaleId}`,
+     
     };
   }
 
