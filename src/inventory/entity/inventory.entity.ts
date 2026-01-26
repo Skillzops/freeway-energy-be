@@ -14,8 +14,6 @@ export class InventoryEntity implements Partial<Inventory> {
   inventoryCategory: string;
   inventorySubCategory: string;
   batches: Array<any>;
-
-  @Exclude()
   createdAt: Date;
   @Exclude()
   updatedAt: Date;
