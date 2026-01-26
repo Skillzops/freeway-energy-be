@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Device, Prisma } from '@prisma/client';
 import { Encoder, TokenTypes } from 'openpaygo';
 
 const encoder = new Encoder();
@@ -22,6 +22,22 @@ export class OpenPayGoService {
     });
 
     return token;
+  }
+
+  async resetDeviceCount(
+    device: Device,
+  ) {
+    const resetToken = encoder.generateToken({
+      secretKeyHex: device.key,
+      count: 0,  // This makes it a reset token
+      tokenType: TokenTypes.COUNTER_SYNC,
+      startingCode: Number(device.startingCode),
+      restrictDigitSet: device.restrictedDigitMode || false,
+      valueDivider: Number(device.timeDivider || 1),
+      // NO value parameter for counter sync!
+    });
+
+    return resetToken;
   }
 
   async generateUniversalCounterSyncToken(device: any): Promise<{

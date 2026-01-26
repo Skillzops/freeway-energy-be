@@ -59,6 +59,7 @@
     "lodash": "^4.17.21",
     "mongodb": "^6.9.0",
     "multer": "1.4.5-lts.1",
+    "nestjs-cls": "^6.2.0",
     "node-fetch": "^2.7.0",
     "openpaygo": "^0.0.6",
     "papaparse": "^5.5.3",

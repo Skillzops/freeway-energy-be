@@ -1,8 +1,7 @@
-import { NestFactory, Reflector } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import {
-  ClassSerializerInterceptor,
   RequestMethod,
   ValidationPipe,
   Logger,
@@ -10,8 +9,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HttpAdapterHost } from '@nestjs/core';
-import { AuditInterceptor } from './common/interceptors/audit.interceptor';
-import { AuditLogService } from './audit-log/audit-log.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -44,16 +41,8 @@ async function bootstrap() {
     }),
   );
 
-  const auditLogService = app.get(AuditLogService);
-
   // Global exception filter
   app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
-
-  // Global interceptors
-  app.useGlobalInterceptors(
-    new ClassSerializerInterceptor(app.get(Reflector)),
-    new AuditInterceptor(auditLogService),
-  );
 
   // Swagger/OpenAPI documentation
   const config = new DocumentBuilder()

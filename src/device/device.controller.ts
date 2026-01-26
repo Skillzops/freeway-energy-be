@@ -435,4 +435,15 @@ export class DeviceController {
   ) {
     return this.deviceService.syncDeviceInstallationStatusStreaming();
   }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard)
+  @Post('fix/reset-device-count/:deviceId')
+  @HttpCode(HttpStatus.OK)
+  async resetDeviceCount(
+    @Param("deviceId") deviceId: string,
+    @GetSessionUser('id') userId: string,
+  ) {
+    return this.deviceService.resetDeviceCount(deviceId, userId);
+  }
 }

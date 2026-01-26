@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
@@ -39,6 +39,8 @@ import { ExportModule } from './export/export.module';
 import { OdysseyModule } from './odyssey/odyssey.module';
 import { TokenRestorationModule } from './token-restoration/token-restoration.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { ClsMiddleware, ClsModule } from 'nestjs-cls';
+import { AuditContextMiddleware } from './common/middlewares/auth-context.middleware';
 
 @Module({
   imports: [
@@ -65,6 +67,9 @@ import { AuditLogModule } from './audit-log/audit-log.module';
         blockDuration: 120000, // 2 mins
       },
     ]),
+    ClsModule.forRoot({
+      global: true,
+    }),
 
     ScheduleModule.forRoot(),
 
@@ -114,4 +119,12 @@ import { AuditLogModule } from './audit-log/audit-log.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(ClsMiddleware)
+      .forRoutes('*')
+      .apply(AuditContextMiddleware)
+      .forRoutes('*');
+  }
+}

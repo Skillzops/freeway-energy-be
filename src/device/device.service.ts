@@ -271,7 +271,7 @@ export class DeviceService {
   }
 
   async syncDeviceInstallationStatus() {
-    console.log("Starting device installation sync...");
+    console.log('Starting device installation sync...');
 
     // Step 1: Find devices that are not installed OR missing location/coordinates
     const deviceCount = await this.prisma.device.count({
@@ -287,11 +287,11 @@ export class DeviceService {
           {
             installationLatitude: null,
           },
-        ]
-      }
-    })
+        ],
+      },
+    });
 
-    console.log({deviceCount})
+    console.log({ deviceCount });
     const devicesToUpdate = await this.prisma.device.findMany({
       where: {
         OR: [
@@ -307,8 +307,8 @@ export class DeviceService {
           },
         ],
         saleItems: {
-          some: {}
-        }
+          some: {},
+        },
       },
       include: {
         saleItems: {
@@ -323,7 +323,9 @@ export class DeviceService {
       },
     });
 
-    console.log(`Found ${devicesToUpdate.length} devices to check for installation.`);
+    console.log(
+      `Found ${devicesToUpdate.length} devices to check for installation.`,
+    );
 
     if (devicesToUpdate.length === 0) return;
 
@@ -337,9 +339,9 @@ export class DeviceService {
 
           if (!sale) continue;
 
-          // Check all installerTasks connected to the sale
+          // Check all installerTask connected to the sale
           const completedTask = sale.installerTasks.find(
-            (task) => task.status === TaskStatus.COMPLETED
+            (task) => task.status === TaskStatus.COMPLETED,
           );
 
           if (!completedTask) continue;
@@ -352,7 +354,10 @@ export class DeviceService {
           }
 
           // Fill missing location/coordinates
-          if (!device.installationLocation && completedTask.installationAddress) {
+          if (
+            !device.installationLocation &&
+            completedTask.installationAddress
+          ) {
             updates.installationLocation = completedTask.installationAddress;
             updated = true;
           }
@@ -366,120 +371,194 @@ export class DeviceService {
             });
 
             console.log(
-              `✅ Updated device ${device.serialNumber} (${device.id}) with installation info from completed task ${completedTask.id}`
+              `✅ Updated device ${device.serialNumber} (${device.id}) with installation info from completed task ${completedTask.id}`,
             );
           }
         }
       }
     });
 
-    console.log("Device installation sync completed.");
+    console.log('Device installation sync completed.');
   }
 
   async syncDeviceInstallationStatusStreaming() {
-    console.log('Starting device installation sync (Streaming)...');
     const startTime = Date.now();
+    console.log('Starting device installation sync (aggregateRaw)...');
 
-    const batchSize = 5; // Process 1000 devices at a time
-    let processedCount = 0;
-    let updatedCount = 0;
-
-    // Count total devices needing update
-    // const totalCount = await this.prisma.device.count({
-    //   where: {
-    //     OR: [
-    //       { installationStatus: { not: InstallationStatus.installed } },
-    //       { installationLocation: null },
-    //     ],
-    //     saleItems: { some: {} },p
-    //   },
-    // });
-
-    const totalCount = 7000
-
-    console.log(`Total devices to process: ${totalCount}`);
-
-    // Process in batches
-    for (let skip = 0; skip < totalCount; skip += batchSize) {
-      // Fetch batch
-      const devices = await this.prisma.device.findMany({
-        where: {
-          OR: [
-            { installationStatus: { not: InstallationStatus.installed } },
-            { installationLocation: null },
-          ],
-          saleItems: { some: {} },
+    // STEP 1: Get completed tasks with devices using aggregateRaw (FAST - no timeout)
+    const taskDeviceData = await this.prisma.installerTask.aggregateRaw({
+      pipeline: [
+        {
+          $match: { status: 'COMPLETED' }
         },
-        select: {
-          id: true,
-          serialNumber: true,
-          installationStatus: true,
-          installationLocation: true,
-          saleItems: {
-            select: {
-              sale: {
-                select: {
-                  installerTasks: {
-                    where: { status: TaskStatus.COMPLETED },
-                    select: {
-                      installationAddress: true,
-                    },
-                    take: 1,
-                  },
-                },
-              },
-            },
-          },
+        {
+          $lookup: {
+            from: 'sales', // ✅ @@map("sales")
+            localField: 'saleId',
+            foreignField: '_id',
+            as: 'sale'
+          }
         },
-        take: batchSize,
-        skip,
-      });
-
-      // Build updates for this batch
-      const updates = [];
-      for (const device of devices) {
-        const completedTask = device.saleItems[0]?.sale?.installerTasks[0];
-        if (!completedTask) continue;
-
-        const data: any = {};
-        if (device.installationStatus !== InstallationStatus.installed) {
-          data.installationStatus = InstallationStatus.installed;
+        {
+          $unwind: '$sale'
+        },
+        {
+          $lookup: {
+            from: 'sales_items', // ✅ @@map("sales_items")
+            localField: 'sale._id',
+            foreignField: 'saleId',
+            as: 'saleItems'
+          }
+        },
+        {
+          $unwind: '$saleItems'
+        },
+        {
+          $lookup: {
+            from: 'devices', // ✅ @@map("devices")
+            localField: 'saleItems.deviceIDs', // IMPORTANT (see below)
+            foreignField: '_id',
+            as: 'device'
+          }
+        },
+        {
+          $unwind: '$device'
+        },
+        {
+          $project: {
+            deviceId: '$device._id',
+            deviceSerial: '$device.serialNumber',
+            deviceStatus: '$device.installationStatus',
+            deviceLocation: '$device.installationLocation',
+            deviceLat: '$device.installationLatitude',
+            deviceLng: '$device.installationLongitude',
+            installationAddress: 1,
+            installationLatitude: 1,
+            installationLongitude: 1
+          }
         }
-        if (!device.installationLocation && completedTask.installationAddress) {
-          data.installationLocation = completedTask.installationAddress;
-        }
+      ]
+    }) as any;
 
-        if (Object.keys(data).length > 0) {
-          updates.push({ id: device.id, data });
-        }
-      }
+    console.log(`Found ${taskDeviceData.length} task-device records`);
 
-      // Apply batch update
-      if (updates.length > 0) {
-        await this.prisma.$transaction(
-          updates.map((u) => this.prisma.device.update({
-            where: { id: u.id },
-            data: u.data,
-          })),
-        );
-        updatedCount += updates.length;
-      }
-
-      processedCount += devices.length;
-      const progress = ((processedCount / totalCount) * 100).toFixed(1);
-      console.log(
-        `📊 Progress: ${processedCount}/${totalCount} (${progress}%) - Updated: ${updatedCount}`,
-      );
+    if (taskDeviceData.length === 0) {
+      return { updated: 0, durationMs: Date.now() - startTime };
     }
 
-    const duration = Date.now() - startTime;
+    // STEP 2: Dedup by device, take first task for each device
+    const deviceUpdatesMap = new Map<string, any>();
+
+    for (const record of taskDeviceData) {
+      if (deviceUpdatesMap.has(record.deviceId)) continue; // Skip duplicates
+
+      const updateData: any = {
+        installationStatus: 'installed'
+      };
+
+      if (!record.deviceLocation && record.installationAddress) {
+        updateData.installationLocation = record.installationAddress;
+      }
+
+      deviceUpdatesMap.set(record.deviceId, {
+        id: record.deviceId,
+        data: updateData
+      });
+    }
+
+    console.log(`Prepared ${deviceUpdatesMap.size} device updates`);
+
+    if (deviceUpdatesMap.size === 0) {
+      return { updated: 0, durationMs: Date.now() - startTime };
+    }
+
+    // STEP 3: Execute updates in parallel batches
+    const updates = Array.from(deviceUpdatesMap.values());
+    const batchSize = 500;
+    const parallelBatches = 3;
+    let totalUpdated = 0;
+
+    for (let i = 0; i < updates.length; i += batchSize * parallelBatches) {
+      const parallelChunk = updates.slice(i, i + batchSize * parallelBatches);
+
+      const promises = [];
+      for (let j = 0; j < parallelChunk.length; j += batchSize) {
+        const batch = parallelChunk.slice(j, j + batchSize);
+
+        promises.push(
+          this.prisma.$transaction(
+            async (tx) => {
+              return Promise.all(
+                batch.map((u) =>
+                  tx.device.update({
+                    where: { id: u.id },
+                    data: u.data
+                  })
+                )
+              );
+            },
+            { timeout: 30000 }
+          )
+        );
+      }
+
+      const results = await Promise.all(promises);
+      totalUpdated += results.reduce((sum, batch) => sum + batch.length, 0);
+
+      const processed = Math.min(i + batchSize * parallelBatches, updates.length);
+      console.log(`✅ Processed ${processed}/${updates.length}`);
+    }
+
+    const durationMs = Date.now() - startTime;
     console.log(
-      `✅ Sync completed. Updated: ${updatedCount}, Duration: ${duration}ms`,
+      `✅ Completed: ${totalUpdated} devices in ${durationMs}ms (${(durationMs / totalUpdated).toFixed(2)}ms per device)`
     );
 
-    return { updated: updatedCount, duration };
+    return { updated: totalUpdated, durationMs };
   }
-  
+
+  async resetDeviceCount(deviceId: string, userId: string){
+    const device = await this.prisma.device.findFirst({
+      where: {
+        id: deviceId
+      },
+    });
+
+    if (!device) {
+      throw new BadRequestException('Device not found');
+    }
+
+    const resetToken = await this.openPayGo.resetDeviceCount(
+      device,
+    );
+
+    const duration = 30
+
+    const token = await this.openPayGo.generateToken(
+      device,
+      duration,
+      1,
+    );
+
+    await this.prisma.device.update({
+      where: { id: device.id },
+      data: { count: String(token.newCount) },
+    });
+
+    // Store token in database
+    await this.prisma.tokens.create({
+      data: {
+        deviceId: device.id,
+        token: String(token.finalToken),
+        duration,
+        creatorId: userId,
+      },
+    });
+
+    return {resetToken, token}
+
+  }
+
   async updateDeviceLocation(
     deviceId: string,
     locationData: UpdateDeviceLocationDto,
@@ -1706,7 +1785,7 @@ export class DeviceService {
       monthlyPayment,
       totalPrice,
       currentRemainingDuration,
-      originalDuration
+      originalDuration,
     });
     if (sale.totalMonthlyPayment === 0 && paymentAmount >= totalPrice) {
       return {
@@ -1757,7 +1836,11 @@ export class DeviceService {
     const monthsCoveredByThisPayment =
       totalMonthsCoveredByAllPayments - previousMonthsCovered;
 
-    console.log({totalMonthsCoveredByAllPayments, previousMonthsCovered, monthsCoveredByThisPayment})
+    console.log({
+      totalMonthsCoveredByAllPayments,
+      previousMonthsCovered,
+      monthsCoveredByThisPayment,
+    });
     let newRemainingDuration = Math.max(
       0,
       originalDuration - totalMonthsCoveredByAllPayments,
