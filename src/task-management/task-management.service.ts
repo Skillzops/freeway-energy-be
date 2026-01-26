@@ -180,7 +180,15 @@ export class TaskManagementService {
         take: limitNumber,
         orderBy,
         include: {
-          sale: true,
+          sale: {
+            include: {
+              saleItems: {
+                select: {
+                  devices: true,
+                }
+              }
+            }
+          },
           customer: {
             select: {
               id: true,
@@ -286,7 +294,15 @@ export class TaskManagementService {
     const task = await this.prisma.installerTask.findUnique({
       where: { id: taskId },
       include: {
-        sale: true,
+        sale: {
+          include: {
+            saleItems: {
+              select: {
+                devices: true,
+              },
+            },
+          },
+        },
         customer: {
           select: {
             id: true,
