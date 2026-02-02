@@ -35,6 +35,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthService } from 'src/auth/auth.service';
 import { NotificationService } from 'src/notification/notification.service';
+import { TokenGenerationFailureService } from './token-generation-failure.service';
 
 @Injectable()
 export class DeviceService {
@@ -43,6 +44,8 @@ export class DeviceService {
     private readonly openPayGo: OpenPayGoService,
     private readonly authService: AuthService,
     private readonly notificationService: NotificationService,
+    private readonly tokenFailureService: TokenGenerationFailureService,
+    
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
 
@@ -1763,6 +1766,14 @@ export class DeviceService {
         `Failed to generate token for device ${device.serialNumber}:`,
         error,
       );
+      await this.tokenFailureService.recordFailure(
+        sale.id,
+        device.id,
+        device.serialNumber,
+        error.message,
+        error.stack,
+      );
+      
       return null;
     }
   }

@@ -181,7 +181,7 @@ export class UsersController {
     summary: 'Delete user by superuser',
     description: 'This endpoint allows a permitted user to delete a user.',
   })
-  @ApiBearerAuth('access_token')
+  @ApiBearerAuth('access_token') 
   @ApiOkResponse({
     type: UserEntity,
   })

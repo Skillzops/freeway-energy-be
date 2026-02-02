@@ -23,6 +23,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
 import { DeviceService } from 'src/device/device.service';
 import { NotificationService } from 'src/notification/notification.service';
+import { TokenGenerationFailureService } from 'src/device/token-generation-failure.service';
 
 @Injectable()
 export class PaymentService {
@@ -38,6 +39,7 @@ export class PaymentService {
     private readonly referenceGenerator: ReferenceGeneratorService,
     private readonly deviceService: DeviceService,
     private readonly notificationService: NotificationService,
+    private readonly tokenFailureService: TokenGenerationFailureService,
   ) {}
 
   async generatePaymentPayload(
@@ -922,7 +924,7 @@ export class PaymentService {
       const installedDevices = saleItem.devices.filter(
         (device) =>
           device.installationStatus === InstallationStatus.installed &&
-          device.gpsVerified &&
+          // device.gpsVerified &&
           device.isTokenable,
       );
 
@@ -938,32 +940,43 @@ export class PaymentService {
         }
 
         for (const device of installedDevices) {
-          const token = await this.openPayGo.generateToken(
-            device,
-            tokenDuration,
-            Number(device.count),
-          );
-
-          deviceTokens.push({
-            deviceSerialNumber: device.serialNumber,
-            deviceKey: device.key,
-            deviceToken: token.finalToken,
-          });
-
-          await this.prisma.device.update({
-            where: { id: device.id },
-            data: { count: String(token.newCount) },
-          });
-
-          await this.prisma.tokens.create({
-            data: {
-              deviceId: device.id,
-              token: String(token.finalToken),
-              duration: tokenDuration,
-              creatorId: sale.creatorId,
-              tokenReleased: true
-            },
-          });
+          try {
+            const token = await this.openPayGo.generateToken(
+              device,
+              tokenDuration,
+              Number(device.count),
+            );
+  
+            deviceTokens.push({
+              deviceSerialNumber: device.serialNumber,
+              deviceKey: device.key,
+              deviceToken: token.finalToken,
+            });
+  
+            await this.prisma.device.update({
+              where: { id: device.id },
+              data: { count: String(token.newCount) },
+            });
+  
+            await this.prisma.tokens.create({
+              data: {
+                deviceId: device.id,
+                token: String(token.finalToken),
+                duration: tokenDuration,
+                creatorId: sale.creatorId,
+                tokenReleased: true
+              },
+            });
+          } catch (error) {
+            console.log({error})
+            await this.tokenFailureService.recordFailure(
+              sale.id,
+              device.id,
+              device.serialNumber,
+              error.message,
+              error.stack,
+            );
+          }
         }
       }
     }

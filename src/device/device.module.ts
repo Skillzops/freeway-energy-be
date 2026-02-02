@@ -11,6 +11,11 @@ import { NotificationModule } from 'src/notification/notification.module';
 import { DeviceAssignmentService } from './device-assignment.service';
 import { DeviceAssignmentController } from './device-assignment.controller';
 import { DeviceAssignmentMigrationService } from './device-assignment-migration.service';
+import { DeviceLocationUpdateController } from './device-location-update.controller';
+import { DeviceLocationUpdateService } from './device-location-update.service';
+import { FileParserService } from 'src/csv-upload/file-parser.service';
+import { TokenGenerationFailureController } from './token-generation-failure.comtroller';
+import { TokenGenerationFailureService } from './token-generation-failure.service';
 
 @Module({
   imports: [
@@ -20,15 +25,23 @@ import { DeviceAssignmentMigrationService } from './device-assignment-migration.
     AuthModule,
     NotificationModule,
   ],
-  controllers: [DeviceController, DeviceAssignmentController],
+  controllers: [
+    DeviceController,
+    DeviceAssignmentController,
+    DeviceLocationUpdateController,
+    TokenGenerationFailureController,
+  ],
   providers: [
     DeviceService,
     DeviceProcessor,
     OpenPayGoService,
     JobStatusService,
+    FileParserService,
     DeviceAssignmentService,
+    DeviceLocationUpdateService,
     DeviceAssignmentMigrationService,
     PrismaService,
+    TokenGenerationFailureService,
   ],
   exports: [
     BullModule,
@@ -36,8 +49,11 @@ import { DeviceAssignmentMigrationService } from './device-assignment-migration.
     DeviceProcessor,
     DeviceService,
     JobStatusService,
+    FileParserService,
     DeviceAssignmentService,
+    DeviceLocationUpdateService,
     DeviceAssignmentMigrationService,
+    TokenGenerationFailureService,
   ],
 })
 export class DeviceModule {}

@@ -41,6 +41,7 @@ import { TokenRestorationModule } from './token-restoration/token-restoration.mo
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { ClsMiddleware, ClsModule } from 'nestjs-cls';
 import { AuditContextMiddleware } from './common/middlewares/auth-context.middleware';
+import { FailedJobsModule } from './failed-jobs/failed-jobs.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { AuditContextMiddleware } from './common/middlewares/auth-context.middle
     OdysseyModule,
     TokenRestorationModule,
     AuditLogModule,
+    FailedJobsModule,
   ],
   controllers: [AppController],
   providers: [

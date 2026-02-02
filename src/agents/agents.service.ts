@@ -689,11 +689,22 @@ export class AgentsService {
           agentId,
           installerId: { in: installerIds },
         },
+        include: {
+          installer: {
+            select: {
+              user: {
+                select: {
+                  firstname: true
+                }
+              }
+            }
+          }
+        }
       },
     );
 
     if (alreadyAssigned.length > 0) {
-      const assignedIds = alreadyAssigned.map((p) => p.installerId).join(', ');
+      const assignedIds = alreadyAssigned.map((p) => p.installer.user.firstname).join(', ');
       throw new BadRequestException(
         `Agent has already been assigned the following installer(s): ${assignedIds}`,
       );
@@ -963,11 +974,11 @@ export class AgentsService {
         agentId,
         productId: { in: productIds },
       },
-      select: { productId: true },
+      include: { product: true },
     });
 
     if (alreadyAssigned.length > 0) {
-      const assignedIds = alreadyAssigned.map((p) => p.productId).join(', ');
+      const assignedIds = alreadyAssigned.map((p) => p.product.name).join(', ');
       throw new BadRequestException(
         `Agent has already been assigned the following product(s): ${assignedIds}`,
       );

@@ -27,6 +27,9 @@ model Sales {
   payment Payment[]
 
   paymentGateway PaymentGateway @default(OGARANYA)
+  
+  lastTokenGenerationError String?
+  tokenGenerationFailures TokenGenerationFailure[]
 
   walletTransactions WalletTransaction[]
   installerTasks     InstallerTask[]

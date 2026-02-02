@@ -21,6 +21,8 @@ model Device {
   installationLongitude String?
   installationLatitude  String?
 
+  tokenFailures TokenGenerationFailure[]
+
   assignments DeviceAssignment[]
   assignmentHistory DeviceAssignmentHistory[]
 
@@ -62,4 +64,23 @@ enum InstallationStatus {
   not_installed
   ready_for_installation
   installed
+}
+
+model TokenGenerationFailure {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  saleId        String   @db.ObjectId
+  sale          Sales    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  deviceId      String?  @db.ObjectId
+  device        Device?  @relation(fields: [deviceId], references: [id])
+  serialNumber  String?
+  reason        String
+  errorStack    String?
+  retryCount    Int      @default(0)
+  maxRetries    Int      @default(3)
+  lastRetryAt   DateTime?
+  resolvedAt    DateTime?
+  resolvedBy    String?  @db.ObjectId
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
