@@ -111,7 +111,7 @@ export class FailedJobsService {
     }
 
     try {
-      await job.retry('manual-retry');
+      await job.retry();
       this.logger.log(`Job ${jobId} retried successfully`);
       return { success: true, message: 'Job retried', jobId };
     } catch (error) {
@@ -131,7 +131,7 @@ export class FailedJobsService {
 
     for (const job of failedJobs) {
       try {
-        await job.retry('bulk-manual-retry');
+        await job.retry();
         retried++;
       } catch (error) {
         this.logger.error(`Failed to retry job ${job.id}:`, error.message);
