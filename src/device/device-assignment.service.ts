@@ -33,7 +33,9 @@ export class DeviceAssignmentService {
     });
 
     if (!device) {
-      throw new NotFoundException(`Device with serial ${deviceSerial} not found`);
+      throw new NotFoundException(
+        `Device with serial ${deviceSerial} not found`,
+      );
     }
 
     const agent = await this.prisma.agent.findUnique({
@@ -41,9 +43,7 @@ export class DeviceAssignmentService {
     });
 
     if (!agent) {
-      throw new NotFoundException(
-        `Sales Agent with ID ${agentId} not found`,
-      );
+      throw new NotFoundException(`Sales Agent with ID ${agentId} not found`);
     }
 
     // Check if device is already assigned (to any agent)
@@ -52,13 +52,20 @@ export class DeviceAssignmentService {
         deviceId: device.id,
         isActive: true,
       },
-      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            user: { select: { firstname: true, lastname: true } },
+          },
+        },
+      },
     });
 
     if (activeAssignment) {
       throw new ConflictException(
         `Device ${deviceSerial} is already assigned to agent ${activeAssignment.agent.user.firstname} ${activeAssignment.agent.user.lastname} (ID: ${activeAssignment.agentId}). ` +
-        `Use the reassign module to transfer this device to a different agent.`,
+          `Use the reassign module to transfer this device to a different agent.`,
       );
     }
 
@@ -72,7 +79,19 @@ export class DeviceAssignmentService {
         },
         include: {
           device: true,
-          agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+          agent: {
+            select: {
+              id: true,
+              user: { select: { firstname: true, lastname: true } },
+            },
+          },
+        },
+      });
+
+      await tx.device.update({
+        where: { id: device.id },
+        data: {
+          isAssigned: true,
         },
       });
 
@@ -121,9 +140,7 @@ export class DeviceAssignmentService {
     });
 
     if (!toAgent) {
-      throw new NotFoundException(
-        `Sales Agent with ID ${toAgentId} not found`,
-      );
+      throw new NotFoundException(`Sales Agent with ID ${toAgentId} not found`);
     }
 
     // Check if device is currently assigned to fromAgentId
@@ -133,7 +150,14 @@ export class DeviceAssignmentService {
         agentId: fromAgentId,
         isActive: true,
       },
-      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            user: { select: { firstname: true, lastname: true } },
+          },
+        },
+      },
     });
 
     if (!currentAssignment) {
@@ -174,7 +198,19 @@ export class DeviceAssignmentService {
         },
         include: {
           device: true,
-          agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+          agent: {
+            select: {
+              id: true,
+              user: { select: { firstname: true, lastname: true } },
+            },
+          },
+        },
+      });
+
+      await tx.device.update({
+        where: { id: device.id },
+        data: {
+          isAssigned: true,
         },
       });
 
@@ -230,15 +266,20 @@ export class DeviceAssignmentService {
       },
     });
 
-    const deviceMap = new Map(devices.map((d) => [d.serialNumber.toUpperCase(), d]));
+    const deviceMap = new Map(
+      devices.map((d) => [d.serialNumber.toUpperCase(), d]),
+    );
     const notFoundSerials = deviceSerials.filter(
       (s) => !deviceMap.has(s.toUpperCase()),
     );
 
-    if (notFoundSerials.length > 0 && mode === DeviceAssignmentBatchMode.ATOMIC) {
+    if (
+      notFoundSerials.length > 0 &&
+      mode === DeviceAssignmentBatchMode.ATOMIC
+    ) {
       throw new BadRequestException(
         `ATOMIC mode: Cannot proceed. Devices not found: ${notFoundSerials.join(', ')}. ` +
-        `In ATOMIC mode, all devices must exist.`,
+          `In ATOMIC mode, all devices must exist.`,
       );
     }
 
@@ -250,7 +291,12 @@ export class DeviceAssignmentService {
       },
       // select: { deviceId: true, agentId: true },
       include: {
-        agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } },
+        agent: {
+          select: {
+            id: true,
+            user: { select: { firstname: true, lastname: true } },
+          },
+        },
       },
     });
 
@@ -273,10 +319,10 @@ export class DeviceAssignmentService {
     ) {
       throw new ConflictException(
         `ATOMIC mode: Cannot proceed. Devices already assigned: ` +
-        alreadyAssignedSerials
-          .map((s) => `${s} (to ${assignedDevices.get(s).agentName})`)
-          .join(', ') +
-        `. In ATOMIC mode, no device can be pre-assigned. Use PARTIAL mode to skip already-assigned devices.`,
+          alreadyAssignedSerials
+            .map((s) => `${s} (to ${assignedDevices.get(s).agentName})`)
+            .join(', ') +
+          `. In ATOMIC mode, no device can be pre-assigned. Use PARTIAL mode to skip already-assigned devices.`,
       );
     }
 
@@ -307,7 +353,9 @@ export class DeviceAssignmentService {
         continue;
       }
 
-      const assignmentInfo = assignedDevices.get(device.serialNumber.toUpperCase());
+      const assignmentInfo = assignedDevices.get(
+        device.serialNumber.toUpperCase(),
+      );
       if (assignmentInfo) {
         skipped.push({
           serial: device.serialNumber,
@@ -336,6 +384,13 @@ export class DeviceAssignmentService {
               batchId: batch.id,
             },
             include: { device: true },
+          });
+
+          await tx.device.update({
+            where: { id: device.id },
+            data: {
+              isAssigned: true,
+            },
           });
 
           await tx.deviceAssignmentHistory.create({
@@ -410,7 +465,14 @@ export class DeviceAssignmentService {
 
     const assignment = await this.prisma.deviceAssignment.findFirst({
       where: { deviceId, isActive: true },
-      include: { agent: { select: { id: true, user: { select: { firstname: true, lastname: true } } } } },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            user: { select: { firstname: true, lastname: true } },
+          },
+        },
+      },
     });
 
     if (!assignment) {
@@ -423,6 +485,13 @@ export class DeviceAssignmentService {
       await tx.deviceAssignment.update({
         where: { id: assignment.id },
         data: { isActive: false, unassignedAt: new Date() },
+      });
+
+      await tx.device.update({
+        where: { id: device.id },
+        data: {
+          isAssigned: false,
+        },
       });
 
       await tx.deviceAssignmentHistory.create({
@@ -450,37 +519,29 @@ export class DeviceAssignmentService {
   /**
    * Get unassigned devices
    */
-  async getUnassignedDevices(page: number = 1, limit: number = 100) {
-    const pageNumber = parseInt(String(page), 10);
-    const limitNumber = parseInt(String(limit), 10);
-    const skip = (pageNumber - 1) * limitNumber;
 
-    // Get device IDs that have NEVER been assigned
-    const neverAssignedDeviceIds = await this.prisma.device.findMany({
-      where: {
-        NOT: {
-          assignments: {
-            some: {}, // Has no assignments
-          },
-        },
-      },
-      select: { id: true },
-    });
+  async getUnassignedDevices(page: number = 1, limit: number = 100) {
+    const pageNumber = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNumber = Math.max(1, parseInt(String(limit), 10) || 100);
+    const skip = (pageNumber - 1) * limitNumber;
 
     const [devices, total] = await Promise.all([
       this.prisma.device.findMany({
-        where: {
-          id: { in: neverAssignedDeviceIds.map((d) => d.id) },
+        where: { isAssigned: false },
+        select: {
+          id: true,
+          serialNumber: true,
+          key: true,
+          isTokenable: true,
+          count: true,
+          isUsed: true,
+          isAssigned: true,
         },
+        orderBy: { createdAt: 'desc' },
         skip,
         take: limitNumber,
-        orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.device.count({
-        where: {
-          id: { in: neverAssignedDeviceIds.map((d) => d.id) },
-        },
-      }),
+      this.prisma.device.count({ where: { isAssigned: false } }),
     ]);
 
     return {

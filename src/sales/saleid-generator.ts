@@ -138,12 +138,12 @@ export class SalesIdGeneratorService {
 
     // Fetch all sales without formattedSaleId
     const salesWithoutId = await this.prisma.sales.findMany({
-    //   where: { NOT: { formattedSaleId: {} } },
+      where: { NOT: { formattedSaleId: {} } },
       orderBy: { createdAt: 'asc' },
       select: { id: true, createdAt: true, formattedSaleId: true },
     });
 
-    // console.log({ salesWithoutId: salesWithoutId.length });
+    console.log({ salesWithoutId: salesWithoutId.length });
 
     const totalSales = salesWithoutId.length;
 
@@ -153,7 +153,7 @@ export class SalesIdGeneratorService {
         continue;
       }
 
-    //   console.log(`count: ${populated}, skipped: ${skipped}`)
+      console.log(`count: ${populated}, skipped: ${skipped}`)
 
       try {
         const formattedSaleId = await this.generateFormattedSaleIdForDate(
