@@ -146,12 +146,12 @@ export class ListDevicesQueryDto {
   @Transform(({ value }) => value === 'true' || value === '1')
   isTokenable?: boolean;
 
-  @ApiPropertyOptional({
-    description: 'Filter by agent ID',
-  })
-  @IsOptional()
-  @IsString()
-  agentId?: string;
+  // @ApiPropertyOptional({
+  //   description: 'Filter by agent ID',
+  // })
+  // @IsOptional()
+  // @IsString()
+  // agentId?: string;
 
   @ApiPropertyOptional({
     description: 'installation status',

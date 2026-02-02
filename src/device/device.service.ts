@@ -1415,7 +1415,7 @@ export class DeviceService {
       createdAt,
       updatedAt,
       fetchFormat,
-      agentId,
+      // agentId,
       isExact,
       installationStatus,
     } = query;
@@ -1446,17 +1446,17 @@ export class DeviceService {
           : {},
         key ? { key: { contains: key, mode: 'insensitive' } } : {},
         installationStatus ? { installationStatus } : {},
-        agentId
-          ? {
-              saleItems: {
-                some: {
-                  sale: {
-                    creatorId: agentId,
-                  },
-                },
-              },
-            }
-          : {},
+        // agentId
+        //   ? {
+        //       saleItems: {
+        //         some: {
+        //           sale: {
+        //             creatorId: agentId,
+        //           },
+        //         },
+        //       },
+        //     }
+        //   : {},
 
         fetchFormat === 'used'
           ? {
