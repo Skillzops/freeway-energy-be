@@ -533,6 +533,7 @@ export class DeviceAssignmentService {
           serialNumber: true,
           key: true,
           isTokenable: true,
+          hardwareModel: true,
           count: true,
           isUsed: true,
           isAssigned: true,
