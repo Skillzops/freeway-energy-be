@@ -79,7 +79,7 @@ export class SalesService {
       const processedItem = await this.calculateItemPrice(
         item,
         financialSettings,
-        dto.applyMargin,
+        false // dto.applyMargin,
       );
       processedItems.push(processedItem);
     }
@@ -167,6 +167,7 @@ export class SalesService {
           installmentStartingPrice: totalInstallmentStartingPrice,
           formattedSaleId,
           totalInstallmentDuration,
+          applyMargin: dto.applyMargin || false,
           // remainingInstallments: totalInstallmentDuration - 1,
           remainingInstallments: totalInstallmentDuration,
           totalMiscellaneousPrice,
@@ -1155,7 +1156,7 @@ export class SalesService {
   }
 
   async fixSalesWithOvercalculatedTotal() {
-    const AMOUNT_THRESHOLD = 200000;
+    const AMOUNT_THRESHOLD = 400000;
     const sales = await this.prisma.sales.findMany({
       where: {
         totalPrice: {
