@@ -611,8 +611,34 @@ export class DeviceAssignmentService {
       where: { deviceId },
       include: {
         actor: { select: { id: true, firstname: true, lastname: true } },
-        fromAgent: { select: { id: true } },
-        toAgent: { select: { id: true } },
+        fromAgent: {
+          select: {
+            id: true,
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+                phone: true,
+              },
+            },
+          },
+        },
+        toAgent: {
+          select: {
+            id: true,
+            user: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                email: true,
+                phone: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
