@@ -525,6 +525,7 @@ export class SalesService {
     if (data.deviceSerials && data.deviceSerials.length > 0) {
       deviceChanges = await this.validateAndPrepareDeviceUpdates(
         data.deviceSerials,
+        currentSale.saleItems[0].id,
       );
     }
 
@@ -548,39 +549,40 @@ export class SalesService {
         },
       });
 
-      // Update devices on sale items if provided
-      if (deviceChanges) {
-        for (const deviceChange of deviceChanges) {
-          // Disconnect old devices
-          await tx.saleItem.update({
-            where: { id: deviceChange.saleItemId },
-            data: {
-              devices: { disconnect: [] },
-            },
-          });
-
-          // Connect new devices
-          if (deviceChange.newDeviceIds.length > 0) {
-            await tx.saleItem.update({
+      if (deviceChanges && deviceChanges.length > 0) {
+        await Promise.all(
+          deviceChanges.map((deviceChange) =>
+            tx.saleItem.update({
               where: { id: deviceChange.saleItemId },
               data: {
                 devices: {
-                  connect: deviceChange.newDeviceIds.map((id) => ({ id })),
+                  set: [],
                 },
               },
-            });
-          }
-        }
+            }),
+          ),
+        );
+        await Promise.all(
+          deviceChanges.map((deviceChange) =>
+            tx.saleItem.update({
+              where: { id: deviceChange.saleItemId },
+              data: {
+                devices: {
+                  set: deviceChange.newDeviceIds.map((id) => ({ id })),
+                },
+              },
+            }),
+          ),
+        );
       }
 
       return { updatedSale };
-    });
+    },  { timeout: 30000 });
 
     return {
       id: result.updatedSale.id,
       version: result.updatedSale.version,
       updatedAt: result.updatedSale.updatedAt,
-      changes,
       message: 'Sale updated successfully',
     };
   }
@@ -2046,23 +2048,26 @@ export class SalesService {
   /**
    * Validate device updates and prepare for transaction
    */
-  private async validateAndPrepareDeviceUpdates(deviceSerials: string[]) {
+  private async validateAndPrepareDeviceUpdates(
+    deviceSerials: string[],
+    saleItemId: string
+  ) {
     const changes = [];
-
+  
     if (!deviceSerials.length) {
       changes.push({
+        saleItemId,
         newDeviceIds: [],
         newSerials: [],
       });
-
       return;
     }
-
+  
     const devices = await this.prisma.device.findMany({
       where: { serialNumber: { in: deviceSerials }, isUsed: false },
       select: { id: true, serialNumber: true },
     });
-
+  
     if (devices.length !== deviceSerials.length) {
       const found = new Set(devices.map((d) => d.serialNumber));
       const notFound = deviceSerials.filter((s) => !found.has(s));
@@ -2070,12 +2075,13 @@ export class SalesService {
         `Devices not found: ${notFound.join(', ')}`,
       );
     }
-
+  
     changes.push({
+      saleItemId, 
       newDeviceIds: devices.map((d) => d.id),
       newSerials: devices.map((d) => d.serialNumber),
     });
-
+  
     return changes;
   }
 
