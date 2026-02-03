@@ -57,7 +57,7 @@ export class FailedJobsController {
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({
     permissions: [`${ActionEnum.read}:${SubjectEnum.AuditLog}`],
-  }) 
+  })
   @Get(':queue')
   @ApiOperation({ summary: 'Get all failed jobs for a queue' })
   @ApiParam({ name: 'queue', description: 'Queue name' })
@@ -131,22 +131,6 @@ export class FailedJobsController {
   @RolesAndPermissions({
     permissions: [`${ActionEnum.manage}:${SubjectEnum.AuditLog}`],
   })
-  @Delete(':queue/:jobId')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Remove a failed job' })
-  @ApiParam({ name: 'queue', description: 'Queue name' })
-  @ApiParam({ name: 'jobId', description: 'Job ID' })
-  async removeJob(
-    @Param('queue') queueName: string,
-    @Param('jobId') jobId: string,
-  ) {
-    return this.failedJobsService.removeFailedJob(queueName, jobId);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [`${ActionEnum.manage}:${SubjectEnum.AuditLog}`],
-  })
   @Delete(':queue/remove-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove all failed jobs from a queue' })
@@ -173,5 +157,21 @@ export class FailedJobsController {
       throw new BadRequestException('Invalid daysOld parameter');
     }
     return this.failedJobsService.cleanupOldFailedJobs(queueName, days);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.manage}:${SubjectEnum.AuditLog}`],
+  })
+  @Delete(':queue/:jobId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove a failed job' })
+  @ApiParam({ name: 'queue', description: 'Queue name' })
+  @ApiParam({ name: 'jobId', description: 'Job ID' })
+  async removeJob(
+    @Param('queue') queueName: string,
+    @Param('jobId') jobId: string,
+  ) {
+    return this.failedJobsService.removeFailedJob(queueName, jobId);
   }
 }
