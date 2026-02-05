@@ -446,4 +446,15 @@ export class DeviceController {
   ) {
     return this.deviceService.resetDeviceCount(deviceId, userId);
   }
+
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard)
+  @Post('token/decode/:deviceId')
+  @HttpCode(HttpStatus.OK)
+  async decodeDeviceToken(
+    @Param("deviceId") deviceId: string,
+    @Body('token') token: string,
+  ) {
+    return this.deviceService.decodeDeviceToken(deviceId, token);
+  }
 }

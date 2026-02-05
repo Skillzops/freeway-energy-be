@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Device, Prisma } from '@prisma/client';
-import { Encoder, TokenTypes } from 'openpaygo';
+import { Decoder, Encoder, TokenTypes } from 'openpaygo';
 
 const encoder = new Encoder();
+const decoder = new Decoder();
 
 @Injectable()
 export class OpenPayGoService {
@@ -22,6 +23,22 @@ export class OpenPayGoService {
     });
 
     return token;
+  }
+
+  async decodeToken(
+    device: Device,
+    token: string,
+  ) {
+    return decoder.decodeToken({
+      token: token,
+      count: 8,
+      usedCounts: [],
+      secretKeyHex: device.key,
+      valueDivider: Number(device.timeDivider),
+      restrictedDigitSet: device.restrictedDigitMode,
+      startingCode: Number(device.startingCode),
+    });
+
   }
 
   async resetDeviceCount(

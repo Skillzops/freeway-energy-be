@@ -562,6 +562,23 @@ export class DeviceService {
 
   }
 
+  async decodeDeviceToken(deviceId: string, token: string){
+    const device = await this.prisma.device.findFirst({
+      where: {
+        id: deviceId
+      },
+    });
+
+    if (!device) {
+      throw new BadRequestException('Device not found');
+    }
+
+    return  await this.openPayGo.decodeToken(
+      device,
+      token
+    )
+  }
+
   async updateDeviceLocation(
     deviceId: string,
     locationData: UpdateDeviceLocationDto,

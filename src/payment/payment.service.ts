@@ -896,13 +896,13 @@ export class PaymentService {
 
     console.log({ installmentInfo });
 
-    await this.prisma.sales.update({
-      where: { id: sale.id },
-      data: {
-        remainingInstallments: installmentInfo.newRemainingDuration,
-        status: installmentInfo.newStatus,
-      },
-    });
+    // await this.prisma.sales.update({
+    //   where: { id: sale.id },
+    //   data: {
+    //     remainingInstallments: installmentInfo.newRemainingDuration,
+    //     status: installmentInfo.newStatus,
+    //   },
+    // });
 
     await this.updateDeviceStatusAfterPayment(sale);
 
