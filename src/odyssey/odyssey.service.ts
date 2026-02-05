@@ -169,8 +169,8 @@ export class OdysseyService {
       // agentId: null, // agentId,
       // latitude: customer.latitude || '',
       // longitude: customer.longitude || '',
-      latitude: device.installationLongitude || '',
-      longitude: device.installationLatitude || '',
+      latitude: device.installationLatitude || customer.latitude || '',
+      longitude: device.installationLongitude || customer.longitude || '',
       // utilityId: null, // this.generateUtilityId(customer, sale),
       // failedBatteryCapacityCount: 0,
     };
