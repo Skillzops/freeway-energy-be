@@ -203,3 +203,32 @@ enum SalesStatus {
 // type new
 // email yahyanaibinjidda@gmail.com
 // wallet id 698ca7f427a36a62e85f6104
+
+// {
+// 	"4": {
+// 		"id": "698cb0c9a2152803bb8603b2",
+// 		"walletId": "691b02d62021efc2c58d7d9f",
+// 		"agentId": "6902382716c1f0eb2f057c22",
+// 		"type": "CREDIT",
+// 		"paymentGateway": "OGARANYA",
+// 		"amount": 12000,
+// 		"previousBalance": 27000,
+// 		"newBalance": 39000,
+// 		"description": "Wallet top-up using Ogaranya",
+// 		"reference": "TOP-352WU8",
+// 		"errorMessage": null,
+// 		"ogaranyaOrderId": null,
+// 		"ogaranyaOrderRef": "CWQJNAVD5H",
+// 		"ogaranyaSmsNumber": null,
+// 		"ogaranyaSmsMessage": null,
+// 		"paymentId": null,
+// 		"saleId": null,
+// 		"status": "COMPLETED",
+// 		"createdAt": "2026-02-11T08:14:05.562Z", 08:14:05
+// 		"updatedAt": "2026-02-11T08:14:05.000Z"
+// 	}
+// }
+
+// new insertID: 698dcbf16fb599a38637cdc7
+// 698dcbf16fb599a38637cdc7
+// db('admin').collection("wallet_transactions").insertOne({"status":"COMPLETED","paymentGateway":"OGARANYA","amount":10000,"previousBalance":0,"newBalance":10000,"description":"Wallet top-up using Ogaranya","reference":"TOP-1BUBGUTOP-1BUBGU","ogaranyaOrderRef":"K2S64QMVWE","agentId":new ObjectId("6980630165fc654d14b68132"),"walletId":new ObjectId("698ca7f427a36a62e85f6104"),"type":"CREDIT"})

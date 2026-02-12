@@ -639,15 +639,19 @@ export class OgaranyaService {
               totalPaid: {
                 increment: newPayment.amount,
               },
-              updatedAt: new Date(),
             },
-            select: {
-              id: true,
-              totalPrice: true,
-              totalPaid: true,
-              status: true,
-              totalInstallmentDuration: true,
-              remainingInstallments: true,
+            include: {
+              saleItems: {
+                include: {
+                  product: true,
+                  devices: true,
+                  SaleRecipient: true,
+                },
+              },
+              payment: true,
+              customer: true,
+              creatorDetails: true,
+              installmentAccountDetails: true,
             },
           });
 
