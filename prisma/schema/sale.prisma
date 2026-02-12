@@ -69,6 +69,7 @@ model Sales {
   @@index([agentId])
   @@index([createdAt])
   @@index([status])
+  @@index([totalInstallmentDuration])
   @@index([createdAt, status])
   @@index([creatorId, createdAt])
   @@index([customerId, createdAt])
@@ -188,7 +189,17 @@ enum SalesStatus {
 //   { agentId: ["69022f8b16c1f0eb2f05087e"] },
 //   {
 //     $set: {
-//       agentId: new ObjectId("69022f8b16c1f0eb2f05087e")
+//       agentId: new ObjectId("6980630165fc654d14b68132") 
 //     }
 //   }
 // )
+
+// userid 6915148d1c6b8f9b0aa25c4a 
+// agentId 6915148e1c6b8f9b0aa25c4b
+// type old yahaya.njida@gmail.com
+
+// userId 6980630065fc654d14b68131
+// agentId 6980630165fc654d14b68132
+// type new
+// email yahyanaibinjidda@gmail.com
+// wallet id 698ca7f427a36a62e85f6104

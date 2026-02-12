@@ -981,6 +981,17 @@ export class PaymentService {
       }
     }
 
+    const tokenGenerated = deviceTokens.map(token => token.deviceToken).join(", ")
+
+    await this.prisma.payment.update({
+      where: {
+        id: paymentData.id
+      },
+      data: {
+        tokenGenerated 
+      }
+    })
+
     // Send device tokens via email and SMS
     if (deviceTokens.length) {
       await this.notificationService.sendTokenToRecipient(

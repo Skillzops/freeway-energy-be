@@ -17,10 +17,9 @@ import { OgaranyaWebhookDto } from './dto/ogaranya-webhook.dto';
 import { ApiAuthGuard } from '../auth/guards/api-auth.guard';
 import { PaymentService } from 'src/payment/payment.service';
 import {
-  DevicePaymentDto,
   PowerPurchaseDto,
   SerialNumberDto,
-} from './dto/ogaranya-power-purchase.dto';
+} from './dto/ogaranya-power-purchase.dto';     
 import { AgentVerificationDto } from './dto/agent-verification.dto';
 import { InitializeWalletTopUpDto, WalletTopUpDto } from './dto/initialize-wallet-topup.dto';
 
@@ -73,38 +72,38 @@ export class OgaranyaController {
     return await this.ogaranyaService.getDeviceInformation(decodedSerial);
   }
 
-  @UseGuards(ApiAuthGuard)
-  @Post('device/report-payment')
-  @ApiOperation({
-    summary: 'Report successful payment against device serial number',
-    description:
-      'Record a payment made for a device and update sale payment status',
-  })
-  @ApiBody({ type: DevicePaymentDto })
-  @HttpCode(HttpStatus.OK)
-  async recordDevicePayment(@Body() devicePaymentDto: DevicePaymentDto) {
-    try {
-      const result =
-        await this.ogaranyaService.recordDevicePayment(devicePaymentDto);
+  // @UseGuards(ApiAuthGuard)
+  // @Post('device/report-payment')
+  // @ApiOperation({
+  //   summary: 'Report successful payment against device serial number',
+  //   description:
+  //     'Record a payment made for a device and update sale payment status',
+  // })
+  // @ApiBody({ type: DevicePaymentDto })
+  // @HttpCode(HttpStatus.OK)
+  // async recordDevicePayment(@Body() devicePaymentDto: DevicePaymentDto) {
+  //   try {
+  //     const result =
+  //       await this.ogaranyaService.recordDevicePayment(devicePaymentDto);
 
-      if (result.paymentData) {
-        await this.paymentService.handlePostPayment(result.paymentData);
-      }
+  //     if (result.paymentData) {
+  //       await this.paymentService.handlePostPayment(result.paymentData);
+  //     }
 
-      return {
-        status: 'success',
-        data: {
-          message: result.message || 'Payment processed successfully',
-        },
-      };
-    } catch (error) {
-      console.error('Device payment error:', error);
-      return {
-        status: 'failed',
-        message: error.message || 'Payment recording failed',
-      };
-    }
-  }
+  //     return {
+  //       status: 'success',
+  //       data: {
+  //         message: result.message || 'Payment processed successfully',
+  //       },
+  //     };
+  //   } catch (error) {
+  //     console.error('Device payment error:', error);
+  //     return {
+  //       status: 'failed',
+  //       message: error.message || 'Payment recording failed',
+  //     };
+  //   }
+  // }
 
   @UseGuards(ApiAuthGuard)
   @Post('device/power-purchase')

@@ -12,6 +12,8 @@ model Payment {
   ogaranyaSmsNumber  String?
   ogaranyaSmsMessage String?
 
+  tokenGenerated String?
+
   flutterwaveTransactionId String?
   flutterwavePaymentId     String?
   flutterwavePaymentLink   String?

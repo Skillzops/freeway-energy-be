@@ -23,6 +23,7 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiExcludeEndpoint,
 } from '@nestjs/swagger';
 import { UserEntity } from './entity/user.entity';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -190,6 +191,14 @@ export class UsersController {
     return await this.usersService.deleteUser(id);
   }
 
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.User}`,
+      `${ActionEnum.delete}:${SubjectEnum.User}`,
+    ],
+  })
   @Post('bulk-password-reset')
   async bulkPasswordReset(
     @Body() bulkPasswordResetDto,

@@ -247,11 +247,12 @@ export class DeviceLocationUpdateService {
       }
 
       // Check if device has already been updated
-      const hasExistingLocation =
-        device.installationLatitude &&
-        device.installationLatitude != '-' &&
-        device.installationLongitude &&
-        device.installationLongitude != '-';
+      const hasExistingLocation = false
+      // const hasExistingLocation =
+      //   device.installationLatitude &&
+      //   device.installationLatitude != '-' &&
+      //   device.installationLongitude &&
+      //   device.installationLongitude != '-';
 
       if (hasExistingLocation) {
         this.logger.debug(
@@ -271,11 +272,17 @@ export class DeviceLocationUpdateService {
         }
 
         if (row.latitude) {
-          deviceUpdateData.installationLatitude = row.latitude;
+          const parsed = this.parseCoordinate(row.latitude);
+          if (parsed) {
+            deviceUpdateData.installationLatitude = parsed;
+          }
         }
 
         if (row.longitude) {
-          deviceUpdateData.installationLongitude = row.longitude;
+          const parsed = this.parseCoordinate(row.longitude);
+          if (parsed) {
+            deviceUpdateData.installationLongitude = parsed;
+          }
         }
 
         // Only update if there's something to update
@@ -379,11 +386,13 @@ export class DeviceLocationUpdateService {
       const customer = saleItem.sale.customer;
 
       // SMART SKIP: Only skip if customer ALREADY HAS BOTH coordinates
-      const hasExistingCoordinates =
-        customer.latitude &&
-        customer.latitude !== '-' &&
-        customer.longitude &&
-        customer.longitude !== '-';
+      const hasExistingCoordinates = false
+
+      // const hasExistingCoordinates =
+      //   customer.latitude &&
+      //   customer.latitude !== '-' &&
+      //   customer.longitude &&
+      //   customer.longitude !== '-';
 
       if (hasExistingCoordinates) {
         this.logger.debug(
@@ -401,16 +410,26 @@ export class DeviceLocationUpdateService {
       }
 
       // Update latitude if provided AND customer doesn't have it
-      if (row.latitude && (!customer.latitude || customer.latitude === '-')) {
-        customerUpdateData.latitude = row.latitude.toString();
+      // if (row.latitude && (!customer.latitude || customer.latitude === '-')) {
+      if (row.latitude) {
+        const parsed = this.parseCoordinate(row.latitude);
+        if (parsed) {
+          customerUpdateData.latitude = parsed;
+        }
       }
 
       // Update longitude if provided AND customer doesn't have it
+      // if (
+      //   row.longitude &&
+      //   (!customer.longitude || customer.longitude === '-')
+      // ) {
       if (
-        row.longitude &&
-        (!customer.longitude || customer.longitude === '-')
+        row.longitude 
       ) {
-        customerUpdateData.longitude = row.longitude.toString();
+        const parsed = this.parseCoordinate(row.longitude);
+        if (parsed) {
+          customerUpdateData.longitude = parsed
+        }
       }
 
       // Only update if there's something to update
@@ -452,15 +471,19 @@ export class DeviceLocationUpdateService {
   /**
    * Parse and validate coordinate
    */
-  private parseCoordinate(value: any): number | null {
+  private parseCoordinate(value: any): string | null {
     if (value === null || value === undefined) return null;
 
-    const num = Number(value);
-    if (isNaN(num)) {
+    const cleaned = String(value)
+      .replace(/[°'"]\s*/g, '') // Remove degree, quotes
+      .trim();
+  
+    // Validate it's a valid number
+    if (isNaN(Number(cleaned))) {
       return null;
     }
-
-    return num;
+  
+    return cleaned;
   }
 
   /**

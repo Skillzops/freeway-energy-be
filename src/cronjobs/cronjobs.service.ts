@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-// import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 // import {
 //   PaymentStatus,
 //   SalesStatus,
@@ -9,17 +9,36 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 // import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
+import { RenewalReminderService } from './payment-reminder.service';
 
 @Injectable()
 export class CronjobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentService: PaymentService,
+    private readonly renewalReminderService: RenewalReminderService,
     private readonly config: ConfigService,
   ) {}
 
   private readonly logger = new Logger(CronjobsService.name);
 
+  /**
+   * Send renewal reminders twice daily (6 AM and 6 PM)
+   * This ensures customers get their reminders at reasonable times
+   */
+  @Cron('0 6,18 * * *') // 6 AM and 6 PM every day
+  async sendRenewalReminders() {
+    const isDev = this.config.get<string>('NODE_ENV') === 'development';
+ 
+    if (isDev) {
+      this.logger.log(' Skipping renewal reminder in development');
+      return;
+    }
+
+    this.logger.log('🔔 Running renewal reminder cron job...');
+    await this.renewalReminderService.sendRenewalReminders();
+  }
+  
   // @Cron(CronExpression.EVERY_6_HOURS, {
   //   name: 'checkUnpaidSales',
   // })

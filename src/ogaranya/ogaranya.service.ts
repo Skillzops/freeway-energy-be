@@ -35,6 +35,7 @@ import {
 } from './dto/initialize-wallet-topup.dto';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { DeviceService } from 'src/device/device.service';
+import { TokenGenerationFailureService } from 'src/device/token-generation-failure.service';
 
 @Injectable()
 export class OgaranyaService {
@@ -49,7 +50,9 @@ export class OgaranyaService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly openPayGo: OpenPayGoService,
-    private readonly deviceService: DeviceService, 
+    private readonly deviceService: DeviceService,
+    private readonly tokenFailureService: TokenGenerationFailureService,
+
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
     private readonly referenceGenerator: ReferenceGeneratorService,
@@ -361,7 +364,7 @@ export class OgaranyaService {
 
     if (!device.saleItems || device.saleItems.length === 0) {
       throw new BadRequestException(
-        `Device ${serialNumber} is not attached to any sale`,
+        `No sale registered for device ${serialNumber}`,
       );
     }
 
@@ -604,95 +607,197 @@ export class OgaranyaService {
       );
     }
 
-    // Create payment record
-    const payment = await this.prisma.payment.create({
-      data: {
-        saleId: sale.id,
-        amount,
-        transactionRef: orderReference,
-        paymentStatus: PaymentStatus.COMPLETED,
-        paymentMethod: PaymentMethod.ONLINE,
-        paymentDate: new Date(),
-        ogaranyaOrderRef: orderReference,
-        notes: `Power purchase via Ogaranya`,
-      },
-    });
+    let payment: any;
+    let updatedSale: any;
+    let installmentInfo: any;
 
-    // Calculate installment progress using same logic as payment service
-    const installmentInfo = this.deviceService.calculateInstallmentProgress(
-      sale,
-      amount,
-    );
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          // Step 1: Create payment record
+          const newPayment = await tx.payment.create({
+            data: {
+              saleId: sale.id,
+              amount,
+              transactionRef: orderReference,
+              paymentStatus: PaymentStatus.COMPLETED,
+              paymentMethod: PaymentMethod.ONLINE,
+              paymentDate: new Date(),
+              ogaranyaOrderRef: orderReference,
+              notes: `Power purchase via Ogaranya`,
+            },
+            select: {
+              id: true,
+              amount: true,
+            },
+          });
 
-    await this.prisma.sales.update({
-      where: { id: sale.id },
-      data: {
-        totalPaid: {
-          increment: amount,
+          // Step 2: Update sale with new payment amount
+          const newSale = await tx.sales.update({
+            where: { id: sale.id },
+            data: {
+              totalPaid: {
+                increment: newPayment.amount,
+              },
+              updatedAt: new Date(),
+            },
+            select: {
+              id: true,
+              totalPrice: true,
+              totalPaid: true,
+              status: true,
+              totalInstallmentDuration: true,
+              remainingInstallments: true,
+            },
+          });
+
+          // Step 3: Get customer data for later (within transaction for consistency)
+          const customerData = await tx.customer.findUnique({
+            where: { id: sale.customerId },
+            select: {
+              firstname: true,
+              lastname: true,
+              phone: true,
+              email: true,
+            },
+          });
+
+          return {
+            payment: newPayment,
+            sale: newSale,
+            customer: customerData,
+          };
         },
-        remainingInstallments: installmentInfo.newRemainingDuration,
-        status: installmentInfo.newStatus,
-      },
-    });
+        {
+          // TIMEOUT CONFIG: 20 seconds for critical operations
+          timeout: 20000,
+          // MAX_WAIT: 25 seconds to acquire lock
+          maxWait: 25000,
+        },
+      );
 
-    let tokenData = null;
-    let tokenGenerated = false;
-    let tokenDuration = 0;
+      payment = result.payment;
+      updatedSale = result.sale;
 
-    // Determine token duration based on payment mode
-    if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
-      // For one-off payments, token is forever
-      tokenDuration = -1;
-    } else {
-      // For installment, convert months to days
-      tokenDuration =
-        installmentInfo.monthsCovered === -1
-          ? -1
-          : installmentInfo.monthsCovered * 30;
+      // Calculate installment progress (non-critical, outside transaction)
+      installmentInfo = this.deviceService.calculateInstallmentProgress(
+        updatedSale,
+        payment.amount,
+      );
+    } catch (error) {
+      if (error.code === 'P2028') {
+        // Timeout error
+        throw new BadRequestException(
+          'Payment processing timed out. Please try again.',
+        );
+      }
+
+      throw new BadRequestException(
+        `Payment processing failed: ${error.message}`,
+      );
     }
 
     try {
-      tokenData = await this.openPayGo.generateToken(
+      await this.prisma.sales.update({
+        where: { id: sale.id },
+        data: {
+          remainingInstallments: installmentInfo.newRemainingDuration,
+          status: installmentInfo.newStatus,
+          updatedAt: new Date(),
+        },
+      });
+    } catch {
+      // Don't throw - installment status can be recalculated
+      // But log the issue for monitoring
+    }
+   
+    let tokenData: any = null;
+    let tokenGenerated = false;
+    let tokenDuration = 0;
+    const tokenTimeout = 15000; // 15 seconds for token generation
+
+    try {
+      // Determine token duration
+      if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
+        tokenDuration = -1;
+      } else {
+        tokenDuration =
+          installmentInfo.monthsCovered === -1
+            ? -1
+            : installmentInfo.monthsCovered * 30;
+      }
+
+      // Generate token with timeout protection
+      const tokenPromise = this.openPayGo.generateToken(
         device as Prisma.DeviceCreateInput,
         tokenDuration,
         Number(device.count),
       );
 
-      await this.prisma.tokens.create({
-        data: {
-          deviceId: device.id,
-          token: String(tokenData.finalToken),
-          duration: tokenDuration,
-          tokenReleased: true,
-        },
-      });
+      // Race between token generation and timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Token generation timed out')),
+          tokenTimeout,
+        ),
+      );
 
-      await this.prisma.device.update({
-        where: { id: device.id },
-        data: { count: String(tokenData.newCount) },
-      });
+      tokenData = await Promise.race([tokenPromise, timeoutPromise]);
 
-      tokenGenerated = true;
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.tokens.create({
+              data: {
+                deviceId: device.id,
+                token: String(tokenData.finalToken),
+                duration: tokenDuration,
+                tokenReleased: true,
+              },
+            });
 
-      // Add to queue
-      // await this.notificationService.sendTokenToCustomer(
-      //   sale.customer,
-      //   deviceTokens,
-      // );
+            await tx.device.update({
+              where: { id: device.id },
+              data: { count: String(tokenData.newCount) },
+            });
+
+            // Update payment with token info
+            await tx.payment.update({
+              where: { id: payment.id },
+              data: {
+                notes: `Power purchase - Token: ${tokenData.finalToken.substring(0, 20)}...`,
+                tokenGenerated: String(tokenData.finalToken),
+              },
+            });
+          },
+          {
+            timeout: 10000,
+            maxWait: 15000,
+          },
+        );
+
+        tokenGenerated = true;
+      } catch {} 
     } catch (error) {
-      console.error('Token generation failed:', error);
-      await this.prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          notes: `Power purchase - Token generation failed: ${error.message}`,
-        },
-      });
-    }
+      await this.tokenFailureService.recordFailure(
+        sale.id,
+        device.id,
+        device.serialNumber,
+        error.message,
+        error.stack,
+      );
+      // Update payment with error note (non-critical)
+      try {
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            notes: `Power purchase - Token generation failed: ${error.message}`,
+          },
+        });
+      } catch  {
+      }
 
-    // Get updated sale
-    const updatedSale = await this.prisma.sales.findUnique({
-      where: { id: sale.id },
-    });
+    }
 
     return {
       serialNumber: device.serialNumber,
@@ -1018,13 +1123,19 @@ export class OgaranyaService {
     const isValidObjectId = (id: string): boolean => {
       return /^[0-9a-fA-F]{24}$/.test(id);
     };
-  
 
     const agent = await this.prisma.agent.findFirst({
       where: {
         OR: [
           { user: { phone: { equals: agentIdentifier, mode: 'insensitive' } } },
-          { user: { phone: { equals: cleanPhoneNumber(agentIdentifier), mode: 'insensitive' } } },
+          {
+            user: {
+              phone: {
+                equals: cleanPhoneNumber(agentIdentifier),
+                mode: 'insensitive',
+              },
+            },
+          },
           { user: { email: { equals: agentIdentifier, mode: 'insensitive' } } },
           ...(isValidObjectId(agentIdentifier)
             ? [{ userId: agentIdentifier }]
@@ -1085,7 +1196,6 @@ export class OgaranyaService {
   async walletTopUpByReference(topupDto: WalletTopUpDto) {
     const { amount, orderReference, topupReference, statusMsg, payDate } =
       topupDto;
-
 
     const paidAmount = parseFloat(amount);
     const paymentDate = new Date(payDate);
