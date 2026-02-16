@@ -157,12 +157,7 @@ export class AuditLogService {
     ]);
 
     // Enhance logs with readable change summaries
-    const enhancedLogs = logs.map((log) => ({
-      ...log,
-      // Extract summary from metadata for easy display
-      changeSummary: (log.metadata as any)?.changeSummary || [],
-      changedFieldCount: (log.metadata as any)?.changedFieldCount,
-    }));
+    const enhancedLogs = logs.map((log) => this.enrichUserData(log));
 
     return {
       logs: enhancedLogs,
@@ -184,18 +179,14 @@ export class AuditLogService {
       take: limit,
     });
 
-    return logs.map((log) => ({
-      ...log,
-      changeSummary: (log.metadata as any)?.changeSummary || [],
-      changedFieldCount: (log.metadata as any)?.changedFieldCount,
-    }));
+    return logs.map((log) => this.enrichUserData(log));
   }
 
   /**
    * Get detailed audit trail for a specific entity
    */
   async getEntityAuditTrail(entityId: string) {
-    return await this.prisma.auditLog.findMany({
+    const logs = await this.prisma.auditLog.findMany({
       where: { entityId },
       include: {
         user: {
@@ -209,12 +200,15 @@ export class AuditLogService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return logs.map((log) => this.enrichUserData(log));
   }
 
   /**
    * Get sensitive field changes for an entity
    */
   async getSensitiveFieldChanges(entityId: string) {
+
     const logs = await this.prisma.auditLog.findMany({
       where: { entityId },
       orderBy: { createdAt: 'desc' },
@@ -240,7 +234,26 @@ export class AuditLogService {
         userId: log.userId,
         createdAt: log.createdAt,
         sensitiveChanges: (log.metadata as any)?.detailedChanges,
-        user: log.user,
+        user: log.user || {
+          id: 'system',
+          firstname: 'System',
+          lastname: '',
+          email: null,
+        }
       }));
+  }
+
+  private enrichUserData(log: any) {
+    return {
+      ...log,
+      user: log.user || {
+        id: null,
+        firstname: 'System',
+        lastname: '',
+        email: null,
+      },
+      changeSummary: (log.metadata as any)?.changeSummary || [],
+      changedFieldCount: (log.metadata as any)?.changedFieldCount,
+    };
   }
 }

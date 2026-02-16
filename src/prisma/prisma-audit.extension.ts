@@ -28,7 +28,7 @@ export interface AuditContext {
 // This prevents infinite loops when audit logs create audit logs
 const EXCLUDED_MODELS = [
   'AuditLog', // Most important! Prevent audit log creation from triggering audits
-  'ApplicationLog', // Also exclude application logs if you have them
+  'ApplicationLog', // Also exclude application logs
 ];
 
 @Injectable()
