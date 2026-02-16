@@ -54,6 +54,7 @@ import {
   AssignAgentCustomersDto,
   AssignAgentInstallerssDto,
   AssignAgentProductsDto,
+  ReassignAgentCustomersDto,
 } from './dto/assign-agent.dto';
 import { ListAgentSalesQueryDto } from 'src/sales/dto/list-sales.dto';
 import { SalesService } from 'src/sales/sales.service';
@@ -741,6 +742,46 @@ export class AgentsController {
     return this.agentsService.assignCustomersToAgent(
       agentId,
       body.customerIds,
+      adminId,
+    );
+  }
+
+  @Post(':id/reassign-customers')
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.write}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @ApiBearerAuth('access_token')
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'JWT token used for authentication',
+    required: true,
+    schema: {
+      type: 'string',
+      example: 'Bearer <token>',
+    },
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID of the source agent (from whom to reassign)',
+  })
+  @ApiBody({
+    type: ReassignAgentCustomersDto,
+    description: 'Reassignment details',
+  })
+  async reassignCustomers(
+    @Param('id') fromAgentId: string,
+    @Body() body: ReassignAgentCustomersDto,
+    @GetSessionUser('id') adminId: string,
+  ) {
+    return this.agentsService.reassignCustomersToNewAgent(
+      fromAgentId,
+      body.toAgentId,
+      body.customerIds,
+      body.reason,
       adminId,
     );
   }

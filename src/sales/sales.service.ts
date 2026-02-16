@@ -53,7 +53,7 @@ export class SalesService {
   async createSale(creatorId: string, dto: CreateSalesDto, agentId?: string) {
     if (agentId) {
       await this.validateAgentAccess(agentId, dto);
-      // await this.validateAgentDevices(agentId, dto);
+      await this.validateAgentDevices(agentId, dto);
       await this.validateCustomerForAgentSale(dto.customerId, agentId);
     }
 

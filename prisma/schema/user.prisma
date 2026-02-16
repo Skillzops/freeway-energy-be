@@ -48,10 +48,11 @@ model User {
   assignmentBatches DeviceAssignmentBatch[]
   assignmentHistory DeviceAssignmentHistory[]
 
-  assignedProducts        AgentProduct[]             @relation("ProductAssigner")
-  assignedCustomers       AgentCustomer[]            @relation("CustomerAssigner")
-  assignedTasks           InstallerTask[]            @relation("TaskAssigner")
-  assignedAgentInstallers AgentInstallerAssignment[] @relation("AgentInstallerAssigner")
+  assignedProducts        AgentProduct[]                 @relation("ProductAssigner")
+  assignedCustomers       AgentCustomer[]                @relation("CustomerAssigner")
+  customerReassignments   AgentCustomerReassignmentLog[] @relation("CustomerReassigner")
+  assignedTasks           InstallerTask[]                @relation("TaskAssigner")
+  assignedAgentInstallers AgentInstallerAssignment[]     @relation("AgentInstallerAssigner")
 
   createdInteractions  CustomerInteraction[] @relation("InteractionCreator")
   updatedInteractions  CustomerInteraction[] @relation("InteractionUpdater")

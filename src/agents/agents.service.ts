@@ -1100,6 +1100,192 @@ export class AgentsService {
     return { message: 'Customers unassigned successfully' };
   }
 
+  async reassignCustomersToNewAgent(
+    fromAgentId: string,
+    toAgentId: string,
+    customerIds: string[],
+    reason?: string,
+    reassignedBy?: string,
+  ) {
+    if (fromAgentId === toAgentId) {
+      throw new BadRequestException(
+        'Source and destination agents must be different',
+      );
+    }
+  
+    if (!customerIds || customerIds.length === 0) {
+      throw new BadRequestException('At least one customer ID must be provided');
+    }
+  
+    const uniqueCustomerIds = [...new Set(customerIds)];
+  
+    // Validate both agents exist
+    const [fromAgent, toAgent] = await Promise.all([
+      this.findOne(fromAgentId),
+      this.findOne(toAgentId),
+    ]);
+  
+    if (!fromAgent || !toAgent) {
+      throw new NotFoundException('One or both agents not found');
+    }
+  
+    // Fetch customer details to validate
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        id: { in: uniqueCustomerIds },
+      },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        phone: true,
+      },
+    });
+  
+    if (customers.length !== uniqueCustomerIds.length) {
+      const foundIds = customers.map((c) => c.id);
+      const notFound = uniqueCustomerIds.filter((id) => !foundIds.includes(id));
+      throw new NotFoundException(
+        `Customers not found: ${notFound.join(', ')}`,
+      );
+    }
+     
+    const currentAssignments = await this.prisma.agentCustomer.findMany({
+      where: {
+        agentId: fromAgentId,
+        customerId: { in: uniqueCustomerIds },
+      },
+      select: {
+        customerId: true,
+        assignedAt: true,
+        assignedBy: true,
+      },
+    });
+  
+    if (currentAssignments.length === 0) {
+      throw new BadRequestException(
+        `Agent ${fromAgent.agentId || fromAgentId} is not assigned to any of these customers`,
+      );
+    }
+  
+    // Find customers already assigned to destination agent
+    const alreadyAssigned = await this.prisma.agentCustomer.findMany({
+      where: {
+        agentId: toAgentId,
+        customerId: { in: uniqueCustomerIds },
+      },
+      select: {
+        customerId: true,
+      },
+    });
+  
+    const alreadyAssignedIds = alreadyAssigned.map((a) => a.customerId);
+    const customersToReassign = uniqueCustomerIds.filter(
+      (id) => !alreadyAssignedIds.includes(id),
+    );
+    const conflictingCustomers = uniqueCustomerIds.filter((id) =>
+      alreadyAssignedIds.includes(id),
+    );
+     
+    let reassignmentResult: any;
+  
+    try {
+      reassignmentResult = await this.prisma.$transaction(
+        async (tx) => {
+          // Step 1: Create audit log for reassignment
+          const reassignmentLog = await tx.agentCustomerReassignmentLog.create({
+            data: {
+              fromAgentId,
+              toAgentId,
+              customerCount: customersToReassign.length,
+              reason: reason || 'Manual reassignment',
+              reassignedBy: reassignedBy,
+              details: {
+                customersReassigned: customersToReassign,
+                customersAlreadyAssigned: conflictingCustomers,
+              } as any,
+            },
+          });
+  
+          // Step 2: Remove from old agent
+          await tx.agentCustomer.deleteMany({
+            where: {
+              agentId: fromAgentId,
+              customerId: { in: customersToReassign },
+            },
+          });
+  
+          // Step 3: Assign to new agent
+          await tx.agentCustomer.createMany({
+            data: customersToReassign.map((customerId) => ({
+              agentId: toAgentId,
+              customerId,
+              assignedBy: reassignedBy,
+              reassignmentReason: reason,
+              reassignedFrom: fromAgentId,
+              reassignedAt: new Date(),
+            })),
+          });
+  
+          return reassignmentLog;
+        },
+        {
+          timeout: 15000,
+          maxWait: 30000,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Transaction failed for reassignment from ${fromAgentId} to ${toAgentId}:`,
+        error.message,
+      );
+  
+      if (error.code === 'P2028') {
+        throw new BadRequestException('Reassignment operation timed out. Please try again.');
+      }
+  
+      throw new BadRequestException(
+        `Reassignment failed: ${error.message}`,
+      );
+    }
+   
+    return {
+      success: true,
+      message: `${customersToReassign.length} customer(s) reassigned successfully`,
+      data: {
+        reassignmentLogId: reassignmentResult.id,
+        summary: {
+          total: uniqueCustomerIds.length,
+          reassigned: customersToReassign.length,
+          alreadyAssigned: conflictingCustomers.length,
+          fromAgent: {
+            id: fromAgent.id,
+            agentId: fromAgent.agentId,
+            name: fromAgent.user?.firstname + ' ' + fromAgent.user?.lastname,
+          },
+          toAgent: {
+            id: toAgent.id,
+            agentId: toAgent.agentId,
+            name: toAgent.user?.firstname + ' ' + toAgent.user?.lastname,
+          },
+        },
+        reassignedCustomers: customers
+          .filter((c) => customersToReassign.includes(c.id))
+          .map((c) => ({
+            id: c.id,
+            name: `${c.firstname} ${c.lastname}`,
+            phone: c.phone,
+          })),
+        ...(conflictingCustomers.length > 0 && {
+          warnings: {
+            message: `${conflictingCustomers.length} customer(s) already assigned to destination agent`,
+            customerIds: conflictingCustomers,
+          },
+        }),
+      },
+    };
+  }
+
   async getAgentUserId(agentId: string): Promise<string> {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },

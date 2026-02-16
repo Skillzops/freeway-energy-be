@@ -12,9 +12,9 @@ model Agent {
   installerTask InstallerTask[] @relation("InstallerTasks")
   assignedTasks InstallerTask[] @relation("AssignedTasks")
 
-  deviceAssignments DeviceAssignment[]
+  deviceAssignments     DeviceAssignment[]
   assignmentHistoryFrom DeviceAssignmentHistory[] @relation("FromAgent")
-  assignmentHistoryTo DeviceAssignmentHistory[] @relation("ToAgent")
+  assignmentHistoryTo   DeviceAssignmentHistory[] @relation("ToAgent")
 
   assignedProducts AgentProduct[]
 
@@ -25,6 +25,9 @@ model Agent {
   supportTickets      SupportTicket[]
   wallet              Wallet?
 
+  customerReassignmentsFrom AgentCustomerReassignmentLog[] @relation("CustomerReassignmentsFrom")
+  customerReassignmentsTo   AgentCustomerReassignmentLog[] @relation("CustomerReassignmentsTo")
+
   ogaranyaAccountNumber String?
   ogaranyaPhone         String?
 
@@ -32,8 +35,8 @@ model Agent {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@map("agents")
   @@index([category])
+  @@map("agents")
 }
 
 model AgentInstallerAssignment {
@@ -65,7 +68,6 @@ model AgentProduct {
   @@unique([agentId, productId])
   @@index([agentId])
   @@index([productId])
-  
   @@map("agent_products")
 }
 
@@ -82,10 +84,40 @@ model AgentCustomer {
   assignedBy String   @db.ObjectId
   assigner   User     @relation("CustomerAssigner", fields: [assignedBy], references: [id])
 
-  @@index([agentId]) 
-  @@index([customerId]) 
+  reassignedFrom     String?   @db.ObjectId // ID of previous agent
+  reassignedAt       DateTime?
+  reassignmentReason String? // Why was it reassigned?
+
   @@unique([agentId, customerId])
+  @@index([agentId])
+  @@index([customerId])
   @@map("agent_customers")
+}
+
+model AgentCustomerReassignmentLog {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  fromAgentId String @db.ObjectId
+  fromAgent   Agent  @relation("CustomerReassignmentsFrom", fields: [fromAgentId], references: [id], onDelete: Cascade)
+
+  toAgentId String @db.ObjectId
+  toAgent   Agent  @relation("CustomerReassignmentsTo", fields: [toAgentId], references: [id], onDelete: Cascade)
+
+  customerCount Int
+  reason        String?
+  details       Json? // Store detailed info about what was reassigned
+
+  reassignedBy     String @db.ObjectId
+  reassignedByUser User   @relation("CustomerReassigner", fields: [reassignedBy], references: [id], onDelete: NoAction)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@index([reassignedBy])
+  @@index([createdAt])
+  @@map("agent_customer_reassignment_logs")
 }
 
 enum AgentCategory {
