@@ -7,10 +7,11 @@ import { PaymentModule } from '../payment/payment.module';
 import { OpenPayGoService } from 'src/openpaygo/openpaygo.service';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { DeviceModule } from 'src/device/device.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   controllers: [OgaranyaController],
-  imports: [forwardRef(() => PaymentModule), DeviceModule],
+  imports: [forwardRef(() => PaymentModule), DeviceModule, NotificationModule],
   providers: [
     OgaranyaService,
     PrismaService,

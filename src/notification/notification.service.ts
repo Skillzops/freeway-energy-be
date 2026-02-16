@@ -50,4 +50,23 @@ export class NotificationService {
       }
     }
   }
+
+  async sendCompletionCongratulations(
+    phone: string,
+    customerName: string,
+    deviceSerial: string = "SR27/SR/"
+  ): Promise<void> {
+    const message =
+      `🎉 Congratulations ${customerName}! 🎉\n\n` +
+      `You did it! All your installments for device ${deviceSerial} are now fully paid ✨.\n\n` +
+      `No balances, no worries. \n\n` +
+      `Thank you for choosing us and for staying committed throughout the journey. We truly appreciate you! ❤️\n\n` +
+      `Need anything? We’re always here for you \n\n\n` +
+      `A4&T`
+
+    await this.termiiService.sendSms({
+      to: phone,
+      message,
+    });
+  }
 }

@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -36,6 +37,7 @@ import {
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { DeviceService } from 'src/device/device.service';
 import { TokenGenerationFailureService } from 'src/device/token-generation-failure.service';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class OgaranyaService {
@@ -52,6 +54,7 @@ export class OgaranyaService {
     private readonly openPayGo: OpenPayGoService,
     private readonly deviceService: DeviceService,
     private readonly tokenFailureService: TokenGenerationFailureService,
+    private readonly notificationService: NotificationService,
 
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
@@ -67,6 +70,8 @@ export class OgaranyaService {
     this.paymentGatewayCode =
       this.config.get<string>('OGARANYA_PAYMENT_GATEWAY_CODE') || '11';
   }
+
+  private logger = new Logger(OgaranyaService.name);
 
   private generatePublicKey(): string {
     return crypto
@@ -714,7 +719,7 @@ export class OgaranyaService {
       // Don't throw - installment status can be recalculated
       // But log the issue for monitoring
     }
-   
+
     let tokenData: any = null;
     let tokenGenerated = false;
     let tokenDuration = 0;
@@ -781,7 +786,7 @@ export class OgaranyaService {
         );
 
         tokenGenerated = true;
-      } catch {} 
+      } catch {}
     } catch (error) {
       await this.tokenFailureService.recordFailure(
         sale.id,
@@ -798,10 +803,29 @@ export class OgaranyaService {
             notes: `Power purchase - Token generation failed: ${error.message}`,
           },
         });
-      } catch  {
-      }
-
+      } catch {}
     }
+
+    if (
+      tokenGenerated &&
+      (updatedSale.totalPaid >= sale.totalPrice ||
+        installmentInfo.newRemainingDuration === 0)
+    ) {
+      // Fire-and-forget (non-blocking)
+      this.notificationService
+        .sendCompletionCongratulations(
+          sale.customer.phone,
+          `${sale?.customer?.firstname || ''} ${sale?.customer?.lastname || ''}`,
+          device.serialNumber,
+        )
+        .catch((error) => {
+          this.logger.log(
+            `Failed to send completion congratulations SMS to ${sale.customer.phone}`,
+            error,
+          );
+        });
+    }
+    
 
     return {
       serialNumber: device.serialNumber,

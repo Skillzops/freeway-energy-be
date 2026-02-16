@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateDeviceDto } from './dto/create-device.dto';
@@ -48,6 +49,8 @@ export class DeviceService {
     
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
+
+  private logger = new Logger(DeviceService.name);
 
   async uploadBatchDevices(filePath: string) {
     const rows = await this.parseCsv(filePath);
@@ -1738,11 +1741,12 @@ export class DeviceService {
   ): Promise<any> {
     try {
       let tokenDuration: number;
+      let installmentInfo: any
 
       if (paymentMode === PaymentMode.ONE_OFF) {
         tokenDuration = -1;
       } else {
-        const installmentInfo = this.calculateInstallmentProgress(sale, 0);
+        installmentInfo = this.calculateInstallmentProgress(sale, 0);
 
         tokenDuration =
           installmentInfo.monthsCovered == -1
@@ -1772,6 +1776,24 @@ export class DeviceService {
           tokenReleased: true,
         },
       });
+
+      if (
+        sale.totalPaid >= sale.totalPrice ||
+        installmentInfo.remainingInstallments === 0
+      ) {
+        this.notificationService
+          .sendCompletionCongratulations(
+            sale.customer.phone,
+            `${sale?.customer?.firstname || ''} ${sale?.customer?.lastname || ''}`,
+            device.serialNumber,
+          )
+          .catch((error) => {
+            this.logger.log(
+              `Failed to send completion congratulations SMS to ${sale.customer.phone}`,
+              error,
+            );
+          });
+      }
 
       return {
         deviceSerialNumber: device.serialNumber,

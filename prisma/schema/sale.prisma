@@ -230,5 +230,29 @@ enum SalesStatus {
 // }
 
 // new insertID: 698dcbf16fb599a38637cdc7
-// 698dcbf16fb599a38637cdc7
+
+// {
+// 	"1": {
+// 		"id": "698dcbf16fb599a38637cdc7",
+// 		"walletId": "698ca7f427a36a62e85f6104",
+// 		"agentId": "6980630165fc654d14b68132",
+// 		"type": "CREDIT",
+// 		"paymentGateway": "OGARANYA",
+// 		"amount": 10000,
+// 		"previousBalance": 0,
+// 		"newBalance": 10000,
+// 		"description": "Wallet top-up using Ogaranya",
+// 		"reference": "TOP-1BUBGUTOP-1BUBGU",
+// 		"errorMessage": null,
+// 		"ogaranyaOrderId": null,
+// 		"ogaranyaOrderRef": "K2S64QMVWE",
+// 		"ogaranyaSmsNumber": null,
+// 		"ogaranyaSmsMessage": null,
+// 		"paymentId": null,
+// 		"saleId": null,
+// 		"status": "COMPLETED",
+// 		"createdAt": "2026-02-11T07:14:05.681Z",
+// 		"updatedAt": "2026-02-11T07:14:05.685Z"
+// 	}
+// }
 // db('admin').collection("wallet_transactions").insertOne({"status":"COMPLETED","paymentGateway":"OGARANYA","amount":10000,"previousBalance":0,"newBalance":10000,"description":"Wallet top-up using Ogaranya","reference":"TOP-1BUBGUTOP-1BUBGU","ogaranyaOrderRef":"K2S64QMVWE","agentId":new ObjectId("6980630165fc654d14b68132"),"walletId":new ObjectId("698ca7f427a36a62e85f6104"),"type":"CREDIT"})

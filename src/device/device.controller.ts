@@ -270,30 +270,30 @@ export class DeviceController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
-  @ApiParam({
-    name: 'deviceId',
-    type: String,
-    description: 'Device ID',
-  })
-  @ApiParam({
-    name: 'tokenId',
-    type: String,
-    description: 'TokenID',
-  })
-  @Post(':deviceId/token/:tokenId')
-  async deleteDeviceToken(
-    @Param('deviceId') deviceId: string,
-    @Param('tokenId') tokenId: string,
-    @GetSessionUser('id') userId: string,
-  ) {
-    await this.authService.validateUserPermissions({
-      userId,
-      allowAgents: false,
-    });
+  // @UseGuards(JwtAuthGuard)
+  // @ApiParam({
+  //   name: 'deviceId',
+  //   type: String,
+  //   description: 'Device ID',
+  // })
+  // @ApiParam({
+  //   name: 'tokenId',
+  //   type: String,
+  //   description: 'TokenID',
+  // })
+  // @Post(':deviceId/token/:tokenId')
+  // async deleteDeviceToken(
+  //   @Param('deviceId') deviceId: string,
+  //   @Param('tokenId') tokenId: string,
+  //   @GetSessionUser('id') userId: string,
+  // ) {
+  //   await this.authService.validateUserPermissions({
+  //     userId,
+  //     allowAgents: false,
+  //   });
 
-    return await this.deviceService.deleteDeviceToken(deviceId, tokenId);
-  }
+  //   return await this.deviceService.deleteDeviceToken(deviceId, tokenId);
+  // }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
   @RolesAndPermissions({

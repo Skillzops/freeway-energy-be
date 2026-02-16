@@ -147,7 +147,7 @@ export class TermiiService {
   For support, contact us.
   
   Thank you!`;
-  }
+  } 
 
   async getAccountBalance(): Promise<any> {
     if (!this.apiKey) {

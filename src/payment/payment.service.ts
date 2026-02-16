@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -41,6 +42,8 @@ export class PaymentService {
     private readonly notificationService: NotificationService,
     private readonly tokenFailureService: TokenGenerationFailureService,
   ) {}
+
+  private logger = new Logger(PaymentService.name);
 
   async generatePaymentPayload(
     saleId: string,
@@ -896,7 +899,7 @@ export class PaymentService {
 
     console.log({ installmentInfo });
 
-    await this.prisma.sales.update({
+    const updatedSale = await this.prisma.sales.update({
       where: { id: sale.id },
       data: {
         remainingInstallments: installmentInfo.newRemainingDuration,
@@ -1003,6 +1006,24 @@ export class PaymentService {
         },
         deviceTokens,
       );
+    }
+
+    if (
+      newTotalPaid >= sale.totalPrice ||
+      updatedSale.remainingInstallments === 0
+    ) {
+      this.notificationService
+        .sendCompletionCongratulations(
+          sale.customer.phone,
+          `${sale?.customer?.firstname || ''} ${sale?.customer?.lastname || ''}`,
+          deviceTokens[0].deviceSerialNumber,
+        )
+        .catch((error) => {
+          this.logger.log(
+            `Failed to send completion congratulations SMS to ${sale.customer.phone}`,
+            error,
+          );
+        });
     }
 
     // Handle installment account details if applicable
