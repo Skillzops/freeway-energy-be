@@ -37,6 +37,7 @@ import * as path from 'path';
 import { AuthService } from 'src/auth/auth.service';
 import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from './token-generation-failure.service';
+import { parseCoordinate } from 'src/utils/helpers.util';
 
 @Injectable()
 export class DeviceService {
@@ -636,8 +637,8 @@ export class DeviceService {
       data: {
         installationStatus: InstallationStatus.installed,
         installationLocation: locationData.location,
-        installationLongitude: locationData.longitude,
-        installationLatitude: locationData.latitude,
+        installationLongitude: parseCoordinate(locationData.longitude),
+        installationLatitude: parseCoordinate(locationData.latitude),
         gpsVerified: true,
       },
       include: {

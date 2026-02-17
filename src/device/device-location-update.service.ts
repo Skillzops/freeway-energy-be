@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { FileParserService } from 'src/csv-upload/file-parser.service';
 import { InstallationStatus } from '@prisma/client';
+import { parseCoordinate } from 'src/utils/helpers.util';
 
 export interface DeviceLocationUpdateRow {
   installationAddress?: string;
@@ -272,14 +273,14 @@ export class DeviceLocationUpdateService {
         }
 
         if (row.latitude) {
-          const parsed = this.parseCoordinate(row.latitude);
+          const parsed = parseCoordinate(row.latitude);
           if (parsed) {
             deviceUpdateData.installationLatitude = parsed;
           }
         }
 
         if (row.longitude) {
-          const parsed = this.parseCoordinate(row.longitude);
+          const parsed = parseCoordinate(row.longitude);
           if (parsed) {
             deviceUpdateData.installationLongitude = parsed;
           }
@@ -412,7 +413,7 @@ export class DeviceLocationUpdateService {
       // Update latitude if provided AND customer doesn't have it
       // if (row.latitude && (!customer.latitude || customer.latitude === '-')) {
       if (row.latitude) {
-        const parsed = this.parseCoordinate(row.latitude);
+        const parsed = parseCoordinate(row.latitude);
         if (parsed) {
           customerUpdateData.latitude = parsed;
         }
@@ -426,7 +427,7 @@ export class DeviceLocationUpdateService {
       if (
         row.longitude 
       ) {
-        const parsed = this.parseCoordinate(row.longitude);
+        const parsed = parseCoordinate(row.longitude);
         if (parsed) {
           customerUpdateData.longitude = parsed
         }
@@ -466,24 +467,6 @@ export class DeviceLocationUpdateService {
     }
 
     return session.stats;
-  }
-
-  /**
-   * Parse and validate coordinate
-   */
-  private parseCoordinate(value: any): string | null {
-    if (value === null || value === undefined) return null;
-
-    const cleaned = String(value)
-      .replace(/[°'"]\s*/g, '') // Remove degree, quotes
-      .trim();
-  
-    // Validate it's a valid number
-    if (isNaN(Number(cleaned))) {
-      return null;
-    }
-  
-    return cleaned;
   }
 
   /**

@@ -73,3 +73,19 @@ export function cleanPhoneNumber(phone: any): string {
 
   return '';
 }
+
+export function parseCoordinate(value: any): string | null {
+  if (value === null || value === undefined) return null;
+
+  const cleaned = String(value)
+    .replace(/[°'"]\s*/g, '') // Remove degree, quotes
+    .trim();
+
+  // Validate it's a valid number
+  if (isNaN(Number(cleaned))) {
+    return null;
+  }
+
+  return cleaned;
+}
+

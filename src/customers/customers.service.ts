@@ -9,7 +9,7 @@ import { MESSAGES } from '../constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApprovalStatus, Prisma, UserStatus } from '@prisma/client';
 import { ListCustomersQueryDto } from './dto/list-customers.dto';
-import { getLastNDaysDate } from '../utils/helpers.util';
+import { getLastNDaysDate, parseCoordinate } from '../utils/helpers.util';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import {
@@ -1051,8 +1051,12 @@ export class CustomersService {
         ...(resubmitDto.lga && { lga: resubmitDto.lga }),
         ...(resubmitDto.state && { state: resubmitDto.state }),
         ...(resubmitDto.location && { location: resubmitDto.location }),
-        ...(resubmitDto.longitude && { longitude: resubmitDto.longitude }),
-        ...(resubmitDto.latitude && { latitude: resubmitDto.latitude }),
+        ...(resubmitDto.longitude && {
+          longitude: parseCoordinate(resubmitDto.longitude),
+        }),
+        ...(resubmitDto.latitude && {
+          latitude: parseCoordinate(resubmitDto.latitude),
+        }),
         ...(resubmitDto.idType && { idType: resubmitDto.idType }),
         ...(resubmitDto.idNumber && { idNumber: resubmitDto.idNumber }),
         ...(resubmitDto.type && { type: resubmitDto.type }),

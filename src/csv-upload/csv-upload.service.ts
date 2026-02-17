@@ -22,7 +22,7 @@ import {
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { hashPassword } from 'src/utils/helpers.util';
+import { hashPassword, parseCoordinate } from 'src/utils/helpers.util';
 import { generateRandomPassword } from 'src/utils/generate-pwd';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -1049,8 +1049,8 @@ export class CsvUploadService {
             customer.installationAddress || customerData.installationAddress,
           lga: customer.lga || customerData.lga,
           state: customer.state || customerData.state,
-          latitude: customer.latitude || customerData.latitude,
-          longitude: customer.longitude || customerData.longitude,
+          latitude: parseCoordinate(customer.latitude) || parseCoordinate(customerData.latitude),
+          longitude: parseCoordinate(customer.longitude) || parseCoordinate(customerData.longitude),
           gender: customer.gender || customerData.gender,
           idType: customer.idType || customerData.idType,
           idNumber: customer.idNumber || customerData.idNumber,
@@ -1236,8 +1236,8 @@ export class CsvUploadService {
               ...deviceData,
               InstallationStatus: InstallationStatus.installed,
               installationLocation: customer.installationAddress || null,
-              installationLatitude: customer.latitude || null,
-              installationLongitude: customer.longitude || null,
+              installationLatitude: parseCoordinate(customer.latitude),
+              installationLongitude: parseCoordinate(customer.longitude),
               creatorId: generatedDefaults.defaultUser.id as string,
             },
           });

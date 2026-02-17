@@ -15,7 +15,7 @@ import {
   AgentCategory,
 } from '@prisma/client';
 import { PricingLookupService } from './pricing-lookup.service';
-import { cleanPhoneNumber } from 'src/utils/helpers.util';
+import { cleanPhoneNumber, parseCoordinate } from 'src/utils/helpers.util';
 
 @Injectable()
 export class DataMappingService {
@@ -207,8 +207,8 @@ export class DataMappingService {
       lga: extractedData.lga || null,
       state: extractedData.state || null,
       location: extractedData.installationAddress || null,
-      longitude: extractedData.longitude || null,
-      latitude: extractedData.latitude || null,
+      longitude: parseCoordinate(extractedData.longitude) || null,
+      latitude: parseCoordinate(extractedData.latitude) || null,
 
       idType: extractedData.idType || null,
       idNumber: extractedData.idNumber || null,
