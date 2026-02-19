@@ -1,8 +1,8 @@
 // device.processor.ts
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Injectable } from '@nestjs/common';
-import { DeviceService } from './device.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { DeviceService } from './services/device.service';
 import { unlinkSync } from 'fs';
 import {
   Agent,
@@ -13,6 +13,7 @@ import {
   Sales,
   User,
 } from '@prisma/client';
+import { TokenReconciliationService } from './services/token-reconciliation.service';
 
 export interface BatchTokenJobData {
   filePath: string;
@@ -25,6 +26,7 @@ export interface BatchTokenJobData {
     })[];
   };
   agent?: Agent & { user: User };
+  email?: string
 }
 
 export interface BatchTokenResult {
@@ -52,7 +54,12 @@ export interface BatchTokenResult {
 @Processor('device-processing')
 @Injectable()
 export class DeviceProcessor extends WorkerHost {
-  constructor(private readonly deviceService: DeviceService) {
+  private readonly logger = new Logger(DeviceProcessor.name);
+
+  constructor(
+    private readonly deviceService: DeviceService,
+    private readonly tokenReconciliationService: TokenReconciliationService,
+  ) {
     super();
   }
 
@@ -135,6 +142,33 @@ export class DeviceProcessor extends WorkerHost {
         completedAt: new Date().toISOString(),
         tokens: [],
       };
+    }
+
+    if (job.name === 'export-token-reconciliation') {
+      this.logger.log(
+        `Processing token reconciliation export job ${job.id} for email: ${job.data.email}`,
+      );
+
+      try {
+        const result =
+          await this.tokenReconciliationService.processTokenReconciliationExport(
+            job.data.email,
+          );
+        return {
+          success: result.success,
+          jobId: job.id!.toString(),
+          devicesProcessed: 0,
+          totalRows: 0,
+          completedAt: new Date().toISOString(),
+          tokens: [],
+        }; 
+      } catch (error) {
+        this.logger.error(
+          `Error in token reconciliation job ${job.id}:`,
+          error,
+        );
+        throw error;
+      }
     }
 
     throw new Error(`Unknown job type: ${job.name}`);

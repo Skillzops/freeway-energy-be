@@ -15,15 +15,15 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { DeviceService } from './device.service';
+import { DeviceService } from '../services/device.service';
 import {
   CreateBatchDeviceTokensDto,
   CreateDeviceDto,
-} from './dto/create-device.dto';
+} from '../dto/create-device.dto';
 import {
   UpdateDeviceDto,
   UpdateDeviceStatusDto,
-} from './dto/update-device.dto';
+} from '../dto/update-device.dto';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -35,14 +35,14 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import { RolesAndPermissionsGuard } from '../auth/guards/roles.guard';
-import { JwtAuthGuard } from '../auth/guards/jwt.guard';
+import { RolesAndPermissionsGuard } from '../../auth/guards/roles.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt.guard';
 import { ActionEnum, SubjectEnum } from '@prisma/client';
-import { RolesAndPermissions } from '../auth/decorators/roles.decorator';
+import { RolesAndPermissions } from '../../auth/decorators/roles.decorator';
 import { unlinkSync } from 'fs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { ListDevicesQueryDto } from './dto/list-devices.dto';
+import { ListDevicesQueryDto } from '../dto/list-devices.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JobStatusService } from 'src/jobstatus/jobstatus.service';
 import { GetSessionUser } from 'src/auth/decorators/getUser';

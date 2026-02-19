@@ -14,7 +14,7 @@ import { Agent, AgentCategory } from '@prisma/client';
 import { InstallerService } from './installer.service';
 import { ApiBody, ApiExcludeEndpoint, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
-import { DeviceService } from 'src/device/device.service';
+import { DeviceService } from 'src/device/services/device.service';
 import { AgentsService } from 'src/agents/agents.service';
 
 @Controller('installer')

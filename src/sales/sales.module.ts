@@ -15,7 +15,7 @@ import { WalletModule } from 'src/wallet/wallet.module';
 import { PaymentModule } from 'src/payment/payment.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { SalesIdGeneratorService } from './saleid-generator';
-import { DeviceAssignmentService } from 'src/device/device-assignment.service';
+import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
 import { SaleReversalService } from './sale-reversal.service';
 
 @Module({

@@ -25,7 +25,7 @@ import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
-import { DeviceService } from 'src/device/device.service';
+import { DeviceService } from 'src/device/services/device.service';
 
 @ApiTags('Payment')
 @Controller('payment')

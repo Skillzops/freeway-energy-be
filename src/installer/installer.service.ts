@@ -7,7 +7,7 @@ import {
 import { Agent, AgentCategory, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
-import { DeviceService } from 'src/device/device.service';
+import { DeviceService } from 'src/device/services/device.service';
 import { UpdateDeviceLocationDto } from 'src/device/dto/update-device.dto';
 import { AgentsService } from 'src/agents/agents.service';
 

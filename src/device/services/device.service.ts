@@ -4,17 +4,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CreateDeviceDto } from './dto/create-device.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { CreateDeviceDto } from '../dto/create-device.dto';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   UpdateDeviceDto,
   UpdateDeviceLocationDto,
   UpdateDeviceStatusDto,
-} from './dto/update-device.dto';
+} from '../dto/update-device.dto';
 import { createReadStream, readFileSync } from 'fs';
 import * as csvParser from 'csv-parser';
 import { parse } from 'papaparse';
-import { MESSAGES } from '../constants';
+import { MESSAGES } from '../../constants';
 import {
   Agent,
   Customer,
@@ -28,8 +28,8 @@ import {
   TaskStatus,
   User,
 } from '@prisma/client';
-import { ListDevicesQueryDto } from './dto/list-devices.dto';
-import { OpenPayGoService } from '../openpaygo/openpaygo.service';
+import { ListDevicesQueryDto } from '../dto/list-devices.dto';
+import { OpenPayGoService } from '../../openpaygo/openpaygo.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as fs from 'fs';

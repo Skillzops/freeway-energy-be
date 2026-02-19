@@ -22,9 +22,9 @@ import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
-import { DeviceService } from 'src/device/device.service';
+import { DeviceService } from 'src/device/services/device.service';
 import { NotificationService } from 'src/notification/notification.service';
-import { TokenGenerationFailureService } from 'src/device/token-generation-failure.service';
+import { TokenGenerationFailureService } from 'src/device/services/token-generation-failure.service';
 
 @Injectable()
 export class PaymentService {

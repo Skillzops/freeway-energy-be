@@ -9,7 +9,7 @@ import {
     HttpStatus,
     UseGuards,
   } from '@nestjs/common';
-  import { TokenGenerationFailureService } from './token-generation-failure.service';
+  import { TokenGenerationFailureService } from '../services/token-generation-failure.service';
   import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
   import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
   import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';

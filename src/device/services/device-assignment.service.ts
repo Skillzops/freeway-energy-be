@@ -11,7 +11,7 @@ import {
   DeviceAssignmentBatchStatus,
 } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { ListAgentDevicesQueryDto } from './dto/list-agent-devices';
+import { ListAgentDevicesQueryDto } from '../dto/list-agent-devices';
 
 @Injectable()
 export class DeviceAssignmentService {

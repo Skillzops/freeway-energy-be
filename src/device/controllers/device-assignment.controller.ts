@@ -25,15 +25,15 @@ import {
   ApiExtraModels,
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
-import { DeviceAssignmentService } from './device-assignment.service';
+import { DeviceAssignmentService } from '../services/device-assignment.service';
 import {
   AssignDeviceDto,
   BulkAssignDevicesDto,
   ReassignDeviceDto,
-} from './dto/device-assignment.dto';
+} from '../dto/device-assignment.dto';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
-import { ListAgentDevicesQueryDto } from './dto/list-agent-devices';
-import { DeviceAssignmentMigrationService } from './device-assignment-migration.service';
+import { ListAgentDevicesQueryDto } from '../dto/list-agent-devices';
+import { DeviceAssignmentMigrationService } from '../services/device-assignment-migration.service';
 
 @Controller('devices/assignments')
 @ApiTags('Device Assignments')

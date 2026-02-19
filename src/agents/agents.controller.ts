@@ -63,7 +63,7 @@ import { CreateTaskDto } from 'src/task-management/dto/create-task.dto';
 import { CreateAgentSalesDto } from 'src/sales/dto/create-sales.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ListDevicesQueryDto } from 'src/device/dto/list-devices.dto';
-import { DeviceService } from 'src/device/device.service';
+import { DeviceService } from 'src/device/services/device.service';
 import { GetAgentTaskQueryDto } from 'src/task-management/dto/get-task-query.dto';
 import { DashboardFilterDto } from './dto/dashboard-filter.dto';
 import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';

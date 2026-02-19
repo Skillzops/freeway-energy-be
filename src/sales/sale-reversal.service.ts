@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesStatus, PaymentStatus, TaskStatus } from '@prisma/client';
 import { WalletService } from '../wallet/wallet.service';
-import { DeviceAssignmentService } from 'src/device/device-assignment.service';
+import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
 
 @Injectable()
 export class SaleReversalService {

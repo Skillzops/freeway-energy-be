@@ -59,6 +59,7 @@ model Tokens {
   creatorId String? @db.ObjectId
   creator   User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([createdAt, deviceId])
   @@map("token")
 }
 

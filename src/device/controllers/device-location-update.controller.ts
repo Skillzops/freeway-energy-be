@@ -20,7 +20,7 @@ import {
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
 import { Express } from 'express';
-import { DeviceLocationUpdateService } from './device-location-update.service';
+import { DeviceLocationUpdateService } from '../services/device-location-update.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { RolesAndPermissionsGuard } from 'src/auth/guards/roles.guard';
 import { RolesAndPermissions } from 'src/auth/decorators/roles.decorator';

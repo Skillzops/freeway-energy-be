@@ -35,7 +35,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { SalesIdGeneratorService } from './saleid-generator';
-import { DeviceAssignmentService } from 'src/device/device-assignment.service';
+import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
 
 @Injectable()
 export class SalesService {

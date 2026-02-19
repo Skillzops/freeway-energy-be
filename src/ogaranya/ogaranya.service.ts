@@ -35,8 +35,8 @@ import {
   WalletTopUpDto,
 } from './dto/initialize-wallet-topup.dto';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
-import { DeviceService } from 'src/device/device.service';
-import { TokenGenerationFailureService } from 'src/device/token-generation-failure.service';
+import { DeviceService } from 'src/device/services/device.service';
+import { TokenGenerationFailureService } from 'src/device/services/token-generation-failure.service';
 import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
