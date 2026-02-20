@@ -273,7 +273,7 @@ export class AuthService {
     const platformName = 'A4T Energy';
     const clientUrl = this.config.get<string>('CLIENT_URL');
     // const resetLink = `${clentUrl}/resetPassword`;
-    const resetLink = `${clientUrl}resetPassword/${existingUser.id}/${existingToken.token}/`;
+    const resetLink = `${clientUrl}reset-password/${existingUser.id}/${existingToken.token}/`;
 
     await this.Email.sendMail({
       to: email,
