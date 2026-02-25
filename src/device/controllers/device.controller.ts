@@ -418,43 +418,50 @@ export class DeviceController {
     return this.deviceService.updateDeviceStatus(id, updateData, userId);
   }
 
-  @ApiExcludeEndpoint()
-  @UseGuards(JwtAuthGuard)
-  @Get('fix/duplicate-devices')
-  @HttpCode(HttpStatus.OK)
-  async fixDuplicateDevices(
-  ) {
-    return this.deviceService.fixDuplicateDevices();
-  }
+  // @ApiExcludeEndpoint()
+  // @UseGuards(JwtAuthGuard)
+  // @Get('fix/duplicate-devices')
+  // @HttpCode(HttpStatus.OK)
+  // async fixDuplicateDevices() {
+  //   return this.deviceService.fixDuplicateDevices();
+  // }
 
-  @ApiExcludeEndpoint()
-  @UseGuards(JwtAuthGuard)
-  @Get('fix/device-installation-status')
-  @HttpCode(HttpStatus.OK)
-  async syncDeviceInstallationStatus(
-  ) {
-    return this.deviceService.syncDeviceInstallationStatusStreaming();
-  }
+  // @ApiExcludeEndpoint()
+  // @UseGuards(JwtAuthGuard)
+  // @Get('fix/device-installation-status')
+  // @HttpCode(HttpStatus.OK)
+  // async syncDeviceInstallationStatus() {
+  //   return this.deviceService.syncDeviceInstallationStatusStreaming();
+  // }
 
-  @ApiExcludeEndpoint()
-  @UseGuards(JwtAuthGuard)
-  @Post('fix/reset-device-count/:deviceId')
-  @HttpCode(HttpStatus.OK)
-  async resetDeviceCount(
-    @Param("deviceId") deviceId: string,
-    @GetSessionUser('id') userId: string,
-  ) {
-    return this.deviceService.resetDeviceCount(deviceId, userId);
-  }
+  // @ApiExcludeEndpoint()
+  // @UseGuards(JwtAuthGuard)
+  // @Post('fix/reset-device-count/:deviceId')
+  // @HttpCode(HttpStatus.OK)
+  // async resetDeviceCount(
+  //   @Param('deviceId') deviceId: string,
+  //   @GetSessionUser('id') userId: string,
+  // ) {
+  //   return this.deviceService.resetDeviceCount(deviceId, userId);
+  // }
 
-  @ApiExcludeEndpoint()
-  @UseGuards(JwtAuthGuard)
-  @Post('token/decode/:deviceId')
-  @HttpCode(HttpStatus.OK)
-  async decodeDeviceToken(
-    @Param("deviceId") deviceId: string,
-    @Body('token') token: string,
-  ) {
-    return this.deviceService.decodeDeviceToken(deviceId, token);
-  }
+  // @ApiExcludeEndpoint()
+  // @UseGuards(JwtAuthGuard)
+  // @Post('token/decode/:deviceId')
+  // @HttpCode(HttpStatus.OK)
+  // async decodeDeviceToken(
+  //   @Param('deviceId') deviceId: string,
+  //   @Body('token') token: string,
+  // ) {
+  //   return this.deviceService.decodeDeviceToken(deviceId, token);
+  // }
+
+  // @ApiExcludeEndpoint()
+  // // @UseGuards(JwtAuthGuard)
+  // @Get('fix/invalid-coordinates')
+  // @HttpCode(HttpStatus.OK)
+  // async fixInvalidCoordinates(@Query('dryRun') dryRun?: string) {
+  //   const isDryRun = dryRun === 'true' || dryRun === '1';
+  //   return this.deviceService.fixInvalidCoordinates(isDryRun);
+  // }
 }

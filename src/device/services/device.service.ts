@@ -1924,6 +1924,173 @@ export class DeviceService {
     return device;
   }
 
+  async fixInvalidCoordinates(dryRun: boolean = false) {
+    const startTime = Date.now();
+    this.logger.log(`Starting invalid coordinate fix (dryRun: ${dryRun})...`);
+  
+    const isValidCoordinate = (value: string | null): boolean => {
+      if (value === null || value === undefined) return true; // null is fine, we only fix invalid strings
+      const num = parseFloat(value);
+      return !isNaN(num) && isFinite(num);
+    };
+  
+    // ---- DEVICES ----
+    const allDevices = await this.prisma.device.findMany({
+      where: {
+        OR: [
+          { installationLongitude: { not: null } },
+          { installationLatitude: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        serialNumber: true,
+        installationLatitude: true,
+        installationLongitude: true,
+      },
+    });
+  
+    const invalidDevices = allDevices.filter(
+      (d) =>
+        !isValidCoordinate(d.installationLatitude) ||
+        !isValidCoordinate(d.installationLongitude),
+    );
+  
+    // ---- CUSTOMERS ----
+    const allCustomers = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { longitude: { not: null } },
+          { latitude: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
+  
+    const invalidCustomers = allCustomers.filter(
+      (c) =>
+        !isValidCoordinate(c.latitude) ||
+        !isValidCoordinate(c.longitude),
+    );
+  
+    // ---- STATS ----
+    const stats = {
+      devices: {
+        totalChecked: allDevices.length,
+        invalidCount: invalidDevices.length,
+        records: invalidDevices.map((d) => ({
+          id: d.id,
+          serialNumber: d.serialNumber,
+          invalidLatitude: !isValidCoordinate(d.installationLatitude)
+            ? d.installationLatitude
+            : undefined,
+          invalidLongitude: !isValidCoordinate(d.installationLongitude)
+            ? d.installationLongitude
+            : undefined,
+        })),
+      },
+      customers: {
+        totalChecked: allCustomers.length,
+        invalidCount: invalidCustomers.length,
+        records: invalidCustomers.map((c) => ({
+          id: c.id,
+          name: `${c.firstname} ${c.lastname}`,
+          invalidLatitude: !isValidCoordinate(c.latitude) ? c.latitude : undefined,
+          invalidLongitude: !isValidCoordinate(c.longitude) ? c.longitude : undefined,
+        })),
+      },
+    };
+  
+    if (dryRun) {
+      this.logger.log(
+        `Dry run complete — ${invalidDevices.length} devices and ${invalidCustomers.length} customers would be updated`,
+      );
+      return {
+        dryRun: true,
+        durationMs: Date.now() - startTime,
+        ...stats,
+      };
+    }
+  
+    // ---- UPDATES ----
+    let devicesUpdated = 0;
+    let customersUpdated = 0;
+  
+    // Fix devices in batches
+    const deviceBatchSize = 100;
+    for (let i = 0; i < invalidDevices.length; i += deviceBatchSize) {
+      const batch = invalidDevices.slice(i, i + deviceBatchSize);
+  
+      await Promise.all(
+        batch.map((device) => {
+          const updateData: any = {};
+          if (!isValidCoordinate(device.installationLatitude)) {
+            updateData.installationLatitude = null;
+          }
+          if (!isValidCoordinate(device.installationLongitude)) {
+            updateData.installationLongitude = null;
+          }
+          return this.prisma.device.update({
+            where: { id: device.id },
+            data: updateData,
+          });
+        }),
+      );
+  
+      devicesUpdated += batch.length;
+      this.logger.log(`Devices: updated ${devicesUpdated}/${invalidDevices.length}`);
+    }
+  
+    // Fix customers in batches
+    const customerBatchSize = 100;
+    for (let i = 0; i < invalidCustomers.length; i += customerBatchSize) {
+      const batch = invalidCustomers.slice(i, i + customerBatchSize);
+  
+      await Promise.all(
+        batch.map((customer) => {
+          const updateData: any = {};
+          if (!isValidCoordinate(customer.latitude)) {
+            updateData.latitude = null;
+          }
+          if (!isValidCoordinate(customer.longitude)) {
+            updateData.longitude = null;
+          }
+          return this.prisma.customer.update({
+            where: { id: customer.id },
+            data: updateData,
+          });
+        }),
+      );
+  
+      customersUpdated += batch.length;
+      this.logger.log(`Customers: updated ${customersUpdated}/${invalidCustomers.length}`);
+    }
+  
+    const durationMs = Date.now() - startTime;
+    this.logger.log(
+      `Fix complete: ${devicesUpdated} devices and ${customersUpdated} customers updated in ${durationMs}ms`,
+    );
+  
+    return {
+      dryRun: false,
+      durationMs,
+      devices: {
+        ...stats.devices,
+        updated: devicesUpdated,
+      },
+      customers: {
+        ...stats.customers,
+        updated: customersUpdated,
+      },
+    };
+  }
+
   private async parseCsv(filePath: string): Promise<any[]> {
     return new Promise((resolve, reject) => {
       const results = [];

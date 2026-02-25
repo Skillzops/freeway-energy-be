@@ -396,7 +396,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
-                  category: true
+                  category: true,
                 },
               },
             },
@@ -849,7 +849,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
-                  category: true
+                  category: true,
                 },
               },
             },
@@ -1600,7 +1600,13 @@ export class ExportService {
       deviceIds.length > 0
         ? await this.prisma.device.findMany({
             where: { id: { in: deviceIds } },
-            select: { id: true, serialNumber: true, installationStatus: true },
+            select: {
+              id: true,
+              serialNumber: true,
+              installationStatus: true,
+              installationLatitude: true,
+              installationLongitude: true,
+            },
           })
         : [];
 
@@ -1628,6 +1634,8 @@ export class ExportService {
           phone: true,
           state: true,
           lga: true,
+          latitude: true,
+          longitude: true,
           assignedAgents: {
             select: {
               agent: {
@@ -1635,7 +1643,7 @@ export class ExportService {
                   user: {
                     select: { firstname: true, lastname: true },
                   },
-                  category: true
+                  category: true,
                 },
               },
             },
@@ -1667,6 +1675,10 @@ export class ExportService {
       const saleItem = saleItemMap.get(saleId);
       const payments = paymentsBySale.get(saleId) || [];
       const saleDevices = devicesBySale.get(saleId) || [];
+      const { latitude, longitude } = this.resolveInstallationCoords(
+        customer,
+        saleDevices,
+      );
 
       return {
         saleId,
@@ -1695,6 +1707,8 @@ export class ExportService {
         lastPaymentDate: this.formatDate(payments[0]?.paymentDate),
         state: customer?.state || '',
         lga: customer?.lga || '',
+        latitude: latitude || '',
+        longitude: longitude || '',
         devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
       };
     });
@@ -1717,6 +1731,8 @@ export class ExportService {
         'Last Payment Date',
         'State',
         'LGA',
+        'Latitude',
+        'Longitude',
         'Devices (Serial Numbers)',
       ],
       jsonData,
@@ -2073,7 +2089,7 @@ export class ExportService {
                 user: {
                   select: { firstname: true, lastname: true },
                 },
-                category: true
+                category: true,
               },
             },
           },
@@ -2195,6 +2211,30 @@ export class ExportService {
 
     pipeline.push({ $count: 'total' });
     return pipeline;
+  }
+
+  private resolveInstallationCoords(
+    customer: any,
+    saleDevices: any[],
+  ): { latitude: string | null; longitude: string | null } {
+    // Primary: customer coords
+    if (customer?.latitude && customer?.longitude) {
+      return { latitude: customer.latitude, longitude: customer.longitude };
+    }
+
+    // Fallback: first device with installation coords for this sale
+    const deviceWithCoords = saleDevices.find(
+      (d) => d.installationLatitude && d.installationLongitude,
+    );
+
+    if (deviceWithCoords) {
+      return {
+        latitude: deviceWithCoords.installationLatitude,
+        longitude: deviceWithCoords.installationLongitude,
+      };
+    }
+
+    return { latitude: null, longitude: null };
   }
 
   /**
@@ -2428,7 +2468,7 @@ export class ExportService {
                       user: {
                         select: { firstname: true, lastname: true },
                       },
-                      category: true
+                      category: true,
                     },
                   },
                 },
