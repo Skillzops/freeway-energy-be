@@ -1636,6 +1636,10 @@ export class ExportService {
           lga: true,
           latitude: true,
           longitude: true,
+          gender: true,
+          idType: true,
+          idNumber: true,
+          location: true,
           assignedAgents: {
             select: {
               agent: {
@@ -1697,6 +1701,10 @@ export class ExportService {
           ? `${customer.firstname} ${customer.lastname}`
           : '',
         customerPhone: customer?.phone || '',
+        customerGender: customer?.gender || '',              
+        customerIdType: customer?.idType || '',              
+        customerIdNumber: customer?.idNumber || '',          
+        customerLocation: customer?.location || '', 
         paymentMode: saleItem?.paymentMode || '',
         totalPrice: sale.totalPrice || 0,
         totalPaid: sale.totalPaid || 0,
@@ -1719,8 +1727,12 @@ export class ExportService {
         'Transaction Date',
         'Status',
         'Agent Name',
-        'Customer Name',
+        'Customer Name', 
         'Customer Phone',
+        'Customer Gender',
+        'Customer ID Type',
+        'Customer ID Number',
+        'Customer Location',  
         'Payment Mode',
         'Total Price',
         'Total Paid',
