@@ -297,14 +297,10 @@ export class ExportService {
     };
 
     const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
-    if (dateFilter) {
-      matchConditions.createdAt = dateFilter;
-    }
-
+    if (dateFilter) matchConditions.createdAt = dateFilter;
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
 
-    // Handle agent filtering
     if (filters.agentId) {
       agentInfo = await this.getAgentInfo(filters.agentId);
       if (agentInfo.category === AgentCategory.SALES) {
@@ -313,16 +309,20 @@ export class ExportService {
           { creatorId: { $oid: agentInfo.userId } },
         ];
       }
-      // For INSTALLER, filter in pipeline
     }
-
     if (filters.agentCategory) {
       agentInfo = { category: filters.agentCategory } as AgentInfo;
+    }
+
+    if (filters.isOverdue !== undefined) {
+      // We'll handle this in pipeline via $addFields + $match after computing daysSinceLastPayment
+      // Pass it as a separate param below
     }
 
     const countPipeline = this.buildDebtReportCountPipeline(
       matchConditions,
       agentInfo,
+      overdueDays,
     );
     const countResult = await this.prisma.sales.aggregateRaw({
       pipeline: countPipeline,
@@ -337,6 +337,7 @@ export class ExportService {
       page,
       limit,
       filters.agentCategory,
+      overdueDays,
     );
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: salesPipeline,
@@ -373,68 +374,59 @@ export class ExportService {
       const devs = si.deviceIDs
         .map((dId) => devices.find((d) => d.id === dId))
         .filter(Boolean);
-      if (devs.length > 0) {
-        devicesBySale.set(si.saleId, devs);
-      }
+      if (devs.length > 0) devicesBySale.set(si.saleId, devs);
     });
 
-    const [customersData, paymentsData] = await Promise.all([
-      this.prisma.customer.findMany({
-        where: { id: { in: customerIds } },
-        select: {
-          id: true,
-          firstname: true,
-          lastname: true,
-          phone: true,
-          email: true,
-          state: true,
-          lga: true,
-          assignedAgents: {
-            select: {
-              agent: {
-                select: {
-                  user: {
-                    select: { firstname: true, lastname: true },
-                  },
-                  category: true,
-                },
+    const customersData = await this.prisma.customer.findMany({
+      where: { id: { in: customerIds } },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        phone: true,
+        email: true,
+        state: true,
+        lga: true,
+        assignedAgents: {
+          select: {
+            agent: {
+              select: {
+                user: { select: { firstname: true, lastname: true } },
+                category: true,
               },
             },
           },
         },
-      }),
-      this.prisma.payment.findMany({
-        where: {
-          saleId: { in: saleIds },
-          paymentStatus: 'COMPLETED',
-        },
-        select: {
-          saleId: true,
-          amount: true,
-          paymentDate: true,
-        },
-        orderBy: { paymentDate: 'asc' },
-      }),
-    ]);
+      },
+    });
 
     const customerMap = new Map(customersData.map((c) => [c.id, c]));
 
-    const paymentsBySale = new Map<string, any[]>();
-    paymentsData.forEach((p) => {
-      if (!paymentsBySale.has(p.saleId)) {
-        paymentsBySale.set(p.saleId, []);
-      }
-      paymentsBySale.get(p.saleId).push(p);
-    });
-
-    const now = new Date().getTime();
     const jsonData = sales
       .map((sale) => {
         const saleId = this.extractObjectId(sale._id);
         const customerId = this.extractObjectId(sale.customerId);
         const customer = customerMap.get(customerId);
-        const payments = paymentsBySale.get(saleId) || [];
         const saleDevices = devicesBySale.get(saleId) || [];
+
+        const daysSinceLastPayment = sale.daysSinceLastPayment || 0;
+        const isOverdue = sale.isOverdue || false;
+        const lastPaymentDate = sale.lastPaymentDate;
+        const lastPaymentAmount = sale.lastPaymentAmount || 0;
+
+        if (filters.isOverdue !== undefined && filters.isOverdue !== isOverdue)
+          return null;
+
+        if (
+          filters.state &&
+          customer?.state?.toLowerCase() !== filters.state.toLowerCase()
+        )
+          return null;
+       if (
+          filters.lga &&
+          customer?.lga?.toLowerCase() !== filters.lga.toLowerCase()
+        )
+          return null;
 
         const outstandingBalance =
           (sale.totalPrice || 0) - (sale.totalPaid || 0);
@@ -443,33 +435,6 @@ export class ExportService {
           monthlyPayment > 0
             ? Math.ceil(outstandingBalance / monthlyPayment)
             : 0;
-
-        const lastPayment = payments[payments.length - 1];
-        const lastPaymentDate = lastPayment?.paymentDate || sale.createdAt;
-        const daysSinceLastPayment = Math.floor(
-          (now - new Date(lastPaymentDate).getTime()) / 86400000,
-        );
-        const isOverdue = daysSinceLastPayment > overdueDays;
-
-        if (
-          filters.isOverdue !== undefined &&
-          filters.isOverdue !== isOverdue
-        ) {
-          return null;
-        }
-
-        if (
-          filters.state &&
-          customer?.state?.toLowerCase() !== filters.state.toLowerCase()
-        ) {
-          return null;
-        }
-        if (
-          filters.lga &&
-          customer?.lga?.toLowerCase() !== filters.lga.toLowerCase()
-        ) {
-          return null;
-        }
 
         return {
           customerId,
@@ -487,14 +452,14 @@ export class ExportService {
           outstandingBalance: parseFloat(outstandingBalance.toFixed(2)),
           monthlyPayment,
           remainingMonths,
-          totalPaymentsMade: payments.length,
+          totalPaymentsMade: sale.paymentCount || 0,
           lastPaymentDate: this.formatDate(lastPaymentDate),
-          lastPaymentAmount: lastPayment?.amount || 0,
+          lastPaymentAmount,
           daysSinceLastPayment,
           isOverdue,
           status: sale.status || '',
           agentName: this.getDisplayAgentNameWithMap(
-            this.extractObjectId(sale._id),
+            saleId,
             sale?.agentName,
             customer,
             agentInfo,
@@ -505,7 +470,7 @@ export class ExportService {
           devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
         };
       })
-      .filter((item) => item !== null);
+      .filter(Boolean);
 
     const totalOutstandingDebt = jsonData.reduce(
       (sum, item) => sum + item.outstandingBalance,
@@ -593,6 +558,8 @@ export class ExportService {
   private buildDebtReportCountPipeline(
     matchConditions: any,
     agentInfo: AgentInfo | null,
+    overdueDays: number,
+    isOverdue?: boolean,
   ): any[] {
     const pipeline: any[] = [
       { $match: matchConditions },
@@ -604,9 +571,52 @@ export class ExportService {
           as: 'saleItems',
         },
       },
+      { $match: { saleItems: { $ne: [] } } },
       {
-        $match: { saleItems: { $ne: [] } },
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: -1 } },
+            { $limit: 1 },
+          ],
+          as: 'latestPayment',
+        },
       },
+      {
+        $addFields: {
+          lastPaymentDate: {
+            $ifNull: [
+              { $arrayElemAt: ['$latestPayment.paymentDate', 0] },
+              '$createdAt',
+            ],
+          },
+        },
+      },
+      { $addFields: { lastPaymentDateAsDate: { $toDate: '$lastPaymentDate' } } },
+      {
+        $addFields: {
+          daysSinceLastPayment: {
+            $floor: {
+              $divide: [
+                { $subtract: ['$$NOW', '$lastPaymentDateAsDate'] },
+                86400000,
+              ],
+            },
+          },
+        },
+      },
+      ...(isOverdue === true
+        ? [{ $match: { daysSinceLastPayment: { $gt: overdueDays } } }]
+        : isOverdue === false
+          ? [{ $match: { daysSinceLastPayment: { $lte: overdueDays } } }]
+          : []), // no filter if undefined — show all
     ];
 
     if (agentInfo?.category === AgentCategory.INSTALLER) {
@@ -618,35 +628,26 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-
       if (agentInfo.agentId) {
         pipeline.push({
-          $match: {
-            'installerTasks.installerAgentId': { $oid: agentInfo.agentId },
-          },
+          $match: { 'installerTasks.installerAgentId': { $oid: agentInfo.agentId } },
         });
       } else {
-        pipeline.push({
-          $match: {
-            installerTasks: { $ne: [] },
-          },
-        });
+        pipeline.push({ $match: { installerTasks: { $ne: [] } } });
       }
     }
 
     pipeline.push({ $count: 'total' });
     return pipeline;
-  }
-
-  /**
-   * Build debt report pipeline with agent filtering
-   */
+  }  
+  
   private buildDebtReportPipeline(
     matchConditions: any,
     agentInfo: AgentInfo | null,
     page: number,
     limit: number,
     agentCategory?: AgentCategory,
+    overdueDays?: number,
   ): any[] {
     const pipeline: any[] = [
       { $match: matchConditions },
@@ -658,9 +659,7 @@ export class ExportService {
           as: 'saleItems',
         },
       },
-      {
-        $match: { saleItems: { $ne: [] } },
-      },
+      { $match: { saleItems: { $ne: [] } } },
       {
         $lookup: {
           from: 'customers',
@@ -670,6 +669,64 @@ export class ExportService {
         },
       },
       { $match: { customer: { $ne: [] } } },
+      // Fetch all payments for count + latest date
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: -1 } },
+          ],
+          as: 'allPayments',
+        },
+      },
+      {
+        $addFields: {
+          latestPayment: { $slice: ['$allPayments', 1] },
+          paymentCount: { $size: '$allPayments' },
+          lastPaymentAmount: {
+            $ifNull: [{ $arrayElemAt: ['$allPayments.amount', 0] }, 0],
+          },
+        },
+      },
+      {
+        $addFields: {
+          lastPaymentDate: {
+            $ifNull: [
+              { $arrayElemAt: ['$latestPayment.paymentDate', 0] },
+              '$createdAt',
+            ],
+          },
+        },
+      },
+      {
+        $addFields: { lastPaymentDateAsDate: { $toDate: '$lastPaymentDate' } },
+      },
+      {
+        $addFields: {
+          daysSinceLastPayment: {
+            $floor: {
+              $divide: [
+                { $subtract: ['$$NOW', '$lastPaymentDateAsDate'] },
+                86400000,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          isOverdue: {
+            $gt: ['$daysSinceLastPayment', overdueDays ?? 30],
+          },
+        },
+      },
     ];
 
     if (
@@ -684,7 +741,6 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-
       if (
         agentInfo?.category === AgentCategory.INSTALLER &&
         agentInfo?.agentId
@@ -695,11 +751,7 @@ export class ExportService {
           },
         });
       } else if (agentCategory === AgentCategory.INSTALLER) {
-        pipeline.push({
-          $match: {
-            installerTasks: { $ne: [] },
-          },
-        });
+        pipeline.push({ $match: { installerTasks: { $ne: [] } } });
       }
     }
 
@@ -721,10 +773,17 @@ export class ExportService {
           createdAt: 1,
           status: 1,
           installerTasks: 1,
+          lastPaymentDate: 1,
+          lastPaymentAmount: 1,
+          daysSinceLastPayment: 1,
+          isOverdue: 1,
+          paymentCount: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
           'customer.email': 1,
+          'customer.state': 1,
+          'customer.lga': 1,
           'customer.createdAt': 1,
         },
       },
@@ -747,14 +806,10 @@ export class ExportService {
     };
 
     const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
-    if (dateFilter) {
-      matchConditions.createdAt = dateFilter;
-    }
-
+    if (dateFilter) matchConditions.createdAt = dateFilter;
     if (filters.customerId)
       matchConditions.customerId = { $oid: filters.customerId };
 
-    // Handle agent filtering
     if (filters.agentId) {
       agentInfo = await this.getAgentInfo(filters.agentId);
       if (agentInfo.category === AgentCategory.SALES) {
@@ -763,9 +818,7 @@ export class ExportService {
           { creatorId: { $oid: agentInfo.userId } },
         ];
       }
-      // For INSTALLER, filter in pipeline
     }
-
     if (filters.agentCategory) {
       agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
@@ -773,6 +826,7 @@ export class ExportService {
     const countPipeline = this.buildRenewalReportCountPipeline(
       matchConditions,
       agentInfo,
+      overdueDays,
     );
     const countResult = await this.prisma.sales.aggregateRaw({
       pipeline: countPipeline,
@@ -786,6 +840,7 @@ export class ExportService {
       agentInfo,
       page,
       limit,
+      overdueDays,
     );
     const salesResults = await this.prisma.sales.aggregateRaw({
       pipeline: salesPipeline,
@@ -826,71 +881,44 @@ export class ExportService {
       const devs = si.deviceIDs
         .map((dId) => devices.find((d) => d.id === dId))
         .filter(Boolean);
-      if (devs.length > 0) {
-        devicesBySale.set(si.saleId, devs);
-      }
+      if (devs.length > 0) devicesBySale.set(si.saleId, devs);
     });
 
-    const [customersData, paymentsData] = await Promise.all([
-      this.prisma.customer.findMany({
-        where: { id: { in: customerIds } },
-        select: {
-          id: true,
-          firstname: true,
-          lastname: true,
-          phone: true,
-          state: true,
-          lga: true,
-          createdAt: true,
-          assignedAgents: {
-            select: {
-              agent: {
-                select: {
-                  user: {
-                    select: { firstname: true, lastname: true },
-                  },
-                  category: true,
-                },
+    const customersData = await this.prisma.customer.findMany({
+      where: { id: { in: customerIds } },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        phone: true,
+        state: true,
+        lga: true,
+        createdAt: true,
+        assignedAgents: {
+          select: {
+            agent: {
+              select: {
+                user: { select: { firstname: true, lastname: true } },
+                category: true,
               },
             },
           },
         },
-      }),
-      this.prisma.payment.findMany({
-        where: {
-          saleId: { in: saleIds },
-          paymentStatus: 'COMPLETED',
-        },
-        select: { saleId: true, paymentDate: true },
-        orderBy: { paymentDate: 'asc' },
-      }),
-    ]);
-
-    const customerMap = new Map(customersData.map((c) => [c.id, c]));
-    const paymentsBySale = new Map<string, any[]>();
-    paymentsData.forEach((p) => {
-      if (!paymentsBySale.has(p.saleId)) paymentsBySale.set(p.saleId, []);
-      paymentsBySale.get(p.saleId).push(p);
+      },
     });
 
-    const now = new Date().getTime();
+    const customerMap = new Map(customersData.map((c) => [c.id, c]));
+    const now = Date.now();
+
     const jsonData = sales
       .map((sale) => {
         const saleId = this.extractObjectId(sale._id);
         const customerId = this.extractObjectId(sale.customerId);
         const customer = customerMap.get(customerId);
-        const payments = paymentsBySale.get(saleId) || [];
         const saleDevices = devicesBySale.get(saleId) || [];
 
-        const lastPayment = payments[payments.length - 1];
-        const lastPaymentDate =
-          lastPayment?.paymentDate || sale.transactionDate;
-
-        const daysSinceLastPayment = Math.floor(
-          (now - new Date(lastPaymentDate).getTime()) / 86400000,
-        );
-
-        if (daysSinceLastPayment <= overdueDays) return null;
+        const daysSinceLastPayment = sale.daysSinceLastPayment || 0;
+        const lastPaymentDate = sale.lastPaymentDate;
 
         if (
           filters.state &&
@@ -912,24 +940,20 @@ export class ExportService {
         const monthsSinceSale = Math.floor(
           (now - saleDate.getTime()) / 2592000000,
         );
-
         const totalDuration = sale.totalInstallmentDuration || 12;
         const expectedPayments = Math.max(
           0,
           Math.min(monthsSinceSale, totalDuration - 1),
         );
-
-        const actualMonthlyPayments = Math.max(0, payments.length - 1);
-
+        const actualMonthlyPayments = Math.max(0, (sale.paymentCount || 0) - 1);
         const missedPayments = Math.max(
           0,
           expectedPayments - actualMonthlyPayments,
         );
-
         const safeExpectedPaymentAmount =
           isNaN(missedPayments) || !sale.totalMonthlyPayment
             ? 0
-            : (sale.totalMonthlyPayment || 0) * missedPayments;
+            : sale.totalMonthlyPayment * missedPayments;
 
         return {
           customerId,
@@ -948,7 +972,7 @@ export class ExportService {
             ((sale.totalPrice || 0) - (sale.totalPaid || 0)).toFixed(2),
           ),
           agentName: this.getDisplayAgentNameWithMap(
-            this.extractObjectId(sale._id),
+            saleId,
             sale?.agentName,
             customer,
             agentInfo,
@@ -959,10 +983,10 @@ export class ExportService {
           devices: saleDevices.map((d) => `${d.serialNumber}`).join('; '),
         };
       })
-      .filter((item) => item !== null);
+      .filter(Boolean);
 
     const summary = {
-      totalDefaulters: jsonData.length,
+      totalDefaulters: allRecordsCount,
       totalMissedPayments: jsonData.reduce(
         (sum, item) => sum + item.missedPayments,
         0,
@@ -1001,9 +1025,7 @@ export class ExportService {
         `Generated At: ${new Date().toLocaleString()}`,
         ...(filters.startDate && filters.endDate
           ? [
-              `Period: ${this.formatDate(filters.startDate)} to ${this.formatDate(
-                filters.endDate,
-              )}`,
+              `Period: ${this.formatDate(filters.startDate)} to ${this.formatDate(filters.endDate)}`,
             ]
           : []),
         `Overdue Threshold: ${overdueDays} days`,
@@ -1034,6 +1056,7 @@ export class ExportService {
   private buildRenewalReportCountPipeline(
     matchConditions: any,
     agentInfo: AgentInfo | null,
+    overdueDays: number,
   ): any[] {
     const pipeline: any[] = [
       { $match: matchConditions },
@@ -1045,9 +1068,53 @@ export class ExportService {
           as: 'saleItems',
         },
       },
+      { $match: { saleItems: { $ne: [] } } },
       {
-        $match: { saleItems: { $ne: [] } },
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: -1 } },
+            { $limit: 1 },
+          ],
+          as: 'latestPayment',
+        },
       },
+      {
+        $addFields: {
+          lastPaymentDate: {
+            $ifNull: [
+              { $arrayElemAt: ['$latestPayment.paymentDate', 0] },
+              '$transactionDate',
+              '$createdAt',
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          lastPaymentDateAsDate: { $toDate: '$lastPaymentDate' },
+        },
+      },
+      {
+        $addFields: {
+          daysSinceLastPayment: {
+            $floor: {
+              $divide: [
+                { $subtract: ['$$NOW', '$lastPaymentDateAsDate'] },
+                86400000,
+              ],
+            },
+          },
+        },
+      },
+      { $match: { daysSinceLastPayment: { $gt: overdueDays } } },
     ];
 
     if (agentInfo?.category === AgentCategory.INSTALLER) {
@@ -1059,7 +1126,6 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-
       if (agentInfo.agentId) {
         pipeline.push({
           $match: {
@@ -1067,19 +1133,13 @@ export class ExportService {
           },
         });
       } else {
-        // ANY installer
-        pipeline.push({
-          $match: {
-            installerTasks: { $ne: [] },
-          },
-        });
+        pipeline.push({ $match: { installerTasks: { $ne: [] } } });
       }
     }
 
     pipeline.push({ $count: 'total' });
     return pipeline;
   }
-
   /**
    * Build renewal report pipeline with agent filtering
    */
@@ -1088,6 +1148,7 @@ export class ExportService {
     agentInfo: AgentInfo | null,
     page: number,
     limit: number,
+    overdueDays: number,
   ): any[] {
     const pipeline: any[] = [
       { $match: matchConditions },
@@ -1099,9 +1160,7 @@ export class ExportService {
           as: 'saleItems',
         },
       },
-      {
-        $match: { saleItems: { $ne: [] } },
-      },
+      { $match: { saleItems: { $ne: [] } } },
       {
         $lookup: {
           from: 'customers',
@@ -1111,6 +1170,58 @@ export class ExportService {
         },
       },
       { $match: { customer: { $ne: [] } } },
+      // Fetch all payments — latest for date, count for missedPayments calc
+      {
+        $lookup: {
+          from: 'payments',
+          let: { saleId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$saleId', '$$saleId'] },
+                paymentStatus: 'COMPLETED',
+              },
+            },
+            { $sort: { paymentDate: -1 } },
+          ],
+          as: 'allPayments',
+        },
+      },
+      {
+        $addFields: {
+          latestPayment: { $slice: ['$allPayments', 1] },
+          paymentCount: { $size: '$allPayments' },
+        },
+      },
+      {
+        $addFields: {
+          lastPaymentDate: {
+            $ifNull: [
+              { $arrayElemAt: ['$latestPayment.paymentDate', 0] },
+              '$transactionDate',
+              '$createdAt',
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          lastPaymentDateAsDate: { $toDate: '$lastPaymentDate' },
+        },
+      },
+      {
+        $addFields: {
+          daysSinceLastPayment: {
+            $floor: {
+              $divide: [
+                { $subtract: ['$$NOW', '$lastPaymentDateAsDate'] },
+                86400000,
+              ],
+            },
+          },
+        },
+      },
+      { $match: { daysSinceLastPayment: { $gt: overdueDays } } },
     ];
 
     if (agentInfo?.category === AgentCategory.INSTALLER) {
@@ -1122,7 +1233,6 @@ export class ExportService {
           as: 'installerTasks',
         },
       });
-
       if (agentInfo.agentId) {
         pipeline.push({
           $match: {
@@ -1130,17 +1240,13 @@ export class ExportService {
           },
         });
       } else {
-        pipeline.push({
-          $match: {
-            installerTasks: { $ne: [] },
-          },
-        });
+        pipeline.push({ $match: { installerTasks: { $ne: [] } } });
       }
     }
 
     pipeline.push(
       { $unwind: '$customer' },
-      { $sort: { createdAt: 1 } },
+      { $sort: { daysSinceLastPayment: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
       {
@@ -1155,10 +1261,15 @@ export class ExportService {
           transactionDate: 1,
           createdAt: 1,
           installerTasks: 1,
+          lastPaymentDate: 1,
+          daysSinceLastPayment: 1,
+          paymentCount: 1,
           'customer.firstname': 1,
           'customer.lastname': 1,
           'customer.phone': 1,
           'customer.email': 1,
+          'customer.state': 1,
+          'customer.lga': 1,
           'customer.createdAt': 1,
         },
       },
@@ -1701,10 +1812,10 @@ export class ExportService {
           ? `${customer.firstname} ${customer.lastname}`
           : '',
         customerPhone: customer?.phone || '',
-        customerGender: customer?.gender || '',              
-        customerIdType: customer?.idType || '',              
-        customerIdNumber: customer?.idNumber || '',          
-        customerLocation: customer?.location || '', 
+        customerGender: customer?.gender || '',
+        customerIdType: customer?.idType || '',
+        customerIdNumber: customer?.idNumber || '',
+        customerLocation: customer?.location || '',
         paymentMode: saleItem?.paymentMode || '',
         totalPrice: sale.totalPrice || 0,
         totalPaid: sale.totalPaid || 0,
@@ -1727,12 +1838,12 @@ export class ExportService {
         'Transaction Date',
         'Status',
         'Agent Name',
-        'Customer Name', 
+        'Customer Name',
         'Customer Phone',
         'Customer Gender',
         'Customer ID Type',
         'Customer ID Number',
-        'Customer Location',  
+        'Customer Location',
         'Payment Mode',
         'Total Price',
         'Total Paid',
@@ -1781,8 +1892,38 @@ export class ExportService {
           $date: new Date(filters.endDate).toISOString(),
         };
     }
+
+    const countPipeline: any[] = [
+      { $match: matchConditions },
+      {
+        $lookup: {
+          from: 'sales',
+          localField: '_id',
+          foreignField: 'customerId',
+          as: 'customerSales',
+        },
+      },
+      {
+        $addFields: {
+          outstandingDebt: {
+            $sum: {
+              $map: {
+                input: '$customerSales',
+                as: 's',
+                in: { $subtract: ['$$s.totalPrice', '$$s.totalPaid'] },
+              },
+            },
+          },
+        },
+      },
+      ...(filters.hasOutstandingDebt
+        ? [{ $match: { outstandingDebt: { $gt: 0 } } }]
+        : []),
+      { $count: 'total' },
+    ];
+
     const countResult = await this.prisma.customer.aggregateRaw({
-      pipeline: [{ $match: matchConditions }, { $count: 'total' }],
+      pipeline: countPipeline,
       options: { allowDiskUse: true },
     });
     const allRecordsCount = this.extractResults(countResult)[0]?.total || 0;
