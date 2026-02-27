@@ -16,6 +16,7 @@ import { InventoryEntity } from './entity/inventory.entity';
 import { plainToInstance } from 'class-transformer';
 import { InventoryBatchEntity } from './entity/inventory-batch.entity';
 import { CategoryEntity } from '../utils/entity/category';
+import { UpdateInventoryDto } from './dto/update-inventory.dto';
 
 @Injectable()
 export class InventoryService {
@@ -151,6 +152,58 @@ export class InventoryService {
     };
   }
 
+  async toggleHideInventory(inventoryId: string) {
+    const inventory = await this.prisma.inventory.findUnique({
+      where: { id: inventoryId },
+      select: { id: true, hideInventory: true },
+    });
+    if (!inventory) throw new NotFoundException(MESSAGES.INVENTORY_NOT_FOUND);
+
+    const updated = await this.prisma.inventory.update({
+      where: { id: inventoryId },
+      data: { hideInventory: !inventory.hideInventory },
+      select: { id: true, hideInventory: true },
+    });
+
+    return {
+      message: updated.hideInventory ? 'Inventory hidden' : 'Inventory visible',
+      hideInventory: updated.hideInventory,
+    };
+  }
+
+  async updateInventory(inventoryId: string, dto: UpdateInventoryDto) {
+    const inventory = await this.prisma.inventory.findUnique({
+      where: { id: inventoryId, hideInventory: false },
+    });
+    if (!inventory) throw new NotFoundException(MESSAGES.INVENTORY_NOT_FOUND);
+
+    return this.prisma.inventory.update({
+      where: { id: inventoryId },
+      data: {
+        ...(dto.name && { name: dto.name }),
+        ...(dto.manufacturerName && { manufacturerName: dto.manufacturerName }),
+        ...(dto.sku !== undefined && { sku: dto.sku }),
+        ...(dto.dateOfManufacture !== undefined && {
+          dateOfManufacture: dto.dateOfManufacture,
+        }),
+        ...(dto.class && { class: dto.class }),
+        ...(dto.inventoryCategoryId && {
+          inventoryCategoryId: dto.inventoryCategoryId,
+        }),
+        ...(dto.inventorySubCategoryId && {
+          inventorySubCategoryId: dto.inventorySubCategoryId,
+        }),
+      },
+      select: {
+        id: true,
+        name: true,
+        manufacturerName: true,
+        sku: true,
+        class: true,
+      },
+    });
+  }
+
   async createInventoryBatch(
     requestUserId: string,
     createInventoryBatchDto: CreateInventoryBatchDto,
@@ -252,9 +305,13 @@ export class InventoryService {
     const result = await this.prisma.inventory.findMany({
       skip,
       take,
-      where: {...filterConditions, hideInventory: false, warehouse: {
-        isMain: true
-      }},
+      where: {
+        ...filterConditions,
+        hideInventory: false,
+        warehouse: {
+          isMain: true,
+        },
+      },
       orderBy,
       include: {
         batches: {
@@ -275,7 +332,7 @@ export class InventoryService {
     const updatedResults = result.map(this.mapInventoryToResponseDto);
 
     const totalCount = await this.prisma.inventory.count({
-      where: {...filterConditions, hideInventory: false},
+      where: { ...filterConditions, hideInventory: false },
     });
 
     return {

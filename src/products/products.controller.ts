@@ -11,6 +11,7 @@ import {
   Get,
   Query,
   Param,
+  Patch,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -36,6 +37,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { GetProductsDto } from './dto/get-products.dto';
 import { CreateProductCategoryDto } from './dto/create-category.dto';
 import { GetSessionUser } from '../auth/decorators/getUser';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @ApiTags('Products')
 @Controller('products')
@@ -113,6 +115,37 @@ export class ProductsController {
   @HttpCode(HttpStatus.OK)
   async getAllProducts(@Query() getProductsDto: GetProductsDto) {
     return this.productsService.getAllProducts(getProductsDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Products}`,
+      `${ActionEnum.read}:${SubjectEnum.Products}`,
+    ],
+  })
+  @Post(':id/toggle-hide')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Toggle product visibility' })
+  async toggleProductVisibility(@Param('id') productId: string) {
+    return this.productsService.toggleHideProduct(productId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Products}`,
+      `${ActionEnum.read}:${SubjectEnum.Products}`,
+    ],
+  })
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Edit product details' })
+  async updateProduct(
+    @Param('id') productId: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.productsService.updateProduct(productId, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)

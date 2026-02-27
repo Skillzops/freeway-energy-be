@@ -115,4 +115,31 @@ export class CreateProductDto {
 
   @ApiProperty({ type: 'file', description: 'Product image file' })
   productImage: Express.Multer.File;
+
+  @ApiPropertyOptional({
+    description: 'Default installment duration in months',
+    example: 12,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  defaultInstallmentDuration?: number;
+
+  @ApiPropertyOptional({
+    description: 'Default installment starting/deposit price',
+    example: 5000,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(100)
+  defaultInstallmentStartPrice?: number;
+
+  @ApiPropertyOptional({
+    description: 'Default monthly payment amount',
+    example: 6000,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(100)
+  defaultMonthlyPayment?: number;
 }

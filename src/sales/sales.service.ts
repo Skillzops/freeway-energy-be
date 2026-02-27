@@ -1271,6 +1271,8 @@ export class SalesService {
       applyMargin,
     );
 
+    this.validateItemAgainstProductDefaults(saleItem, product);
+
     // Add miscellaneous prices
     const miscTotal = saleItem.miscellaneousPrices
       ? Object.values(saleItem.miscellaneousPrices).reduce(
@@ -2393,6 +2395,22 @@ export class SalesService {
       message: `Payment completed successfully for sale ${result.sale.formattedSaleId}`,
      
     };
+  }
+
+  private validateItemAgainstProductDefaults(
+    saleItem: SaleItemDto,
+    product: any,
+  ): void {
+    // Monthly payment: allow ±10% tolerance from default (accounts for rounding, custom negotiations)
+    if (product.defaultMonthlyPayment && saleItem.monthlyPayment) {
+      const tolerance = product.defaultMonthlyPayment * 0.1;
+      const diff = Math.abs(saleItem.monthlyPayment - product.defaultMonthlyPayment);
+      if (diff > tolerance) {
+        throw new BadRequestException(
+          `Monthly payment for "${product.name}" should be around ₦${product.defaultMonthlyPayment}. Got ₦${saleItem.monthlyPayment}. Allowed range: ₦${Math.floor(product.defaultMonthlyPayment - tolerance)}–₦${Math.ceil(product.defaultMonthlyPayment + tolerance)}.`,
+        );
+      }
+    }
   }
 
   formatResponse(saleItems: any[], total: number, page: number, limit: number) {

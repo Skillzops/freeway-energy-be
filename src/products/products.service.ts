@@ -14,6 +14,7 @@ import { CategoryTypes, Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { CategoryEntity } from 'src/utils/entity/category';
 import { UserEntity } from 'src/users/entity/user.entity';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -40,6 +41,9 @@ export class ProductsService {
       paymentModes,
       categoryId,
       inventories,
+      defaultInstallmentDuration,
+      defaultInstallmentStartPrice,
+      defaultMonthlyPayment,
     } = createProductDto;
 
     const isCategoryValid = await this.prisma.category.findFirst({
@@ -97,6 +101,15 @@ export class ProductsService {
         paymentModes,
         categoryId,
         creatorId,
+        ...(defaultInstallmentDuration !== undefined && {
+          defaultInstallmentDuration,
+        }),
+        ...(defaultInstallmentStartPrice !== undefined && {
+          defaultInstallmentStartPrice,
+        }),
+        ...(defaultMonthlyPayment !== undefined && {
+          defaultMonthlyPayment,
+        }),
       },
     });
 
@@ -119,7 +132,7 @@ export class ProductsService {
       createdAt,
       agentId,
       updatedAt,
-      sortField = "createdAt",
+      sortField = 'createdAt',
       sortOrder,
       search,
     } = getProductsDto;
@@ -178,7 +191,7 @@ export class ProductsService {
     const result = await this.prisma.product.findMany({
       where: {
         ...whereConditions,
-        hideProduct: false
+        hideProduct: false,
         // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
       },
       skip,
@@ -202,7 +215,7 @@ export class ProductsService {
     const total = await this.prisma.product.count({
       where: {
         ...whereConditions,
-        hideProduct: false
+        hideProduct: false,
       },
     });
 
@@ -264,6 +277,68 @@ export class ProductsService {
       data: {
         name,
         type: CategoryTypes.PRODUCT,
+      },
+    });
+  }
+
+  async toggleHideProduct(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, hideProduct: true },
+    });
+    if (!product) throw new NotFoundException(MESSAGES.PRODUCT_NOT_FOUND);
+
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data: { hideProduct: !product.hideProduct },
+      select: { id: true, hideProduct: true },
+    });
+
+    return {
+      message: updated.hideProduct ? 'Product hidden' : 'Product visible',
+      hideProduct: updated.hideProduct,
+    };
+  }
+
+  async updateProduct(productId: string, dto: UpdateProductDto) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId, hideProduct: false },
+    });
+    if (!product) throw new NotFoundException(MESSAGES.PRODUCT_NOT_FOUND);
+
+    if (dto.categoryId) {
+      const category = await this.prisma.category.findFirst({
+        where: { id: dto.categoryId, type: CategoryTypes.PRODUCT },
+      });
+      if (!category) throw new BadRequestException('Invalid category');
+    }
+
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        ...(dto.name && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.currency && { currency: dto.currency }),
+        ...(dto.categoryId && { categoryId: dto.categoryId }),
+        ...(dto.paymentModes !== undefined && {
+          paymentModes: dto.paymentModes,
+        }),
+        ...(dto.defaultInstallmentDuration !== undefined && {
+          defaultInstallmentDuration: dto.defaultInstallmentDuration,
+        }),
+        ...(dto.defaultInstallmentStartPrice !== undefined && {
+          defaultInstallmentStartPrice: dto.defaultInstallmentStartPrice,
+        }),
+        ...(dto.defaultMonthlyPayment !== undefined && {
+          defaultMonthlyPayment: dto.defaultMonthlyPayment,
+        }),
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        currency: true,
+        categoryId: true,
       },
     });
   }

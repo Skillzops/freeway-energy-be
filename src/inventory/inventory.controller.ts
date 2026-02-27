@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseFilePipeBuilder,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -36,6 +37,7 @@ import { CreateCategoryArrayDto } from './dto/create-category.dto';
 import { CreateInventoryBatchDto } from './dto/create-inventory-batch.dto';
 import { GetSessionUser } from '../auth/decorators/getUser';
 import { AuthService } from 'src/auth/auth.service';
+import { UpdateInventoryDto } from './dto/update-inventory.dto';
 
 @SkipThrottle()
 @ApiTags('Inventory')
@@ -227,6 +229,47 @@ export class InventoryController {
       inventoryId,
       requestUserId,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/toggle-hide')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Toggle inventory visibility' })
+  async toggleInventoryVisibility(
+    @Param('id') inventoryId: string,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.write, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'main',
+    });
+    return this.inventoryService.toggleHideInventory(inventoryId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Edit inventory details' })
+  async updateInventory(
+    @Param('id') inventoryId: string,
+    @Body() dto: UpdateInventoryDto,
+    @GetSessionUser('id') requestUserId: string,
+  ) {
+    await this.authService.validateUserPermissions({
+      userId: requestUserId,
+      extraPermissions: [
+        { action: ActionEnum.manage, subject: SubjectEnum.Inventory },
+        { action: ActionEnum.write, subject: SubjectEnum.Inventory },
+      ],
+      allowAgents: false,
+      allowedWarehouseManagers: 'main',
+    });
+    return this.inventoryService.updateInventory(inventoryId, dto);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -169,8 +169,9 @@ export class OdysseyService {
       // financingId: null,
       meterId: device?.serialNumber || 'N/A',
       // agentId: null, // agentId,
-      latitude: customer.latitude || '',
-      longitude: customer.longitude || '',
+      latitude:
+        (customer?.latitude && customer?.longitude) ? customer?.latitude: '',
+      longitude: (customer?.latitude && customer?.longitude)?  customer?.longitude: '',
       // latitude: device.installationLatitude ?? customer.latitude ?? '',
       // longitude: device.installationLongitude ?? customer.longitude ?? '',
       // utilityId: null, // this.generateUtilityId(customer, sale),
