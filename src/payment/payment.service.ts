@@ -26,6 +26,16 @@ import { DeviceService } from 'src/device/services/device.service';
 import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from 'src/device/services/token-generation-failure.service';
 
+interface PaymentValidationResult {
+  isValid: boolean;
+  requiredAmount: number;
+  providedAmount: number;
+  paymentType: 'FIRST_INSTALLMENT' | 'MONTHLY' | 'ONE_OFF';
+  message: string;
+  tolerance: number;
+  difference: number;
+}
+
 @Injectable()
 export class PaymentService {
   constructor(
@@ -44,6 +54,7 @@ export class PaymentService {
   ) {}
 
   private logger = new Logger(PaymentService.name);
+  private readonly PAYMENT_TOLERANCE = 0.01; // ₦0.01 tolerance for rounding
 
   async generatePaymentPayload(
     saleId: string,
@@ -949,29 +960,29 @@ export class PaymentService {
               tokenDuration,
               Number(device.count),
             );
-  
+
             deviceTokens.push({
               deviceSerialNumber: device.serialNumber,
               deviceKey: device.key,
               deviceToken: token.finalToken,
             });
-  
+
             await this.prisma.device.update({
               where: { id: device.id },
               data: { count: String(token.newCount) },
             });
-  
+
             await this.prisma.tokens.create({
               data: {
                 deviceId: device.id,
                 token: String(token.finalToken),
                 duration: tokenDuration,
                 creatorId: sale.creatorId,
-                tokenReleased: true
+                tokenReleased: true,
               },
             });
           } catch (error) {
-            console.log({error})
+            console.log({ error });
             await this.tokenFailureService.recordFailure(
               sale.id,
               device.id,
@@ -984,16 +995,18 @@ export class PaymentService {
       }
     }
 
-    const tokenGenerated = deviceTokens.map(token => token.deviceToken).join(", ")
+    const tokenGenerated = deviceTokens
+      .map((token) => token.deviceToken)
+      .join(', ');
 
     await this.prisma.payment.update({
       where: {
-        id: paymentData.id
+        id: paymentData.id,
       },
       data: {
-        tokenGenerated 
-      }
-    })
+        tokenGenerated,
+      },
+    });
 
     // Send device tokens via email and SMS
     if (deviceTokens.length) {
@@ -1134,5 +1147,131 @@ export class PaymentService {
     message += `Use these details for monthly payments.\n\nThank you!`;
 
     return message;
+  }
+
+  /**
+   * Validate that payment amount matches the required installment amount
+   */
+  async validateInstallmentPayment(
+    saleId: string,
+    providedAmount: number,
+    isFirstPayment: boolean = false,
+  ): Promise<PaymentValidationResult> {
+    const sale = await this.prisma.sales.findUnique({
+      where: { id: saleId },
+      include: {
+        saleItems: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new BadRequestException(`Sale ${saleId} not found`);
+    }
+
+    // Check if sale has installment items
+    const hasInstallmentItems = sale.saleItems.some(
+      (item) => item.paymentMode === PaymentMode.INSTALLMENT,
+    );
+
+    if (!hasInstallmentItems) {
+      throw new BadRequestException(
+        'This sale does not have installment payments',
+      );
+    }
+
+    if (isFirstPayment) {
+      return this.validateFirstInstallmentPayment(sale, providedAmount);
+    } else {
+      return this.validateMonthlyInstallmentPayment(sale, providedAmount);
+    }
+  }
+
+  /**
+   * Validate first installment payment
+   */
+  private validateFirstInstallmentPayment(
+    sale: any,
+    providedAmount: number,
+  ): PaymentValidationResult {
+    const requiredAmount = sale.installmentStartingPrice;
+
+    const difference = Math.abs(providedAmount - requiredAmount);
+    const isValid = difference <= this.PAYMENT_TOLERANCE;
+
+    return {
+      isValid,
+      requiredAmount,
+      providedAmount,
+      paymentType: 'FIRST_INSTALLMENT',
+      tolerance: this.PAYMENT_TOLERANCE,
+      difference,
+      message: isValid
+        ? `First installment payment of ₦${requiredAmount.toFixed(2)} is valid`
+        : `First installment payment mismatch. Required: ₦${requiredAmount.toFixed(2)}, Provided: ₦${providedAmount.toFixed(2)}. Difference: ₦${difference.toFixed(2)}`,
+    };
+  }
+
+  /**
+   * Validate monthly installment payment
+   */
+  private validateMonthlyInstallmentPayment(
+    sale: any,
+    providedAmount: number,
+  ): PaymentValidationResult {
+    const requiredAmount = sale.totalMonthlyPayment;
+
+    if (!requiredAmount || requiredAmount === 0) {
+      throw new BadRequestException(
+        'Monthly payment amount not configured for this sale',
+      );
+    }
+
+    const difference = Math.abs(providedAmount - requiredAmount);
+    const isValid = difference <= this.PAYMENT_TOLERANCE;
+
+    return {
+      isValid,
+      requiredAmount,
+      providedAmount,
+      paymentType: 'MONTHLY',
+      tolerance: this.PAYMENT_TOLERANCE,
+      difference,
+      message: isValid
+        ? `Monthly installment payment of ₦${requiredAmount.toFixed(2)} is valid`
+        : `Monthly installment payment mismatch. Required: ₦${requiredAmount.toFixed(2)}, Provided: ₦${providedAmount.toFixed(2)}. Difference: ₦${difference.toFixed(2)}`,
+    };
+  }
+
+  /**
+   * Validate and throw error if invalid
+   */
+  async validatePaymentAmountAndThrow(
+    saleId: string,
+    providedAmount: number,
+    isFirstPayment: boolean = false,
+  ): Promise<void> {
+    const validation = await this.validateInstallmentPayment(
+      saleId,
+      providedAmount,
+      isFirstPayment,
+    );
+
+    if (!validation.isValid) {
+      throw new BadRequestException({
+        message: validation.message,
+        code: 'PAYMENT_AMOUNT_MISMATCH',
+        details: {
+          requiredAmount: validation.requiredAmount,
+          providedAmount: validation.providedAmount,
+          difference: validation.difference,
+          paymentType: validation.paymentType,
+          allowedTolerance: validation.tolerance,
+        },
+      });
+    }
   }
 }

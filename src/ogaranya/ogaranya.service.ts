@@ -461,6 +461,14 @@ export class OgaranyaService {
     const sale = device.saleItems[0].sale;
     const remainingBalance = sale.totalPrice - sale.totalPaid;
 
+    const isFirstPayment = sale.totalPaid === 0;
+
+    await this.paymentService.validatePaymentAmountAndThrow(
+      sale.id,
+      amount,
+      isFirstPayment,
+    );
+
     if (amount > remainingBalance + 0.01) {
       throw new BadRequestException(
         `Payment amount (₦${amount}) exceeds remaining balance (₦${remainingBalance})`,
@@ -577,6 +585,14 @@ export class OgaranyaService {
 
     const saleItem = device.saleItems[0];
     const sale = saleItem.sale;
+
+    const isFirstPayment = sale.totalPaid === 0;
+  
+    await this.paymentService.validatePaymentAmountAndThrow(
+      sale.id,
+      amount,
+      isFirstPayment,
+    );
 
     if (!device.isTokenable) {
       throw new BadRequestException(

@@ -79,7 +79,7 @@ export class SalesService {
       const processedItem = await this.calculateItemPrice(
         item,
         financialSettings,
-        false // dto.applyMargin,
+        false, // dto.applyMargin,
       );
       processedItems.push(processedItem);
     }
@@ -530,54 +530,57 @@ export class SalesService {
     }
 
     // Atomic transaction: update sale
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Update sale
-      const updatedSale = await tx.sales.update({
-        where: { id: saleId },
-        data: {
-          ...(data.notes !== undefined && { notes: data.notes }),
-          ...(data.customerId && { customerId: data.customerId }),
-          version: { increment: 1 },
-          updatedAt: new Date(),
-        },
-        include: {
-          saleItems: {
-            include: {
-              devices: { select: { serialNumber: true } },
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // Update sale
+        const updatedSale = await tx.sales.update({
+          where: { id: saleId },
+          data: {
+            ...(data.notes !== undefined && { notes: data.notes }),
+            ...(data.customerId && { customerId: data.customerId }),
+            version: { increment: 1 },
+            updatedAt: new Date(),
+          },
+          include: {
+            saleItems: {
+              include: {
+                devices: { select: { serialNumber: true } },
+              },
             },
           },
-        },
-      });
+        });
 
-      if (deviceChanges && deviceChanges.length > 0) {
-        await Promise.all(
-          deviceChanges.map((deviceChange) =>
-            tx.saleItem.update({
-              where: { id: deviceChange.saleItemId },
-              data: {
-                devices: {
-                  set: [],
+        if (deviceChanges && deviceChanges.length > 0) {
+          await Promise.all(
+            deviceChanges.map((deviceChange) =>
+              tx.saleItem.update({
+                where: { id: deviceChange.saleItemId },
+                data: {
+                  devices: {
+                    set: [],
+                  },
                 },
-              },
-            }),
-          ),
-        );
-        await Promise.all(
-          deviceChanges.map((deviceChange) =>
-            tx.saleItem.update({
-              where: { id: deviceChange.saleItemId },
-              data: {
-                devices: {
-                  set: deviceChange.newDeviceIds.map((id) => ({ id })),
+              }),
+            ),
+          );
+          await Promise.all(
+            deviceChanges.map((deviceChange) =>
+              tx.saleItem.update({
+                where: { id: deviceChange.saleItemId },
+                data: {
+                  devices: {
+                    set: deviceChange.newDeviceIds.map((id) => ({ id })),
+                  },
                 },
-              },
-            }),
-          ),
-        );
-      }
+              }),
+            ),
+          );
+        }
 
-      return { updatedSale };
-    },  { timeout: 30000 });
+        return { updatedSale };
+      },
+      { timeout: 30000 },
+    );
 
     return {
       id: result.updatedSale.id,
@@ -1062,6 +1065,15 @@ export class SalesService {
     if (sale.status === SalesStatus.CANCELLED) {
       throw new BadRequestException('This sale has been cancelled');
     }
+
+    const isFirstPayment = sale.totalPaid === 0;
+
+    // Validate payment amount matches exactly
+    await this.paymentService.validatePaymentAmountAndThrow(
+      dto.saleId,
+      dto.amount,
+      isFirstPayment,
+    );
 
     // Check if payment amount is valid
     const remainingAmount =
@@ -2055,10 +2067,10 @@ export class SalesService {
    */
   private async validateAndPrepareDeviceUpdates(
     deviceSerials: string[],
-    saleItemId: string
+    saleItemId: string,
   ) {
     const changes = [];
-  
+
     if (!deviceSerials.length) {
       changes.push({
         saleItemId,
@@ -2067,12 +2079,12 @@ export class SalesService {
       });
       return;
     }
-  
+
     const devices = await this.prisma.device.findMany({
       where: { serialNumber: { in: deviceSerials }, isUsed: false },
       select: { id: true, serialNumber: true },
     });
-  
+
     if (devices.length !== deviceSerials.length) {
       const found = new Set(devices.map((d) => d.serialNumber));
       const notFound = deviceSerials.filter((s) => !found.has(s));
@@ -2080,13 +2092,13 @@ export class SalesService {
         `Devices not found: ${notFound.join(', ')}`,
       );
     }
-  
+
     changes.push({
-      saleItemId, 
+      saleItemId,
       newDeviceIds: devices.map((d) => d.id),
       newSerials: devices.map((d) => d.serialNumber),
     });
-  
+
     return changes;
   }
 
@@ -2168,7 +2180,7 @@ export class SalesService {
             description: `Payment completion for sale ${updatedSale.formattedSaleId}`,
             previousBalance: wallet.balance,
             newBalance: wallet.balance - PAYMENT_AMOUNT,
-            status: "COMPLETED"
+            status: 'COMPLETED',
           },
           select: {
             id: true,
@@ -2368,14 +2380,13 @@ export class SalesService {
 
         await tx.payment.update({
           where: {
-            id: salePayment.id
+            id: salePayment.id,
           },
           data: {
             amount: salePayment.amount - amount,
           },
-        
         });
-       
+
         return {
           sale: updatedSale,
           wallet: updatedWallet,
@@ -2393,7 +2404,6 @@ export class SalesService {
     return {
       success: true,
       message: `Payment completed successfully for sale ${result.sale.formattedSaleId}`,
-     
     };
   }
 
@@ -2404,7 +2414,9 @@ export class SalesService {
     // Monthly payment: allow ±10% tolerance from default (accounts for rounding, custom negotiations)
     if (product.defaultMonthlyPayment && saleItem.monthlyPayment) {
       const tolerance = product.defaultMonthlyPayment * 0.1;
-      const diff = Math.abs(saleItem.monthlyPayment - product.defaultMonthlyPayment);
+      const diff = Math.abs(
+        saleItem.monthlyPayment - product.defaultMonthlyPayment,
+      );
       if (diff > tolerance) {
         throw new BadRequestException(
           `Monthly payment for "${product.name}" should be around ₦${product.defaultMonthlyPayment}. Got ₦${saleItem.monthlyPayment}. Allowed range: ₦${Math.floor(product.defaultMonthlyPayment - tolerance)}–₦${Math.ceil(product.defaultMonthlyPayment + tolerance)}.`,
