@@ -2854,9 +2854,10 @@ export class ExportService {
     if (filters.page && filters.page < 1) {
       throw new BadRequestException('Page must be greater than 0');
     }
-    if (filters.limit && (filters.limit < 1 || filters.limit > 5000)) {
-      throw new BadRequestException('Limit must be between 1 and 5000');
-    }
+    // Commenting this out heuristically to allow larger exports, but can re-enable if we want to enforce limits
+    // if (filters.limit && (filters.limit < 1 || filters.limit > 5000)) {
+    //   throw new BadRequestException('Limit must be between 1 and 5000');
+    // }
     if (
       filters.startDate &&
       filters.endDate &&

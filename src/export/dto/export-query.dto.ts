@@ -4,7 +4,7 @@ import {
   IsOptional,
   IsNumber,
   Min,
-  Max,
+  // Max,
   IsString,
   IsDateString,
   IsBoolean,
@@ -225,17 +225,18 @@ Minimum number of days since last payment to consider overdue.
   @Min(1)
   page?: number;
 
+  // Commenting max limit out heuristically to allow larger exports, but can re-enable if we want to enforce limits
   @ApiPropertyOptional({
     description: 'Number of records per page (max 5000)',
     example: 100,
     minimum: 1,
-    maximum: 5000,
+    // maximum: 5000,
   })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(5000)
+  // @Max(5000)
   limit?: number;
 
   @ApiPropertyOptional({
