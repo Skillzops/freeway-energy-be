@@ -56,6 +56,7 @@ export interface AgentImportRow {
   position: string;
   phone?: string;
   location?: string;
+  email?: string;
 }
 
 export interface CreatedAgent {
@@ -124,7 +125,52 @@ export class AgentsService {
     private readonly termiiService: TermiiService,
   ) {}
 
-  async create(createAgentDto: CreateAgentDto, userId) {
+  private readonly AGENT_COLUMN_MAPPINGS = new Map([
+    // First Name
+    ['first name', 'firstName'],
+    ['firstname', 'firstName'],
+    ['first_name', 'firstName'],
+    ['name', 'firstName'],
+
+    // Surname
+    ['surname', 'surname'],
+    ['last name', 'surname'],
+    ['lastname', 'surname'],
+    ['last_name', 'surname'],
+
+    // Position
+    ['position', 'position'],
+    ['role', 'position'],
+    ['job title', 'position'],
+
+    // Phone
+    ['whatsapp number', 'phone'],
+    ['whatsapp_number', 'phone'],
+    ['phone number', 'phone'],
+    ['phone', 'phone'],
+    ['mobile', 'phone'],
+
+    // Email
+    ['email address', 'email'],
+    ['email_address', 'email'],
+    ['email', 'email'],
+
+    // Location
+    ['state', 'state'],
+    ['lga', 'lga'],
+    ['village', 'village'],
+    ['location', 'location'],
+
+    // Gender (optional)
+    ['gender', 'gender'],
+    ['sex', 'gender'],
+
+    // Ignore these
+    ['timestamp', null],
+    ['password', null],
+  ]);
+
+  async create(createAgentDto: CreateAgentDto, userId: string) {
     const {
       email: emailFromDto,
       location,
@@ -134,6 +180,7 @@ export class AgentsService {
     } = createAgentDto;
 
     let email = emailFromDto;
+
     if (!email) {
       email = await this.generateUniqueEmail(
         createAgentDto.firstname,
@@ -151,7 +198,6 @@ export class AgentsService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    // Check if email or agentId already exists
     const existingAgent = await this.prisma.agent.findFirst({
       where: { userId },
     });
@@ -172,12 +218,8 @@ export class AgentsService {
     const hashedPassword = await hashPassword(password);
 
     let defaultRole = await this.prisma.role.findFirst({
-      where: {
-        role: 'AssignedAgent',
-      },
-      include: {
-        permissions: true,
-      },
+      where: { role: 'AssignedAgent' },
+      include: { permissions: true },
     });
 
     if (!defaultRole) {
@@ -192,12 +234,9 @@ export class AgentsService {
               },
             },
           },
-          include: {
-            permissions: true,
-          },
+          include: { permissions: true },
         });
       } catch (error) {
-        // If role already exists (race condition), fetch it
         if (error.code === 'P2002') {
           defaultRole = await this.prisma.role.findFirst({
             where: { role: 'AssignedAgent' },
@@ -228,9 +267,12 @@ export class AgentsService {
       },
     });
 
+    /**
+     * FIRE AND FORGET SMS
+     */
     if (newUser.phone) {
-      try {
-        await this.termiiService.sendSms({
+      this.termiiService
+        .sendSms({
           to: newUser.phone,
           message: await this.termiiService.formatAgentCredentialsMessage(
             newUser.firstname,
@@ -240,50 +282,24 @@ export class AgentsService {
           ),
           type: 'plain',
           channel: 'generic',
+        })
+        .catch((error) => {
+          this.logger.error('SMS sending failed', error);
         });
-      } catch (error) {
-        console.log({ error });
-      }
     }
 
-    // if (category != AgentCategory.BUSINESS) {
-    //   const resetToken = uuidv4();
-    //   const expirationTime = new Date();
-    //   expirationTime.setHours(expirationTime.getFullYear() + 1);
-
-    //   const token = await this.prisma.tempToken.create({
-    //     data: {
-    //       token: resetToken,
-    //       expiresAt: expirationTime,
-    //       token_type: TokenType.email_verification,
-    //       userId: newUser.id,
-    //     },
-    //   });
-
-    //   const platformName = 'A4T Energy';
-    //   const clientUrl = this.config.get<string>('CLIENT_URL');
-
-    //   const createPasswordUrl = `${clientUrl}create-password/${newUser.id}/${token.token}/`;
-
-    //   await this.Email.sendMail({
-    //     userId: newUser.id,
-    //     to: email,
-    //     from: this.config.get<string>('MAIL_FROM'),
-    //     subject: `Welcome to ${platformName} Agent Platform - Let's Get You Started!`,
-    //     template: './new-user-onboarding',
-    //     context: {
-    //       firstname: `Agent ${newUser.firstname}`,
-    //       userEmail: email,
-    //       platformName,
-    //       createPasswordUrl,
-    //       supportEmail: this.config.get<string>('MAIL_FROM') || 'a4t@gmail.com',
-    //     },
-    //   });
-    // }
-
-    return newUser;
+    /**
+     * RETURN CREDENTIALS IN RESPONSE
+     */
+    return {
+      agentId,
+      email,
+      password,
+      category,
+      fistname: newUser.firstname,
+      lastname: newUser.lastname,
+    };
   }
-
   async updateAgentDetails(agentId: string, updateAgentDto: UpdateAgentDto) {
     if (!this.isValidObjectId(agentId)) {
       throw new BadRequestException(`Invalid agent ID: ${agentId}`);
@@ -694,17 +710,19 @@ export class AgentsService {
             select: {
               user: {
                 select: {
-                  firstname: true
-                }
-              }
-            }
-          }
-        }
+                  firstname: true,
+                },
+              },
+            },
+          },
+        },
       },
     );
 
     if (alreadyAssigned.length > 0) {
-      const assignedIds = alreadyAssigned.map((p) => p.installer.user.firstname).join(', ');
+      const assignedIds = alreadyAssigned
+        .map((p) => p.installer.user.firstname)
+        .join(', ');
       throw new BadRequestException(
         `Agent has already been assigned the following installer(s): ${assignedIds}`,
       );
@@ -1112,23 +1130,25 @@ export class AgentsService {
         'Source and destination agents must be different',
       );
     }
-  
+
     if (!customerIds || customerIds.length === 0) {
-      throw new BadRequestException('At least one customer ID must be provided');
+      throw new BadRequestException(
+        'At least one customer ID must be provided',
+      );
     }
-  
+
     const uniqueCustomerIds = [...new Set(customerIds)];
-  
+
     // Validate both agents exist
     const [fromAgent, toAgent] = await Promise.all([
       this.findOne(fromAgentId),
       this.findOne(toAgentId),
     ]);
-  
+
     if (!fromAgent || !toAgent) {
       throw new NotFoundException('One or both agents not found');
     }
-  
+
     // Fetch customer details to validate
     const customers = await this.prisma.customer.findMany({
       where: {
@@ -1141,7 +1161,7 @@ export class AgentsService {
         phone: true,
       },
     });
-  
+
     if (customers.length !== uniqueCustomerIds.length) {
       const foundIds = customers.map((c) => c.id);
       const notFound = uniqueCustomerIds.filter((id) => !foundIds.includes(id));
@@ -1149,7 +1169,7 @@ export class AgentsService {
         `Customers not found: ${notFound.join(', ')}`,
       );
     }
-     
+
     const currentAssignments = await this.prisma.agentCustomer.findMany({
       where: {
         agentId: fromAgentId,
@@ -1161,13 +1181,13 @@ export class AgentsService {
         assignedBy: true,
       },
     });
-  
+
     if (currentAssignments.length === 0) {
       throw new BadRequestException(
         `Agent ${fromAgent.agentId || fromAgentId} is not assigned to any of these customers`,
       );
     }
-  
+
     // Find customers already assigned to destination agent
     const alreadyAssigned = await this.prisma.agentCustomer.findMany({
       where: {
@@ -1178,7 +1198,7 @@ export class AgentsService {
         customerId: true,
       },
     });
-  
+
     const alreadyAssignedIds = alreadyAssigned.map((a) => a.customerId);
     const customersToReassign = uniqueCustomerIds.filter(
       (id) => !alreadyAssignedIds.includes(id),
@@ -1186,9 +1206,9 @@ export class AgentsService {
     const conflictingCustomers = uniqueCustomerIds.filter((id) =>
       alreadyAssignedIds.includes(id),
     );
-     
+
     let reassignmentResult: any;
-  
+
     try {
       reassignmentResult = await this.prisma.$transaction(
         async (tx) => {
@@ -1206,7 +1226,7 @@ export class AgentsService {
               } as any,
             },
           });
-  
+
           // Step 2: Remove from old agent
           await tx.agentCustomer.deleteMany({
             where: {
@@ -1214,7 +1234,7 @@ export class AgentsService {
               customerId: { in: customersToReassign },
             },
           });
-  
+
           // Step 3: Assign to new agent
           await tx.agentCustomer.createMany({
             data: customersToReassign.map((customerId) => ({
@@ -1226,7 +1246,7 @@ export class AgentsService {
               reassignedAt: new Date(),
             })),
           });
-  
+
           return reassignmentLog;
         },
         {
@@ -1239,16 +1259,16 @@ export class AgentsService {
         `Transaction failed for reassignment from ${fromAgentId} to ${toAgentId}:`,
         error.message,
       );
-  
+
       if (error.code === 'P2028') {
-        throw new BadRequestException('Reassignment operation timed out. Please try again.');
+        throw new BadRequestException(
+          'Reassignment operation timed out. Please try again.',
+        );
       }
-  
-      throw new BadRequestException(
-        `Reassignment failed: ${error.message}`,
-      );
+
+      throw new BadRequestException(`Reassignment failed: ${error.message}`);
     }
-   
+
     return {
       success: true,
       message: `${customersToReassign.length} customer(s) reassigned successfully`,
@@ -2629,122 +2649,102 @@ export class AgentsService {
     }
   }
 
-  // ADD THIS METHOD to your bulk-agent-import.service-FIXED.ts
+  private detectDelimiter(line: string): string {
+    const tabCount = (line.match(/\t/g) || []).length;
+    const commaCount = (line.match(/,/g) || []).length;
+    const semicolonCount = (line.match(/;/g) || []).length;
 
-  /**
-   * Detect delimiter (tab or multiple spaces)
-   */
-  private detectDelimiter(csvContent: string): string {
-    const lines = csvContent.trim().split('\n');
-    if (lines.length === 0) return '\t';
-
-    const firstLine = lines[0];
-
-    // Count tabs
-    const tabCount = (firstLine.match(/\t/g) || []).length;
-
-    // Count multiple spaces (2+)
-    const spaceCount = (firstLine.match(/\s{2,}/g) || []).length;
-
-    // If more spaces than tabs, use space delimiter
-    if (spaceCount > tabCount) {
-      return ' '; // Will be handled as multiple spaces in split
-    }
-
-    return '\t';
+    if (tabCount >= commaCount && tabCount >= semicolonCount) return '\t';
+    if (commaCount >= semicolonCount) return ',';
+    return ';';
   }
 
-  /**
-   * Enhanced parse CSV that handles both tab and space delimiters
-   */
   private parseCsv(csvContent: string): AgentImportRow[] {
     const lines = csvContent.trim().split('\n');
+
     if (lines.length < 2) {
       throw new BadRequestException(
         'CSV must contain headers and at least one data row',
       );
     }
 
-    // Detect delimiter
-    const delimiter = this.detectDelimiter(csvContent);
-    let headers: string[];
+    // Auto-detect delimiter from header line
+    const delimiter = this.detectDelimiter(lines[0]);
 
-    if (delimiter === ' ') {
-      // Split by multiple spaces
-      headers = lines[0].split(/\s{2,}/).map((h) => h.trim().toLowerCase());
-    } else {
-      // Split by tabs
-      headers = lines[0].split('\t').map((h) => h.trim().toLowerCase());
+    // Parse and normalize headers
+    const rawHeaders = lines[0].split(delimiter);
+    const normalizedHeaders = rawHeaders.map((h) =>
+      h
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^a-z0-9 _]/g, ''),
+    );
+
+    // Map each header to a field name using AGENT_COLUMN_MAPPINGS
+    const fieldMap: Record<number, string> = {};
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      const header = normalizedHeaders[i];
+      if (this.AGENT_COLUMN_MAPPINGS.has(header)) {
+        const field = this.AGENT_COLUMN_MAPPINGS.get(header);
+        if (field !== null) {
+          fieldMap[i] = field;
+        }
+      }
     }
-    console.log({ csvContent, delimiter, headers });
 
-    // Find column indices
-    const columnIndices = {
-      name: headers.indexOf('name'),
-      surname: headers.indexOf('surname'),
-      position: headers.indexOf('position'),
-      phone: headers.indexOf('phone'),
-      location: headers.indexOf('location'),
-    };
+    // Check required fields are present
+    const foundFields = new Set(Object.values(fieldMap));
+    const required = ['firstName', 'surname', 'position'];
+    const missing = required.filter((f) => !foundFields.has(f));
 
-    // Validate required columns
-    if (
-      columnIndices.name === -1 ||
-      columnIndices.surname === -1 ||
-      columnIndices.position === -1 ||
-      columnIndices.phone === -1 ||
-      columnIndices.location === -1
-    ) {
+    if (missing.length > 0) {
       throw new BadRequestException(
-        `CSV must contain "NAME", "SURNAME", "POSITION", "PHONE", and "LOCATION" columns. Found: ${headers.join(', ')}`,
+        `CSV missing required columns: ${missing.join(', ')}. ` +
+          `Headers found: [${normalizedHeaders.join(' | ')}]`,
       );
     }
 
     const parsedRows: AgentImportRow[] = [];
 
-    // Parse data rows (skip header)
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
-      if (!line) continue; // Skip empty lines
+      if (!line) continue;
 
-      let columns: string[];
+      const columns = line.split(delimiter).map((c) => c.trim());
 
-      if (delimiter === ' ') {
-        // Split by multiple spaces
-        columns = line.split(/\s{2,}/).map((c) => c.trim());
-      } else {
-        // Split by tabs
-        columns = line.split('\t').map((c) => c.trim());
+      // Map columns to fields dynamically
+      const row: Record<string, string> = {};
+      for (const [colIndex, fieldName] of Object.entries(fieldMap)) {
+        row[fieldName] = columns[parseInt(colIndex)] || '';
       }
 
-      if (
-        columns.length > columnIndices.name &&
-        columns.length > columnIndices.surname &&
-        columns.length > columnIndices.position &&
-        columns.length > columnIndices.phone &&
-        columns.length > columnIndices.location
-      ) {
-        const name = columns[columnIndices.name];
-        const surname = columns[columnIndices.surname];
-        const position = columns[columnIndices.position];
-        const phone = columns[columnIndices.phone];
-        const location = columns[columnIndices.location];
+      const firstName = row['firstName'];
+      const surname = row['surname'];
+      const position = row['position'];
 
-        if (name && surname && position) {
-          parsedRows.push({
-            name,
-            surname,
-            position,
-            phone,
-            location,
-          });
-        }
-      }
+      if (!firstName || !surname || !position) continue;
+
+      // Build location from state + lga + village
+      const locationParts = [row['village'], row['lga'], row['state']].filter(
+        Boolean,
+      );
+      const location =
+        locationParts.length > 0 ? locationParts.join(', ') : undefined;
+
+      parsedRows.push({
+        name: firstName,
+        surname: surname,
+        position: position,
+        phone: row['phone'] || undefined,
+        location: location,
+        email: row['email'] || undefined,
+      });
     }
 
     if (parsedRows.length === 0) {
       throw new BadRequestException(
-        'CSV file contains headers but no valid data rows. Check formatting.',
+        'No valid data rows found. Check that required columns have values.',
       );
     }
 
@@ -2775,19 +2775,16 @@ export class AgentsService {
     lastName: string,
     attempt: number = 0,
   ): Promise<string> {
-    const baseEmail = `${firstName.toLowerCase() || 'user'}.${lastName.toLowerCase() || 'ln'}`;
+    // Strip spaces and special chars, lowercase
+    const cleanFirst = firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanLast = lastName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const base = `${cleanFirst}.${cleanLast}`;
     const email =
-      attempt === 0
-        ? `${baseEmail}@gmail.com`
-        : `${baseEmail}${attempt}@gmail.com`;
+      attempt === 0 ? `${base}@gmail.com` : `${base}${attempt}@gmail.com`;
 
-    // Check if email exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      // Try next attempt
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
       return this.generateUniqueEmail(firstName, lastName, attempt + 1);
     }
 
@@ -2890,19 +2887,24 @@ export class AgentsService {
     row: AgentImportRow,
   ): Promise<{ user: any; agent: any; credentials: CreatedAgent }> {
     try {
-      // Generate unique credentials
-      const email = await this.generateUniqueEmail(row.name, row.surname);
+      // Use sheet email if provided and not taken, otherwise generate
+      let email: string;
+      if (row.email) {
+        const exists = await this.prisma.user.findUnique({
+          where: { email: row.email },
+        });
+        email = exists
+          ? await this.generateUniqueEmail(row.name, row.surname)
+          : row.email;
+      } else {
+        email = await this.generateUniqueEmail(row.name, row.surname);
+      }
+
       const username = await this.generateUniqueUsername(row.name, row.surname);
       const plainPassword = generateRandomPassword(10);
       const hashedPassword = await hashPassword(plainPassword);
-
-      // Normalize position
       const position = this.normalizePosition(row.position);
 
-      // Get agent role
-      // const roleId = await this.getAgentRoleId();
-
-      // Create user with phone and location
       const user = await this.prisma.user.create({
         data: {
           firstname: row.name,
@@ -2910,19 +2912,15 @@ export class AgentsService {
           username,
           email,
           password: hashedPassword,
-          phone: cleanPhoneNumber(row.phone) || null,
+          phone: row.phone ? cleanPhoneNumber(row.phone) : null,
           location: row.location || null,
-          roleId: '687a8565e7b4874bfbcd78e6',
+          roleId: '687a8565e7b4874bfbcd78e6', // TOdo: Make this non-static
           status: UserStatus.active,
         },
       });
 
-      this.logger.log(`Created user: ${email}`);
-
-      // Increment agent counter
       this.agentCounter++;
 
-      // Create agent profile
       const agent = await this.prisma.agent.create({
         data: {
           userId: user.id,
@@ -2930,8 +2928,6 @@ export class AgentsService {
           category: position,
         },
       });
-
-      this.logger.log(`Created agent: ${agent.id} (${position})`);
 
       return {
         user,

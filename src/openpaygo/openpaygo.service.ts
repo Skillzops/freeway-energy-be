@@ -31,7 +31,7 @@ export class OpenPayGoService {
   ) {
     return decoder.decodeToken({
       token: token,
-      count: 8,
+      count: Number(device.count),
       usedCounts: [],
       secretKeyHex: device.key,
       valueDivider: Number(device.timeDivider),
