@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,6 +17,7 @@ import {
 import { GetAgentsDto, GetAgentsInstallersDto } from './dto/get-agent.dto';
 import { MESSAGES } from '../constants';
 import { ObjectId } from 'mongodb';
+import * as argon from 'argon2';
 import {
   ActionEnum,
   Agent,
@@ -37,6 +39,7 @@ import { GetCommisionFilterDto } from './dto/get-commission-filter.dto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { UpdateAgentDto } from './dto/update-agent.dto';
+import { ResetAgentPasswordDto } from './dto/reset-agent-pwd.dto';
 
 export interface AgentCredentialInfo {
   id: string;
@@ -300,6 +303,75 @@ export class AgentsService {
       lastname: newUser.lastname,
     };
   }
+
+  async resetAgentPassword(dto: ResetAgentPasswordDto, adminId: string) {
+    const { agentId, adminPassword } = dto;
+
+    const admin = await this.prisma.user.findUnique({
+      where: { id: adminId },
+    });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const isValidAdminPassword = await argon.verify(
+      adminPassword,
+      admin.password,
+    );
+
+    if (!isValidAdminPassword) {
+      throw new UnauthorizedException('Invalid admin password');
+    }
+
+    const agent = await this.prisma.agent.findFirst({
+      where: { agentId: Number(agentId) },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const newPassword = generateRandomPassword(10);
+    const hashedPassword = await hashPassword(newPassword);
+
+    await this.prisma.user.update({
+      where: { id: agent.userId },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    if (agent.user.phone) {
+      this.termiiService
+        .sendSms({
+          to: agent.user.phone,
+          message: await this.termiiService.formatAgentCredentialsMessage(
+            agent.user.firstname,
+            agent.user.email,
+            newPassword,
+            agent.category,
+          ),
+          type: 'plain',
+          channel: 'generic',
+        })
+        .catch((err) => {
+          this.logger.error('Failed to send reset SMS', err);
+        });
+    }
+
+    return {
+      agentId: agent.agentId,
+      email: agent.user.email,
+      newPassword,
+      firstname: agent.user.firstname,
+      lastname: agent.user.lastname,
+    };
+  }
+
   async updateAgentDetails(agentId: string, updateAgentDto: UpdateAgentDto) {
     if (!this.isValidObjectId(agentId)) {
       throw new BadRequestException(`Invalid agent ID: ${agentId}`);

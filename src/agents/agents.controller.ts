@@ -77,6 +77,7 @@ import {
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { CollapseDuplicateAgentRecordsDto } from './dto/collapse-dupliacte-agent-record.dto';
 import { AgentCollapseService } from './collapse-duplicate-agents.service';
+import { ResetAgentPasswordDto } from './dto/reset-agent-pwd.dto';
 
 @SkipThrottle()
 @ApiTags('Agents')
@@ -144,6 +145,22 @@ export class AgentsController {
     @GetSessionUser('id') id: string,
   ) {
     return await this.agentsService.create(CreateAgentDto, id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [`${ActionEnum.manage}:${SubjectEnum.Agents}`],
+  })
+  @ApiBearerAuth('access_token')
+  @ApiBody({
+    type: ResetAgentPasswordDto,
+  })
+  @Post('reset-password')
+  async resetAgentPassword(
+    @Body() dto: ResetAgentPasswordDto,
+    @GetSessionUser('id') adminId: string,
+  ) {
+    return this.agentsService.resetAgentPassword(dto, adminId);
   }
 
   @Patch('profile/me')
@@ -1221,7 +1238,9 @@ export class AgentsController {
   })
   @ApiBearerAuth('access_token')
   @Patch('fix/collapse-duplicate-agent-records')
-  async collapseDuplicateAgentRecords(@Body() body: CollapseDuplicateAgentRecordsDto) {
+  async collapseDuplicateAgentRecords(
+    @Body() body: CollapseDuplicateAgentRecordsDto,
+  ) {
     return this.agentCollapseService.collapseDuplicateAgentRecords(body);
   }
 
