@@ -169,11 +169,21 @@ export class OdysseyService {
       // financingId: null,
       meterId: device?.serialNumber || 'N/A',
       // agentId: null, // agentId,
+      // latitude:
+      //   (customer?.latitude && customer?.longitude) ? customer?.latitude: '',
+      // longitude: (customer?.latitude && customer?.longitude)?  customer?.longitude: '',
       latitude:
-        (customer?.latitude && customer?.longitude) ? customer?.latitude: '',
-      longitude: (customer?.latitude && customer?.longitude)?  customer?.longitude: '',
-      // latitude: device.installationLatitude ?? customer.latitude ?? '',
-      // longitude: device.installationLongitude ?? customer.longitude ?? '',
+        device?.installationLatitude && device?.installationLongitude
+          ? device?.installationLatitude
+          : customer?.latitude && customer?.longitude
+            ? customer?.latitude
+            : '',
+      longitude:
+        device?.installationLatitude && device?.installationLongitude
+          ? device?.installationLongitude
+          : customer?.latitude && customer?.longitude
+            ? customer.longitude
+            : '',
       // utilityId: null, // this.generateUtilityId(customer, sale),
       // failedBatteryCapacityCount: 0,
     };
@@ -246,7 +256,7 @@ export class OdysseyService {
   }
 
   private isInSite(payment: OdysseyPaymentDto, siteId: string): boolean {
-    console.log({payment, siteId})
+    console.log({ payment, siteId });
     // Implement site-based filtering if you have site data
     // For now, return true to include all payments
     return true;
