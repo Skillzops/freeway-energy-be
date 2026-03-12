@@ -3,7 +3,7 @@ import { IsNotEmpty, IsString } from 'class-validator';
 
 export class ResetAgentPasswordDto {
   @ApiProperty({
-    example: '52520059',
+    example: '69b32f1a8cd1df4767d6377f',
     description: 'Agent ID',
   })
   @IsNotEmpty()

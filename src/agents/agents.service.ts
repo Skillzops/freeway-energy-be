@@ -316,8 +316,8 @@ export class AgentsService {
     }
 
     const isValidAdminPassword = await argon.verify(
-      adminPassword,
       admin.password,
+      adminPassword,
     );
 
     if (!isValidAdminPassword) {
@@ -325,7 +325,7 @@ export class AgentsService {
     }
 
     const agent = await this.prisma.agent.findFirst({
-      where: { agentId: Number(agentId) },
+      where: { id: agentId },
       include: {
         user: true,
       },
