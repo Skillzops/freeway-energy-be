@@ -155,7 +155,7 @@ export class AgentsController {
   @ApiBody({
     type: ResetAgentPasswordDto,
   })
-  @Post('reset-password')
+  @Post('admin/reset-password')
   async resetAgentPassword(
     @Body() dto: ResetAgentPasswordDto,
     @GetSessionUser('id') adminId: string,
