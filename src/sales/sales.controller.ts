@@ -334,47 +334,47 @@ export class SalesController {
       `${ActionEnum.write}:${SubjectEnum.Sales}`,
     ],
   })
-  @Post('create-donations')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({
-    summary: 'Create police station device donation sales',
-    description:
-      'Admin only endpoint. Creates special donation sales for specific customers (e.g police stations). ' +
-      'Creates one Sale + one SaleItem per device with ₦0 payment. ' +
-      'Customers are flagged as one-time use (cannot be used in regular sales). ' +
-      'Devices are linked directly, no new token generation needed.',
-  })
-  @ApiBody({
-    type: CreateDonationSaleDto,
-  })
-  async createPoliceDonationSales(
-    @Body() dto: CreateDonationSaleDto,
-    @GetSessionUser('id') adminUserId: string,
-  ): Promise<BatchDonationResponseDto> {
-    return await this.salesDonationService.createDonationSales(
-      adminUserId,
-      dto,
-    );
-  }
+  // @Post('create-donations')
+  // @HttpCode(HttpStatus.CREATED)
+  // @ApiOperation({
+  //   summary: 'Create police station device donation sales',
+  //   description:
+  //     'Admin only endpoint. Creates special donation sales for specific customers (e.g police stations). ' +
+  //     'Creates one Sale + one SaleItem per device with ₦0 payment. ' +
+  //     'Customers are flagged as one-time use (cannot be used in regular sales). ' +
+  //     'Devices are linked directly, no new token generation needed.',
+  // })
+  // @ApiBody({
+  //   type: CreateDonationSaleDto,
+  // })
+  // async createPoliceDonationSales(
+  //   @Body() dto: CreateDonationSaleDto,
+  //   @GetSessionUser('id') adminUserId: string,
+  // ): Promise<BatchDonationResponseDto> {
+  //   return await this.salesDonationService.createDonationSales(
+  //     adminUserId,
+  //     dto,
+  //   );
+  // }
 
-  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
-  @RolesAndPermissions({
-    permissions: [
-      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
-      `${ActionEnum.read}:${SubjectEnum.Sales}`,
-    ],
-  })
-  @Get('donations')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get all police donation sales',
-    description:
-      'Retrieve all device donations sale records. ' +
-      'Shows devices granted, agents involved, and unlock status.',
-  })
-  async getPoliceDonationSales() {
-    return await this.salesDonationService.getPoliceDonationSales();
-  }
+  // @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  // @RolesAndPermissions({
+  //   permissions: [
+  //     `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+  //     `${ActionEnum.read}:${SubjectEnum.Sales}`,
+  //   ],
+  // })
+  // @Get('donations')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({
+  //   summary: 'Get all police donation sales',
+  //   description:
+  //     'Retrieve all device donations sale records. ' +
+  //     'Shows devices granted, agents involved, and unlock status.',
+  // })
+  // async getPoliceDonationSales() {
+  //   return await this.salesDonationService.getPoliceDonationSales();
+  // }
 
   @ApiExcludeEndpoint()
   @Post(':id/restore-overpayment')
