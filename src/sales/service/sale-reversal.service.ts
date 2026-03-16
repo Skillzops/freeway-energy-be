@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { SalesStatus, PaymentStatus, TaskStatus } from '@prisma/client';
-import { WalletService } from '../wallet/wallet.service';
+import { WalletService } from '../../wallet/wallet.service';
 import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
 
 @Injectable()

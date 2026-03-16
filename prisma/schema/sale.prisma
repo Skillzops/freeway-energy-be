@@ -27,9 +27,9 @@ model Sales {
   payment Payment[]
 
   paymentGateway PaymentGateway @default(OGARANYA)
-  
+
   lastTokenGenerationError String?
-  tokenGenerationFailures TokenGenerationFailure[]
+  tokenGenerationFailures  TokenGenerationFailure[]
 
   walletTransactions WalletTransaction[]
   installerTasks     InstallerTask[]
@@ -171,6 +171,7 @@ enum SalesStatus {
   IN_INSTALLMENT
   UNPAID
   CANCELLED // The shows sales that were not paid for in time hence, all it's inventories were restored.
+  DONATION
 }
 
 // real agent ID: 69022f8b16c1f0eb2f05087e, user ID  69022f8b16c1f0eb2f05087d

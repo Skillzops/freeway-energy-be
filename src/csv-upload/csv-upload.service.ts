@@ -28,7 +28,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
 import { EmailService } from 'src/mailer/email.service';
-import { SalesIdGeneratorService } from 'src/sales/saleid-generator';
+import { SalesIdGeneratorService } from 'src/sales/service/saleid-generator';
 
 interface ProcessingSession {
   id: string;
@@ -995,6 +995,7 @@ export class CsvUploadService {
             { firstname: customerData.firstname },
             { lastname: customerData.lastname },
           ],
+          isDonationCustomer: false,
         },
       });
 

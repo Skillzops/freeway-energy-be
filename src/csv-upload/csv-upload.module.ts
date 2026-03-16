@@ -10,7 +10,7 @@ import { CsvProcessingProcessor } from './csv-processing.processor';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailModule } from 'src/mailer/email.module';
 import { PricingLookupService } from './pricing-lookup.service';
-import { SalesIdGeneratorService } from 'src/sales/saleid-generator';
+import { SalesIdGeneratorService } from 'src/sales/service/saleid-generator';
 
 @Module({
   imports: [

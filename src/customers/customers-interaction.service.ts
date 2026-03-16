@@ -22,7 +22,7 @@ export class CustomerInteractionService {
   ) {
     // Validate customer exists
     const customer = await this.prisma.customer.findUnique({
-      where: { id: customerId },
+      where: { id: customerId, isDonationCustomer: false },
     });
 
     if (!customer) {
@@ -167,7 +167,7 @@ export class CustomerInteractionService {
   ) {
     // Validate customer exists
     const customer = await this.prisma.customer.findUnique({
-      where: { id: customerId },
+      where: { id: customerId, isDonationCustomer: false },
     });
 
     if (!customer) {
@@ -395,7 +395,7 @@ export class CustomerInteractionService {
   async getInteractionStats(customerId: string) {
     // Validate customer exists
     const customer = await this.prisma.customer.findUnique({
-      where: { id: customerId },
+      where: { id: customerId, isDonationCustomer: false },
     });
 
     if (!customer) {

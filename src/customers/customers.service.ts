@@ -285,7 +285,7 @@ export class CustomersService {
     const customers = await this.prisma.customer.findMany({
       skip,
       take: limitNumber,
-      where: filterConditions,
+      where: { ...filterConditions, isDonationCustomer: false },
       orderBy,
       include: {
         creatorDetails: {
@@ -302,7 +302,7 @@ export class CustomersService {
             firstname: true,
             lastname: true,
             email: true,
-          }
+          },
         },
         rejecter: {
           select: {
@@ -310,8 +310,8 @@ export class CustomersService {
             firstname: true,
             lastname: true,
             email: true,
-          }
-        }
+          },
+        },
       },
     });
 
@@ -442,6 +442,7 @@ export class CustomersService {
             ...(creatorId ? [{ creatorId }] : []),
           ],
         }),
+        isDonationCustomer: false,
         // assignedAgents: agent ? { some: { agentId: agent } } : undefined,
         // ...(creatorId? { creatorId } : {}),
       },

@@ -20,7 +20,7 @@ import {
 } from '@prisma/client';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { CreateTaskDto } from './dto/create-task.dto';
-import { SalesService } from 'src/sales/sales.service';
+import { SalesService } from 'src/sales/service/sales.service';
 import {
   ApiBody,
   ApiExtraModels,

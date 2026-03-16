@@ -21,6 +21,8 @@ model Customer {
   idNumber   String?
   idImageUrl String?
 
+  isDonationCustomer Boolean @default(false) // Flag: this customer is a one-time donation
+
   contractFormImageUrl String?
 
   approvalStatus ApprovalStatus @default(PENDING)
@@ -59,6 +61,7 @@ model Customer {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@index([isDonationCustomer])
   @@index([createdAt])
   @@index([status])
   @@index([state])

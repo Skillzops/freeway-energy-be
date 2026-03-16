@@ -1225,6 +1225,7 @@ export class AgentsService {
     const customers = await this.prisma.customer.findMany({
       where: {
         id: { in: uniqueCustomerIds },
+        isDonationCustomer: false,
       },
       select: {
         id: true,

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { SalesService } from './sales.service';
+import { SalesService } from './service/sales.service';
 import { SalesController } from './sales.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { ContractService } from '../contract/contract.service';
@@ -14,9 +14,10 @@ import { BullModule } from '@nestjs/bullmq';
 import { WalletModule } from 'src/wallet/wallet.module';
 import { PaymentModule } from 'src/payment/payment.module';
 import { AuthModule } from 'src/auth/auth.module';
-import { SalesIdGeneratorService } from './saleid-generator';
+import { SalesIdGeneratorService } from './service/saleid-generator';
 import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
-import { SaleReversalService } from './sale-reversal.service';
+import { SaleReversalService } from './service/sale-reversal.service';
+import { SalesDonationService } from './service/sales-donation.service';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { SaleReversalService } from './sale-reversal.service';
     SalesIdGeneratorService,
     SaleReversalService,
     DeviceAssignmentService,
+    SalesDonationService,
   ],
   exports: [
     SalesService,

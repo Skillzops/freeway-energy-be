@@ -5,12 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateSalesDto,
   SaleItemDto,
   UpdateSaleDto,
-} from './dto/create-sales.dto';
+} from '../dto/create-sales.dto';
 import {
   BatchAlocation,
   PaymentGateway,
@@ -21,16 +21,16 @@ import {
   SalesStatus,
   TaskStatus,
 } from '@prisma/client';
-import { ValidateSaleProductItemDto } from './dto/validate-sale-product.dto';
-import { ContractService } from '../contract/contract.service';
-import { PaymentService } from '../payment/payment.service';
-import { BatchAllocation, ProcessedSaleItem } from './sales.interface';
-import { CreateFinancialMarginDto } from './dto/create-financial-margins.dto';
+import { ValidateSaleProductItemDto } from '../dto/validate-sale-product.dto';
+import { ContractService } from '../../contract/contract.service';
+import { PaymentService } from '../../payment/payment.service';
+import { BatchAllocation, ProcessedSaleItem } from '../sales.interface';
+import { CreateFinancialMarginDto } from '../dto/create-financial-margins.dto';
 import { CreateNextPaymentDto } from 'src/payment/dto/cash-payment.dto';
-import { ListSalesQueryDto } from './dto/list-sales.dto';
+import { ListSalesQueryDto } from '../dto/list-sales.dto';
 import { plainToInstance } from 'class-transformer';
-import { UserEntity } from '../users/entity/user.entity';
-import { WalletService } from '../wallet/wallet.service';
+import { UserEntity } from '../../users/entity/user.entity';
+import { WalletService } from '../../wallet/wallet.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ReferenceGeneratorService } from 'src/payment/reference-generator.service';
@@ -1404,7 +1404,7 @@ export class SalesService {
     creatingAgentId: string,
   ): Promise<{ valid: boolean; message?: string }> {
     const customer = await this.prisma.customer.findUnique({
-      where: { id: customerId },
+      where: { id: customerId, isDonationCustomer: false },
       select: {
         id: true,
         firstname: true,
@@ -1472,6 +1472,7 @@ export class SalesService {
     const customer = await this.prisma.customer.findUnique({
       where: {
         id: dto.customerId,
+        isDonationCustomer: false,
       },
     });
 

@@ -1959,10 +1959,8 @@ export class DeviceService {
     // ---- CUSTOMERS ----
     const allCustomers = await this.prisma.customer.findMany({
       where: {
-        OR: [
-          { longitude: { not: null } },
-          { latitude: { not: null } },
-        ],
+        OR: [{ longitude: { not: null } }, { latitude: { not: null } }],
+        isDonationCustomer: false,
       },
       select: {
         id: true,

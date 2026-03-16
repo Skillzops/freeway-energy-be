@@ -29,7 +29,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { GetSessionUser } from '../auth/decorators/getUser';
-import { SalesService } from './sales.service';
+import { SalesService } from './service/sales.service';
 import { CreateSalesDto, UpdateSaleDto } from './dto/create-sales.dto';
 import { ValidateSaleProductDto } from './dto/validate-sale-product.dto';
 import { CreateFinancialMarginDto } from './dto/create-financial-margins.dto';
@@ -38,8 +38,13 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ListSalesQueryDto } from './dto/list-sales.dto';
 import { AuthService } from 'src/auth/auth.service';
-import { SalesIdGeneratorService } from './saleid-generator';
-import { SaleReversalService } from './sale-reversal.service';
+import { SalesIdGeneratorService } from './service/saleid-generator';
+import { SaleReversalService } from './service/sale-reversal.service';
+import { SalesDonationService } from './service/sales-donation.service';
+import {
+  BatchDonationResponseDto,
+  CreateDonationSaleDto,
+} from './dto/sales-donation.dto';
 
 @SkipThrottle()
 @ApiTags('Sales')
@@ -60,6 +65,7 @@ export class SalesController {
     private readonly authService: AuthService,
     private readonly salesIdGenerator: SalesIdGeneratorService,
     private readonly saleReversalService: SaleReversalService,
+    private readonly salesDonationService: SalesDonationService,
     @InjectQueue('payment-queue') private paymentQueue: Queue,
   ) {}
 
@@ -317,10 +323,57 @@ export class SalesController {
     name: 'id',
     description: 'Sale ID to complete',
   })
-  async completeSalePayment(
-    @Param('id') saleId: string,
-  ) {
+  async completeSalePayment(@Param('id') saleId: string) {
     return await this.salesService.completeSalePayment(saleId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.write}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Post('create-donations')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create police station device donation sales',
+    description:
+      'Admin only endpoint. Creates special donation sales for specific customers (e.g police stations). ' +
+      'Creates one Sale + one SaleItem per device with ₦0 payment. ' +
+      'Customers are flagged as one-time use (cannot be used in regular sales). ' +
+      'Devices are linked directly, no new token generation needed.',
+  })
+  @ApiBody({
+    type: CreateDonationSaleDto,
+  })
+  async createPoliceDonationSales(
+    @Body() dto: CreateDonationSaleDto,
+    @GetSessionUser('id') adminUserId: string,
+  ): Promise<BatchDonationResponseDto> {
+    return await this.salesDonationService.createDonationSales(
+      adminUserId,
+      dto,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Sales}`,
+      `${ActionEnum.read}:${SubjectEnum.Sales}`,
+    ],
+  })
+  @Get('donations')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all police donation sales',
+    description:
+      'Retrieve all device donations sale records. ' +
+      'Shows devices granted, agents involved, and unlock status.',
+  })
+  async getPoliceDonationSales() {
+    return await this.salesDonationService.getPoliceDonationSales();
   }
 
   @ApiExcludeEndpoint()
@@ -338,7 +391,7 @@ export class SalesController {
   })
   async restoreSaleOverpayment(
     @Param('id') saleId: string,
-    @Body("amount") amount: number
+    @Body('amount') amount: number,
   ) {
     return await this.salesService.restoreSaleOverpayment(saleId, amount);
   }
