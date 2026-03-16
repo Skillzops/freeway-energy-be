@@ -359,7 +359,7 @@ export class SalesDonationService {
             const createdSale = await tx.sales.create({
               data: {
                 customerId: customer.id,
-                creatorId: agent.userId, // Agent's user ID (creator of the sale)
+                creatorId: adminUserId,
                 agentId: agent.id,
                 agentName: `${agent.user.firstname} ${agent.user.lastname}`,
                 formattedSaleId,
