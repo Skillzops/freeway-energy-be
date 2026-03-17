@@ -37,7 +37,7 @@ import * as path from 'path';
 import { AuthService } from 'src/auth/auth.service';
 import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from './token-generation-failure.service';
-import { parseCoordinate } from 'src/utils/helpers.util';
+import { isValidCoordinate, parseCoordinate } from 'src/utils/helpers.util';
 
 @Injectable()
 export class DeviceService {
@@ -1927,12 +1927,6 @@ export class DeviceService {
   async fixInvalidCoordinates(dryRun: boolean = false) {
     const startTime = Date.now();
     this.logger.log(`Starting invalid coordinate fix (dryRun: ${dryRun})...`);
-  
-    const isValidCoordinate = (value: string | null): boolean => {
-      if (value === null || value === undefined) return true; // null is fine, we only fix invalid strings
-      const num = parseFloat(value);
-      return !isNaN(num) && isFinite(num);
-    };
   
     // ---- DEVICES ----
     const allDevices = await this.prisma.device.findMany({

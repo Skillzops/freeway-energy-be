@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OdysseyPaymentDto, OdysseyPaymentQueryDto } from './dto/odyssey.dto';
 import { PaymentStatus } from '@prisma/client';
+import { isValidCoordinate } from 'src/utils/helpers.util';
 
 @Injectable()
 export class OdysseyService {
@@ -153,6 +154,30 @@ export class OdysseyService {
     //   ? `${sale.creatorDetails.firstname}-${sale.creatorDetails.lastname}-${sale.creatorDetails.id}`
     //   : 'system-agent';
 
+    const getValidCoords = (lat?: string | null, lng?: string | null) => {
+      if (lat && lng && isValidCoordinate(lat) && isValidCoordinate(lng)) {
+        return { latitude: lat, longitude: lng };
+      }
+
+      return null;
+    };
+
+    const deviceCoords = getValidCoords(
+      device?.installationLatitude,
+      device?.installationLongitude,
+    );
+
+    const customerCoords = getValidCoords(
+      customer?.latitude,
+      customer?.longitude,
+    );
+
+    const coords = deviceCoords ||
+      customerCoords || {
+        latitude: '',
+        longitude: '',
+      };
+
     return {
       timestamp: payment.paymentDate.toISOString(),
       amount: payment.amount,
@@ -172,18 +197,8 @@ export class OdysseyService {
       // latitude:
       //   (customer?.latitude && customer?.longitude) ? customer?.latitude: '',
       // longitude: (customer?.latitude && customer?.longitude)?  customer?.longitude: '',
-      latitude:
-        device?.installationLatitude && device?.installationLongitude
-          ? device?.installationLatitude
-          : customer?.latitude && customer?.longitude
-            ? customer?.latitude
-            : '',
-      longitude:
-        device?.installationLatitude && device?.installationLongitude
-          ? device?.installationLongitude
-          : customer?.latitude && customer?.longitude
-            ? customer.longitude
-            : '',
+      latitude: coords.latitude,
+      longitude: coords.longitude,
       // utilityId: null, // this.generateUtilityId(customer, sale),
       // failedBatteryCapacityCount: 0,
     };

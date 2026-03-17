@@ -49,7 +49,6 @@ export const toRadians = (degrees: number): number => {
   return degrees * (Math.PI / 180);
 };
 
-
 export function cleanPhoneNumber(phone: any): string {
   if (!phone) return '';
 
@@ -89,3 +88,8 @@ export function parseCoordinate(value: any): string | null {
   return cleaned;
 }
 
+export const isValidCoordinate = (value: string | null): boolean => {
+  if (value === null || value === undefined) return true;
+
+  return /^-?\d+(\.\d+)?$/.test(value.trim());
+};
