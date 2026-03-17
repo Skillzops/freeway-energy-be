@@ -1529,24 +1529,54 @@ export class DeviceService {
           _count: {
             select: { tokens: true },
           },
+          assignments: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              agentId: true,
+              assignedAt: true,
+              agent: {
+                select: {
+                  id: true,
+                  user: {
+                    select: {
+                      firstname: true,
+                      lastname: true,
+                      phone: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+            },
+            take: 1, // Only get the active assignment
+          },
         },
         orderBy,
       }),
       this.prisma.device.count({ where: filterConditions }),
     ]);
 
-    // Fetch customer details efficiently in one batch
-    const deviceIds = devices.map((d) => d.id);
-    const deviceCustomers = await this.getDeviceCustomers(deviceIds);
+   const deviceIds = devices.map((d) => d.id);
+   const deviceCustomers = await this.getDeviceCustomers(deviceIds);
 
-    // Merge customer data into devices
-    const devicesWithCustomers = devices.map((device) => ({
-      ...device,
-      customer: deviceCustomers[device.id] || null,
-    }));
+   const devicesWithDetails = devices.map((device) => ({
+     ...device,
+     customer: deviceCustomers[device.id] || null,
+     assignedAgent: device.assignments?.[0]
+       ? {
+           id: device.assignments[0].agentId,
+           name: `${device.assignments[0].agent.user.firstname} ${device.assignments[0].agent.user.lastname}`,
+           phone: device.assignments[0].agent.user.phone,
+           email: device.assignments[0].agent.user.email,
+           assignedAt: device.assignments[0].assignedAt,
+         }
+       : null,
+     assignments: undefined, // Remove raw assignments array from response
+   }));
 
     return {
-      devices: devicesWithCustomers,
+      devices: devicesWithDetails,
       total: totalCount,
       page,
       limit,
