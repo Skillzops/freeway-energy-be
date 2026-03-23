@@ -2,14 +2,14 @@ model DeviceAssignment {
     id           String                    @id @default(auto()) @map("_id") @db.ObjectId
     deviceId     String                    @db.ObjectId
     device       Device                    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-    agentId      String                    @db.ObjectId
+    agentId      String?                   @db.ObjectId
     assignedAt   DateTime                  @default(now())
     unassignedAt DateTime?
     isActive     Boolean                   @default(true)
     batchId      String?                   @db.ObjectId
     batch        DeviceAssignmentBatch?    @relation(fields: [batchId], references: [id])
     history      DeviceAssignmentHistory[]
-    agent        Agent                     @relation(fields: [agentId], references: [id])
+    agent        Agent?                    @relation(fields: [agentId], references: [id])
 
     @@unique([deviceId, agentId, unassignedAt])
     @@index([agentId])

@@ -47,7 +47,7 @@ export class DeviceService {
     private readonly authService: AuthService,
     private readonly notificationService: NotificationService,
     private readonly tokenFailureService: TokenGenerationFailureService,
-    
+
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
 
@@ -393,43 +393,43 @@ export class DeviceService {
     console.log('Starting device installation sync (aggregateRaw)...');
 
     // STEP 1: Get completed tasks with devices using aggregateRaw (FAST - no timeout)
-    const taskDeviceData = await this.prisma.installerTask.aggregateRaw({
+    const taskDeviceData = (await this.prisma.installerTask.aggregateRaw({
       pipeline: [
         {
-          $match: { status: 'COMPLETED' }
+          $match: { status: 'COMPLETED' },
         },
         {
           $lookup: {
             from: 'sales', // ✅ @@map("sales")
             localField: 'saleId',
             foreignField: '_id',
-            as: 'sale'
-          }
+            as: 'sale',
+          },
         },
         {
-          $unwind: '$sale'
+          $unwind: '$sale',
         },
         {
           $lookup: {
             from: 'sales_items', // ✅ @@map("sales_items")
             localField: 'sale._id',
             foreignField: 'saleId',
-            as: 'saleItems'
-          }
+            as: 'saleItems',
+          },
         },
         {
-          $unwind: '$saleItems'
+          $unwind: '$saleItems',
         },
         {
           $lookup: {
             from: 'devices', // ✅ @@map("devices")
             localField: 'saleItems.deviceIDs', // IMPORTANT (see below)
             foreignField: '_id',
-            as: 'device'
-          }
+            as: 'device',
+          },
         },
         {
-          $unwind: '$device'
+          $unwind: '$device',
         },
         {
           $project: {
@@ -441,11 +441,11 @@ export class DeviceService {
             deviceLng: '$device.installationLongitude',
             installationAddress: 1,
             installationLatitude: 1,
-            installationLongitude: 1
-          }
-        }
-      ]
-    }) as any;
+            installationLongitude: 1,
+          },
+        },
+      ],
+    })) as any;
 
     console.log(`Found ${taskDeviceData.length} task-device records`);
 
@@ -460,7 +460,7 @@ export class DeviceService {
       if (deviceUpdatesMap.has(record.deviceId)) continue; // Skip duplicates
 
       const updateData: any = {
-        installationStatus: 'installed'
+        installationStatus: 'installed',
       };
 
       if (!record.deviceLocation && record.installationAddress) {
@@ -469,7 +469,7 @@ export class DeviceService {
 
       deviceUpdatesMap.set(record.deviceId, {
         id: record.deviceId,
-        data: updateData
+        data: updateData,
       });
     }
 
@@ -499,35 +499,38 @@ export class DeviceService {
                 batch.map((u) =>
                   tx.device.update({
                     where: { id: u.id },
-                    data: u.data
-                  })
-                )
+                    data: u.data,
+                  }),
+                ),
               );
             },
-            { timeout: 30000 }
-          )
+            { timeout: 30000 },
+          ),
         );
       }
 
       const results = await Promise.all(promises);
       totalUpdated += results.reduce((sum, batch) => sum + batch.length, 0);
 
-      const processed = Math.min(i + batchSize * parallelBatches, updates.length);
+      const processed = Math.min(
+        i + batchSize * parallelBatches,
+        updates.length,
+      );
       console.log(`✅ Processed ${processed}/${updates.length}`);
     }
 
     const durationMs = Date.now() - startTime;
     console.log(
-      `✅ Completed: ${totalUpdated} devices in ${durationMs}ms (${(durationMs / totalUpdated).toFixed(2)}ms per device)`
+      `✅ Completed: ${totalUpdated} devices in ${durationMs}ms (${(durationMs / totalUpdated).toFixed(2)}ms per device)`,
     );
 
     return { updated: totalUpdated, durationMs };
   }
 
-  async resetDeviceCount(deviceId: string, userId: string){
+  async resetDeviceCount(deviceId: string, userId: string) {
     const device = await this.prisma.device.findFirst({
       where: {
-        id: deviceId
+        id: deviceId,
       },
     });
 
@@ -535,17 +538,11 @@ export class DeviceService {
       throw new BadRequestException('Device not found');
     }
 
-    const resetToken = await this.openPayGo.resetDeviceCount(
-      device,
-    );
+    const resetToken = await this.openPayGo.resetDeviceCount(device);
 
-    const duration = 30
+    const duration = 30;
 
-    const token = await this.openPayGo.generateToken(
-      device,
-      duration,
-      1,
-    );
+    const token = await this.openPayGo.generateToken(device, duration, 1);
 
     await this.prisma.device.update({
       where: { id: device.id },
@@ -562,14 +559,13 @@ export class DeviceService {
       },
     });
 
-    return {resetToken, token}
-
+    return { resetToken, token };
   }
 
-  async decodeDeviceToken(deviceId: string, token: string){
+  async decodeDeviceToken(deviceId: string, token: string) {
     const device = await this.prisma.device.findFirst({
       where: {
-        id: deviceId
+        id: deviceId,
       },
     });
 
@@ -577,10 +573,7 @@ export class DeviceService {
       throw new BadRequestException('Device not found');
     }
 
-    return  await this.openPayGo.decodeToken(
-      device,
-      token
-    )
+    return await this.openPayGo.decodeToken(device, token);
   }
 
   async updateDeviceLocation(
@@ -1530,11 +1523,12 @@ export class DeviceService {
             select: { tokens: true },
           },
           assignments: {
-            where: { isActive: true },
+            where: { isActive: true, NOT: { agentId: null } },
             select: {
               id: true,
               agentId: true,
               assignedAt: true,
+
               agent: {
                 select: {
                   id: true,
@@ -1557,23 +1551,23 @@ export class DeviceService {
       this.prisma.device.count({ where: filterConditions }),
     ]);
 
-   const deviceIds = devices.map((d) => d.id);
-   const deviceCustomers = await this.getDeviceCustomers(deviceIds);
+    const deviceIds = devices.map((d) => d.id);
+    const deviceCustomers = await this.getDeviceCustomers(deviceIds);
 
-   const devicesWithDetails = devices.map((device) => ({
-     ...device,
-     customer: deviceCustomers[device.id] || null,
-     assignedAgent: device.assignments?.[0]
-       ? {
-           id: device.assignments[0].agentId,
-           name: `${device.assignments[0].agent.user.firstname} ${device.assignments[0].agent.user.lastname}`,
-           phone: device.assignments[0].agent.user.phone,
-           email: device.assignments[0].agent.user.email,
-           assignedAt: device.assignments[0].assignedAt,
-         }
-       : null,
-     assignments: undefined, // Remove raw assignments array from response
-   }));
+    const devicesWithDetails = devices.map((device) => ({
+      ...device,
+      customer: deviceCustomers[device.id] || null,
+      assignedAgent: device.assignments?.[0].agent?.user
+        ? {
+            id: device.assignments[0].agentId,
+            name: `${device.assignments[0].agent.user.firstname} ${device.assignments[0].agent.user.lastname}`,
+            phone: device.assignments[0].agent.user.phone,
+            email: device.assignments[0].agent.user.email,
+            assignedAt: device.assignments[0].assignedAt,
+          }
+        : null,
+      assignments: undefined, // Remove raw assignments array from response
+    }));
 
     return {
       devices: devicesWithDetails,
@@ -1772,7 +1766,7 @@ export class DeviceService {
   ): Promise<any> {
     try {
       let tokenDuration: number;
-      let installmentInfo: any
+      let installmentInfo: any;
 
       if (paymentMode === PaymentMode.ONE_OFF) {
         tokenDuration = -1;
@@ -1843,7 +1837,7 @@ export class DeviceService {
         error.message,
         error.stack,
       );
-      
+
       return null;
     }
   }
@@ -1957,7 +1951,7 @@ export class DeviceService {
   async fixInvalidCoordinates(dryRun: boolean = false) {
     const startTime = Date.now();
     this.logger.log(`Starting invalid coordinate fix (dryRun: ${dryRun})...`);
-  
+
     // ---- DEVICES ----
     const allDevices = await this.prisma.device.findMany({
       where: {
@@ -1973,13 +1967,13 @@ export class DeviceService {
         installationLongitude: true,
       },
     });
-  
+
     const invalidDevices = allDevices.filter(
       (d) =>
         !isValidCoordinate(d.installationLatitude) ||
         !isValidCoordinate(d.installationLongitude),
     );
-  
+
     // ---- CUSTOMERS ----
     const allCustomers = await this.prisma.customer.findMany({
       where: {
@@ -1994,13 +1988,11 @@ export class DeviceService {
         longitude: true,
       },
     });
-  
+
     const invalidCustomers = allCustomers.filter(
-      (c) =>
-        !isValidCoordinate(c.latitude) ||
-        !isValidCoordinate(c.longitude),
+      (c) => !isValidCoordinate(c.latitude) || !isValidCoordinate(c.longitude),
     );
-  
+
     // ---- STATS ----
     const stats = {
       devices: {
@@ -2023,12 +2015,16 @@ export class DeviceService {
         records: invalidCustomers.map((c) => ({
           id: c.id,
           name: `${c.firstname} ${c.lastname}`,
-          invalidLatitude: !isValidCoordinate(c.latitude) ? c.latitude : undefined,
-          invalidLongitude: !isValidCoordinate(c.longitude) ? c.longitude : undefined,
+          invalidLatitude: !isValidCoordinate(c.latitude)
+            ? c.latitude
+            : undefined,
+          invalidLongitude: !isValidCoordinate(c.longitude)
+            ? c.longitude
+            : undefined,
         })),
       },
     };
-  
+
     if (dryRun) {
       this.logger.log(
         `Dry run complete — ${invalidDevices.length} devices and ${invalidCustomers.length} customers would be updated`,
@@ -2039,16 +2035,16 @@ export class DeviceService {
         ...stats,
       };
     }
-  
+
     // ---- UPDATES ----
     let devicesUpdated = 0;
     let customersUpdated = 0;
-  
+
     // Fix devices in batches
     const deviceBatchSize = 100;
     for (let i = 0; i < invalidDevices.length; i += deviceBatchSize) {
       const batch = invalidDevices.slice(i, i + deviceBatchSize);
-  
+
       await Promise.all(
         batch.map((device) => {
           const updateData: any = {};
@@ -2064,16 +2060,18 @@ export class DeviceService {
           });
         }),
       );
-  
+
       devicesUpdated += batch.length;
-      this.logger.log(`Devices: updated ${devicesUpdated}/${invalidDevices.length}`);
+      this.logger.log(
+        `Devices: updated ${devicesUpdated}/${invalidDevices.length}`,
+      );
     }
-  
+
     // Fix customers in batches
     const customerBatchSize = 100;
     for (let i = 0; i < invalidCustomers.length; i += customerBatchSize) {
       const batch = invalidCustomers.slice(i, i + customerBatchSize);
-  
+
       await Promise.all(
         batch.map((customer) => {
           const updateData: any = {};
@@ -2089,16 +2087,18 @@ export class DeviceService {
           });
         }),
       );
-  
+
       customersUpdated += batch.length;
-      this.logger.log(`Customers: updated ${customersUpdated}/${invalidCustomers.length}`);
+      this.logger.log(
+        `Customers: updated ${customersUpdated}/${invalidCustomers.length}`,
+      );
     }
-  
+
     const durationMs = Date.now() - startTime;
     this.logger.log(
       `Fix complete: ${devicesUpdated} devices and ${customersUpdated} customers updated in ${durationMs}ms`,
     );
-  
+
     return {
       dryRun: false,
       durationMs,
