@@ -111,7 +111,7 @@ export class AuthService {
       },
     });
 
-    const platformName = 'A4T Energy';
+    const platformName = 'Freewave Energy';
     const clientUrl = this.config.get<string>('CLIENT_URL');
 
     const createPasswordUrl = `${clientUrl}create-password/${newUser.id}/${token.token}/`;
@@ -127,7 +127,7 @@ export class AuthService {
         userEmail: email,
         platformName,
         createPasswordUrl,
-        supportEmail: this.config.get<string>('MAIL_FROM') || 'a4t@gmail.com',
+        supportEmail: this.config.get<string>('MAIL_FROM') || 'support@freewave.com',
       },
     });
 
@@ -270,7 +270,7 @@ export class AuthService {
       });
     }
 
-    const platformName = 'A4T Energy';
+    const platformName = 'Freewave Energy';
     const clientUrl = this.config.get<string>('CLIENT_URL');
     // const resetLink = `${clentUrl}/resetPassword`;
     const resetLink = `${clientUrl}reset-password/${existingUser.id}/${existingToken.token}/`;

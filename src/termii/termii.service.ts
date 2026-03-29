@@ -133,7 +133,7 @@ export class TermiiService {
     password: string,
     category: string,
   ) {
-    return `Welcome to A4T Energy Agent Platform!
+    return `Welcome to Freewave Agent Platform!
   
   Dear ${firstname},
   
