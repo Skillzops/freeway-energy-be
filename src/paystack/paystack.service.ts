@@ -45,8 +45,7 @@ export class PaystackService {
   }
 
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    const secret =
-      this.config.get<string>('PAYSTACK_WEBHOOK_SECRET') || this.secretKey;
+    const secret = this.secretKey;
     if (!secret || !signature) {
       return false;
     }
