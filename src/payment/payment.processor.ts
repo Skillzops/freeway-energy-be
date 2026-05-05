@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { PaymentService } from './payment.service';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaymentGateway, PaymentStatus } from '@prisma/client';
+import { PaymentStatus } from '@prisma/client';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
 
 interface PaymentJobData {
@@ -141,98 +141,9 @@ export class PaymentProcessor extends WorkerHost {
       `[PROCESSOR][PAYSTACK] Received job=${job.id} event=${event || 'unknown'} reference=${reference || 'unknown'}`,
     );
 
-    if (event !== 'charge.success') {
-      console.log(
-        `[PROCESSOR][PAYSTACK] Ignored event=${event || 'unknown'} reference=${reference || 'unknown'}`,
-      );
-      return { message: 'Event ignored', event };
-    }
-
-    if (!reference) {
-      throw new Error('Missing transaction reference in Paystack webhook');
-    }
-
-    const existingResponses = await this.prisma.paymentResponses.findMany({
-      where: {
-        data: {
-          not: null,
-        },
-      },
-    });
-
-    const duplicate = existingResponses.find((response) => {
-      const responseData = response.data as Record<string, any>;
-      return responseData?.data?.reference === reference;
-    });
-    if (duplicate) {
-      console.log(
-        `[PROCESSOR][PAYSTACK] Duplicate webhook reference=${reference} job=${job.id}`,
-      );
-      return { message: 'Webhook already processed', duplicate: true, reference };
-    }
-
-    const payment = await this.prisma.payment.findFirst({
-      where: { transactionRef: reference },
-      include: { sale: true },
-    });
-
-    if (!payment) {
-      const walletTransaction = await this.prisma.walletTransaction.findFirst({
-        where: { reference },
-      });
-
-      if (walletTransaction) {
-        if (walletTransaction.status !== 'COMPLETED') {
-          await this.prisma.walletTransaction.update({
-            where: { id: walletTransaction.id },
-            data: { status: 'COMPLETED', updatedAt: new Date() },
-          });
-
-          await this.prisma.wallet.update({
-            where: { agentId: walletTransaction.agentId },
-            data: {
-              balance: { increment: walletTransaction.amount },
-            },
-          });
-        }
-        console.log(
-          `[PROCESSOR][PAYSTACK] Wallet top-up reconciled reference=${reference} agentId=${walletTransaction.agentId}`,
-        );
-        return { message: 'Wallet top-up processed successfully', reference };
-      }
-
-      throw new Error(`Payment with reference ${reference} not found`);
-    }
-
-    if (payment.paymentStatus !== PaymentStatus.COMPLETED) {
-      const updatedPayment = await this.prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          paymentStatus: PaymentStatus.COMPLETED,
-          updatedAt: new Date(),
-        },
-      });
-
-      await this.prisma.paymentResponses.create({
-        data: {
-          paymentId: payment.id,
-          data: {
-            ...payload,
-            gateway: PaymentGateway.PAYSTACK,
-          },
-        },
-      });
-
-      await this.paymentService.handlePostPayment(updatedPayment);
-      console.log(
-        `[PROCESSOR][PAYSTACK] Sale payment reconciled reference=${reference} paymentId=${payment.id}`,
-      );
-    }
-
-    console.log(
-      `[PROCESSOR][PAYSTACK] Completed reference=${reference} job=${job.id}`,
-    );
-    return { message: 'Payment processed successfully', reference };
+    const result = await this.paymentService.handlePaystackWebhookPayload(payload);
+    console.log(`[PROCESSOR][PAYSTACK] Completed reference=${reference || 'unknown'} job=${job.id}`);
+    return result;
   }
 
   private async handleFlutterwaveWebhookPayload(payload: any) {

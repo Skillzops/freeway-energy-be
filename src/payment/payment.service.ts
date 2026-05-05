@@ -136,6 +136,7 @@ export class PaymentService {
     amount: number,
     gateway: PaymentGateway = PaymentGateway.PAYSTACK,
   ) {
+    void gateway;
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
       include: { user: true },
@@ -446,6 +447,7 @@ export class PaymentService {
   }
 
   async verifyPaymentManually(transactionRef: string, transactionId?: number) {
+    void transactionId;
     const payment = await this.prisma.payment.findFirst({
       where: {
         transactionRef: { equals: transactionRef, mode: 'insensitive' },
@@ -745,6 +747,89 @@ export class PaymentService {
         'Top-up verification failed. Please try again.',
       );
     }
+  }
+
+  async handlePaystackWebhookPayload(payload: any) {
+    const { event, data } = payload || {};
+    const reference = data?.reference;
+
+    if (event !== 'charge.success') {
+      return { message: 'Event ignored', event };
+    }
+
+    if (!reference) {
+      throw new Error('Missing transaction reference in Paystack webhook');
+    }
+
+    const existingResponses = await this.prisma.paymentResponses.findMany({
+      where: {
+        data: {
+          not: null,
+        },
+      },
+    });
+
+    const duplicate = existingResponses.find((response) => {
+      const responseData = response.data as Record<string, any>;
+      return responseData?.data?.reference === reference;
+    });
+    if (duplicate) {
+      return { message: 'Webhook already processed', duplicate: true, reference };
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { transactionRef: reference },
+      include: { sale: true },
+    });
+
+    if (!payment) {
+      const walletTransaction = await this.prisma.walletTransaction.findFirst({
+        where: { reference },
+      });
+
+      if (walletTransaction) {
+        if (walletTransaction.status !== 'COMPLETED') {
+          await this.prisma.walletTransaction.update({
+            where: { id: walletTransaction.id },
+            data: { status: 'COMPLETED', updatedAt: new Date() },
+          });
+
+          await this.prisma.wallet.update({
+            where: { agentId: walletTransaction.agentId },
+            data: {
+              balance: { increment: walletTransaction.amount },
+            },
+          });
+        }
+        return { message: 'Wallet top-up processed successfully', reference };
+      }
+
+      throw new Error(`Payment with reference ${reference} not found`);
+    }
+
+    if (payment.paymentStatus !== PaymentStatus.COMPLETED) {
+      const updatedPayment = await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          paymentStatus: PaymentStatus.COMPLETED,
+          updatedAt: new Date(),
+        },
+      });
+
+      await this.prisma.paymentResponses.create({
+        data: {
+          paymentId: payment.id,
+          data: {
+            ...payload,
+            gateway: PaymentGateway.PAYSTACK,
+          },
+        },
+      });
+
+      await this.handlePostPayment(updatedPayment);
+    }
+
+    return { message: 'Payment processed successfully', reference };
   }
 
   private async verifyPaystackTopUp(topUpRequest: any) {

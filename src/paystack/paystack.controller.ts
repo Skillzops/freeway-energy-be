@@ -7,12 +7,11 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PaystackService } from './paystack.service';
 import { Request } from 'express';
 import { Logger } from '@nestjs/common';
+import { PaymentService } from 'src/payment/payment.service';
 
 @ApiTags('Paystack')
 @Controller('payment/webhook')
@@ -21,7 +20,7 @@ export class PaystackController {
 
   constructor(
     private readonly paystackService: PaystackService,
-    @InjectQueue('payment-queue') private readonly paymentQueue: Queue,
+    private readonly paymentService: PaymentService,
   ) {}
 
   @Post('paystack')
@@ -60,30 +59,15 @@ export class PaystackController {
       };
     }
 
-    await this.paymentQueue.waitUntilReady();
-    const job = await this.paymentQueue.add(
-      'process-paystack-webhook',
-      { payload },
-      {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
-        },
-        removeOnComplete: true,
-        removeOnFail: false,
-        delay: 1000,
-      },
-    );
-
+    const result = await this.paymentService.handlePaystackWebhookPayload(payload);
     this.logger.log(
-      `[PAYSTACK_WEBHOOK] Queued jobId=${job.id} event=${event || 'unknown'} reference=${reference || 'unknown'}`,
+      `[PAYSTACK_WEBHOOK] Processed event=${event || 'unknown'} reference=${reference || 'unknown'} result=${JSON.stringify(result)}`,
     );
 
     return {
       message: 'Webhook received successfully',
-      jobId: job.id,
-      status: 'processing',
+      status: 'processed',
+      result,
     };
   }
 }

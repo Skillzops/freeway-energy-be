@@ -34,7 +34,7 @@ import { PaystackService } from 'src/paystack/paystack.service';
     FlutterwaveModule,
     DeviceModule,
     NotificationModule,
-    PaystackModule,
+    forwardRef(() => PaystackModule),
   ],
   controllers: [PaymentController],
   providers: [
