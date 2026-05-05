@@ -136,12 +136,18 @@ export class PaymentProcessor extends WorkerHost {
   private async processPaystackWebhook(job: Job<PaymentJobData>) {
     const { payload } = job.data;
     const { event, data } = payload || {};
+    const reference = data?.reference;
+    console.log(
+      `[PROCESSOR][PAYSTACK] Received job=${job.id} event=${event || 'unknown'} reference=${reference || 'unknown'}`,
+    );
 
     if (event !== 'charge.success') {
+      console.log(
+        `[PROCESSOR][PAYSTACK] Ignored event=${event || 'unknown'} reference=${reference || 'unknown'}`,
+      );
       return { message: 'Event ignored', event };
     }
 
-    const reference = data?.reference;
     if (!reference) {
       throw new Error('Missing transaction reference in Paystack webhook');
     }
@@ -159,6 +165,9 @@ export class PaymentProcessor extends WorkerHost {
       return responseData?.data?.reference === reference;
     });
     if (duplicate) {
+      console.log(
+        `[PROCESSOR][PAYSTACK] Duplicate webhook reference=${reference} job=${job.id}`,
+      );
       return { message: 'Webhook already processed', duplicate: true, reference };
     }
 
@@ -186,6 +195,9 @@ export class PaymentProcessor extends WorkerHost {
             },
           });
         }
+        console.log(
+          `[PROCESSOR][PAYSTACK] Wallet top-up reconciled reference=${reference} agentId=${walletTransaction.agentId}`,
+        );
         return { message: 'Wallet top-up processed successfully', reference };
       }
 
@@ -212,8 +224,14 @@ export class PaymentProcessor extends WorkerHost {
       });
 
       await this.paymentService.handlePostPayment(updatedPayment);
+      console.log(
+        `[PROCESSOR][PAYSTACK] Sale payment reconciled reference=${reference} paymentId=${payment.id}`,
+      );
     }
 
+    console.log(
+      `[PROCESSOR][PAYSTACK] Completed reference=${reference} job=${job.id}`,
+    );
     return { message: 'Payment processed successfully', reference };
   }
 

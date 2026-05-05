@@ -12,10 +12,13 @@ import { Queue } from 'bullmq';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PaystackService } from './paystack.service';
 import { Request } from 'express';
+import { Logger } from '@nestjs/common';
 
 @ApiTags('Paystack')
 @Controller('payment/webhook')
 export class PaystackController {
+  private readonly logger = new Logger(PaystackController.name);
+
   constructor(
     private readonly paystackService: PaystackService,
     @InjectQueue('payment-queue') private readonly paymentQueue: Queue,
@@ -35,6 +38,12 @@ export class PaystackController {
     @Body() payload: any,
     @Headers('x-paystack-signature') signature: string,
   ) {
+    const event = payload?.event;
+    const reference = payload?.data?.reference;
+    this.logger.log(
+      `[PAYSTACK_WEBHOOK] Incoming webhook event=${event || 'unknown'} reference=${reference || 'unknown'}`,
+    );
+
     const rawBody = req.rawBody || JSON.stringify(payload);
     const isValid = this.paystackService.verifyWebhookSignature(
       rawBody,
@@ -42,6 +51,9 @@ export class PaystackController {
     );
 
     if (!isValid) {
+      this.logger.warn(
+        `[PAYSTACK_WEBHOOK] Invalid signature event=${event || 'unknown'} reference=${reference || 'unknown'} signature_present=${Boolean(signature)}`,
+      );
       return {
         status: 'failed',
         message: 'Invalid webhook signature',
@@ -62,6 +74,10 @@ export class PaystackController {
         removeOnFail: false,
         delay: 1000,
       },
+    );
+
+    this.logger.log(
+      `[PAYSTACK_WEBHOOK] Queued jobId=${job.id} event=${event || 'unknown'} reference=${reference || 'unknown'}`,
     );
 
     return {
