@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { PaymentService } from './payment.service';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentGateway, PaymentStatus } from '@prisma/client';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
 
 interface PaymentJobData {
@@ -40,6 +40,8 @@ export class PaymentProcessor extends WorkerHost {
 
         case 'process-flutterwave-webhook':
           return await this.processFlutterwaveWebhook(job);
+        case 'process-paystack-webhook':
+          return await this.processPaystackWebhook(job);
 
         default:
           console.warn(`[PROCESSOR] Unknown job type: ${job.name}`);
@@ -129,6 +131,90 @@ export class PaymentProcessor extends WorkerHost {
       }
       throw error;
     }
+  }
+
+  private async processPaystackWebhook(job: Job<PaymentJobData>) {
+    const { payload } = job.data;
+    const { event, data } = payload || {};
+
+    if (event !== 'charge.success') {
+      return { message: 'Event ignored', event };
+    }
+
+    const reference = data?.reference;
+    if (!reference) {
+      throw new Error('Missing transaction reference in Paystack webhook');
+    }
+
+    const existingResponses = await this.prisma.paymentResponses.findMany({
+      where: {
+        data: {
+          not: null,
+        },
+      },
+    });
+
+    const duplicate = existingResponses.find((response) => {
+      const responseData = response.data as Record<string, any>;
+      return responseData?.data?.reference === reference;
+    });
+    if (duplicate) {
+      return { message: 'Webhook already processed', duplicate: true, reference };
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { transactionRef: reference },
+      include: { sale: true },
+    });
+
+    if (!payment) {
+      const walletTransaction = await this.prisma.walletTransaction.findFirst({
+        where: { reference },
+      });
+
+      if (walletTransaction) {
+        if (walletTransaction.status !== 'COMPLETED') {
+          await this.prisma.walletTransaction.update({
+            where: { id: walletTransaction.id },
+            data: { status: 'COMPLETED', updatedAt: new Date() },
+          });
+
+          await this.prisma.wallet.update({
+            where: { agentId: walletTransaction.agentId },
+            data: {
+              balance: { increment: walletTransaction.amount },
+            },
+          });
+        }
+        return { message: 'Wallet top-up processed successfully', reference };
+      }
+
+      throw new Error(`Payment with reference ${reference} not found`);
+    }
+
+    if (payment.paymentStatus !== PaymentStatus.COMPLETED) {
+      const updatedPayment = await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          paymentStatus: PaymentStatus.COMPLETED,
+          updatedAt: new Date(),
+        },
+      });
+
+      await this.prisma.paymentResponses.create({
+        data: {
+          paymentId: payment.id,
+          data: {
+            ...payload,
+            gateway: PaymentGateway.PAYSTACK,
+          },
+        },
+      });
+
+      await this.paymentService.handlePostPayment(updatedPayment);
+    }
+
+    return { message: 'Payment processed successfully', reference };
   }
 
   private async handleFlutterwaveWebhookPayload(payload: any) {

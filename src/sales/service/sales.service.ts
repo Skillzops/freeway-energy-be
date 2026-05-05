@@ -349,7 +349,7 @@ export class SalesService {
       sale.id,
       totalAmountToPay,
       sale.customer.email || `${sale.customer.phone}@gmail.com`,
-      dto.paymentGateway || PaymentGateway.OGARANYA,
+      dto.paymentGateway || PaymentGateway.PAYSTACK,
       dto.paymentMethod || PaymentMethod.ONLINE,
     );
   }
@@ -1164,7 +1164,7 @@ export class SalesService {
       sale.id,
       sale.installmentStartingPrice || sale.totalPrice,
       sale.customer.email || `${sale.customer.phone}@gmail.com`,
-      sale.paymentGateway || PaymentGateway.OGARANYA,
+      sale.paymentGateway || PaymentGateway.PAYSTACK,
       sale.paymentMethod || PaymentMethod.ONLINE,
     );
   }

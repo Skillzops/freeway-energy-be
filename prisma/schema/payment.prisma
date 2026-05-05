@@ -73,6 +73,7 @@ enum PaymentMethod {
 }
 
 enum PaymentGateway {
+  PAYSTACK
   OGARANYA
   FLUTTERWAVE
   NIL

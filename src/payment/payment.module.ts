@@ -17,6 +17,8 @@ import { OgaranyaModule } from 'src/ogaranya/ogaranya.module';
 import { FlutterwaveModule } from 'src/flutterwave/flutterwave.module';
 import { DeviceModule } from 'src/device/device.module';
 import { NotificationModule } from 'src/notification/notification.module';
+import { PaystackModule } from 'src/paystack/paystack.module';
+import { PaystackService } from 'src/paystack/paystack.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { NotificationModule } from 'src/notification/notification.module';
     FlutterwaveModule,
     DeviceModule,
     NotificationModule,
+    PaystackModule,
   ],
   controllers: [PaymentController],
   providers: [
@@ -45,6 +48,7 @@ import { NotificationModule } from 'src/notification/notification.module';
     TermiiService,
     WalletService,
     ReferenceGeneratorService,
+    PaystackService,
   ],
   exports: [
     PaymentService,
@@ -57,6 +61,7 @@ import { NotificationModule } from 'src/notification/notification.module';
     TermiiService,
     WalletService,
     ReferenceGeneratorService,
+    PaystackService,
   ],
 })
 export class PaymentModule {}

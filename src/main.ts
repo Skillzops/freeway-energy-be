@@ -9,9 +9,18 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HttpAdapterHost } from '@nestjs/core';
+import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(
+    bodyParser.json({
+      verify: (req: any, _res, buf: Buffer) => {
+        req.rawBody = buf.toString('utf8');
+      },
+    }),
+  );
+
   const configService = app.get(ConfigService);
   const httpAdapterHost = app.get(HttpAdapterHost);
   const logger = new Logger('Bootstrap');

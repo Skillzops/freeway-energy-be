@@ -26,7 +26,7 @@ model Sales {
 
   payment Payment[]
 
-  paymentGateway PaymentGateway @default(OGARANYA)
+  paymentGateway PaymentGateway @default(PAYSTACK)
 
   lastTokenGenerationError String?
   tokenGenerationFailures  TokenGenerationFailure[]

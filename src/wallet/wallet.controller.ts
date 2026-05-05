@@ -20,7 +20,7 @@ export class WalletController {
   ) {}
 
   @Post('setup')
-  @ApiOperation({ summary: 'Set up agent wallet with Ogaranya' })
+  @ApiOperation({ summary: 'Set up agent wallet with Paystack' })
   async setupWallet(
     @Body() walletData: CreateAgentWalletDto,
     @GetSessionUser('agent') agent: any,
@@ -58,7 +58,7 @@ export class WalletController {
     @Body() topUpDto: WalletTopUpDto,
     @GetSessionUser('agent') agent: any,
   ) {
-    const gateway = topUpDto.gateway || PaymentGateway.OGARANYA;
+    const gateway = topUpDto.gateway || PaymentGateway.PAYSTACK;
 
     const paymentData = await this.paymentService.generateWalletTopUpPayment(
       agent.id,

@@ -20,6 +20,7 @@ import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { TermiiService } from '../termii/termii.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { FlutterwaveService } from '../flutterwave/flutterwave.service';
+import { PaystackService } from '../paystack/paystack.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
 import { DeviceService } from 'src/device/services/device.service';
@@ -45,6 +46,7 @@ export class PaymentService {
     private readonly openPayGo: OpenPayGoService,
     private readonly ogaranyaService: OgaranyaService,
     private readonly flutterwaveService: FlutterwaveService,
+    private readonly paystackService: PaystackService,
     private readonly walletService: WalletService,
     private readonly termiiService: TermiiService,
     private readonly referenceGenerator: ReferenceGeneratorService,
@@ -60,7 +62,7 @@ export class PaymentService {
     saleId: string,
     amount: number,
     email: string,
-    gateway: PaymentGateway = PaymentGateway.OGARANYA,
+    gateway: PaymentGateway = PaymentGateway.PAYSTACK,
     paymentMethod: PaymentMethod = PaymentMethod.ONLINE,
   ) {
     const sale = await this.prisma.sales.findFirst({
@@ -90,20 +92,12 @@ export class PaymentService {
     let payment;
 
     if (paymentMethod === PaymentMethod.ONLINE) {
-      if (gateway === PaymentGateway.OGARANYA) {
-        paymentResponse = await this.createOgaranyaPayment(
-          sale,
-          amount,
-          transactionRef,
-        );
-      } else if (gateway === PaymentGateway.FLUTTERWAVE) {
-        paymentResponse = await this.createFlutterwavePayment(
-          sale,
-          amount,
-          email,
-          transactionRef,
-        );
-      }
+      paymentResponse = await this.createPaystackPayment(
+        sale,
+        amount,
+        email,
+        transactionRef,
+      );
 
       // Store payment record
       payment = await this.prisma.payment.create({
@@ -114,12 +108,6 @@ export class PaymentService {
           paymentDate: new Date(),
           paymentStatus: PaymentStatus.PENDING,
           paymentMethod,
-          ...(gateway === PaymentGateway.OGARANYA && {
-            ogaranyaOrderId: paymentResponse?.data?.order_id,
-            ogaranyaOrderRef: paymentResponse?.data?.order_reference,
-            ogaranyaSmsNumber: paymentResponse?.data?.msisdn_to_send_to,
-            ogaranyaSmsMessage: paymentResponse?.data?.message,
-          }),
         },
       });
 
@@ -146,7 +134,7 @@ export class PaymentService {
   async generateWalletTopUpPayment(
     agentId: string,
     amount: number,
-    gateway: PaymentGateway = PaymentGateway.OGARANYA,
+    gateway: PaymentGateway = PaymentGateway.PAYSTACK,
   ) {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
@@ -159,10 +147,96 @@ export class PaymentService {
 
     const reference = await this.referenceGenerator.generateTopUpReference();
 
-    if (gateway === PaymentGateway.OGARANYA) {
-      return this.createOgaranyaWalletTopUp(agent, amount, reference);
-    } else if (gateway === PaymentGateway.FLUTTERWAVE) {
-      return this.createFlutterwaveWalletTopUp(agent, amount, reference);
+    return this.createPaystackWalletTopUp(agent, amount, reference);
+  }
+
+  private async createPaystackPayment(
+    sale: any,
+    amount: number,
+    email: string,
+    reference: string,
+  ) {
+    try {
+      const callbackUrl =
+        this.config.get<string>('PAYSTACK_CALLBACK_URL') ||
+        `${this.config.get<string>('FRONTEND_URL') || ''}/sales`;
+
+      return await this.paystackService.initializeTransaction({
+        email: email || `${sale.customer.phone}@example.com`,
+        amount: Math.round(amount * 100),
+        reference,
+        callback_url: callbackUrl,
+        metadata: {
+          saleId: sale.id,
+        },
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Paystack payment initiation failed: ${error.message}`,
+      );
+    }
+  }
+
+  private async createPaystackWalletTopUp(
+    agent: any,
+    amount: number,
+    reference: string,
+  ) {
+    try {
+      const callbackUrl =
+        this.config.get<string>('PAYSTACK_CALLBACK_URL') ||
+        `${this.config.get<string>('FRONTEND_URL') || ''}/wallet`;
+
+      const paymentData = await this.paystackService.initializeTransaction({
+        email: agent.user.email || `${agent.user.phone}@example.com`,
+        amount: Math.round(amount * 100),
+        reference,
+        callback_url: callbackUrl,
+        metadata: {
+          agentId: agent.id,
+          type: 'wallet_topup',
+        },
+      });
+
+      let wallet = await this.prisma.wallet.findUnique({
+        where: { agentId: agent.id },
+      });
+
+      if (!wallet) {
+        wallet = await this.prisma.wallet.create({
+          data: {
+            agentId: agent.id,
+            balance: 0,
+          },
+        });
+      }
+
+      const topUpRequest = await this.prisma.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          agentId: agent.id,
+          type: WalletTransactionType.CREDIT,
+          paymentGateway: PaymentGateway.PAYSTACK,
+          amount,
+          previousBalance: wallet.balance,
+          newBalance: wallet.balance + amount,
+          reference,
+          description: 'Wallet Topup via Paystack',
+          status: WalletTransactionStatus.PENDING,
+        },
+      });
+
+      return {
+        gateway: PaymentGateway.PAYSTACK,
+        topUpId: topUpRequest.id,
+        paymentData,
+        amount,
+        reference,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Paystack top-up initiation failed: ${error.message}`,
+      );
     }
   }
 
@@ -401,23 +475,61 @@ export class PaymentService {
 
     try {
       // Determine which gateway to verify with
-      const gateway = payment.sale.paymentGateway || PaymentGateway.OGARANYA;
-
-      if (gateway === PaymentGateway.OGARANYA) {
-        return this.verifyOgaranyaPayment(payment);
-      } else if (gateway === PaymentGateway.FLUTTERWAVE) {
-        // Only use transaction ID if it's provided and valid
-        if (transactionId && transactionId > 0) {
-          return this.verifyFlutterwavePayment(payment, transactionId);
-        } else {
-          // Use reference-based verification for Flutterwave
-          return this.verifyFlutterwavePaymentByReference(payment);
-        }
+      const gateway = payment.sale.paymentGateway || PaymentGateway.PAYSTACK;
+      if (gateway !== PaymentGateway.PAYSTACK) {
+        throw new BadRequestException('Unsupported payment gateway');
       }
+      return this.verifyPaystackPayment(payment);
     } catch (error) {
       console.error('Payment verification error:', error);
       throw new BadRequestException(
         'Payment verification failed. Please try again.',
+      );
+    }
+  }
+
+  private async verifyPaystackPayment(payment: any) {
+    try {
+      const verificationResponse = await this.paystackService.verifyTransaction(
+        payment.transactionRef,
+      );
+
+      if (
+        verificationResponse?.status === true &&
+        verificationResponse?.data?.status === 'success'
+      ) {
+        const updatedPayment = await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            paymentStatus: PaymentStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        await this.prisma.paymentResponses.create({
+          data: {
+            paymentId: payment.id,
+            data: verificationResponse,
+          },
+        });
+
+        await this.handlePostPayment(updatedPayment);
+
+        return {
+          status: 'verified',
+          message: 'Payment verified successfully via Paystack',
+          payment: updatedPayment,
+        };
+      }
+
+      return {
+        status: 'pending',
+        message: 'Payment not yet completed. Please try again later.',
+        paymentStatus: verificationResponse?.data?.status || 'pending',
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to verify payment with Paystack: ${error.message}`,
       );
     }
   }
@@ -619,12 +731,10 @@ export class PaymentService {
     }
 
     try {
-      // Determine gateway based on reference format or stored data
-      if (topUpRequest.ogaranyaOrderRef) {
-        return this.verifyOgaranyaTopUp(topUpRequest);
-      } else {
-        return this.verifyFlutterwaveTopUp(topUpRequest);
+      if (topUpRequest.paymentGateway !== PaymentGateway.PAYSTACK) {
+        throw new BadRequestException('Unsupported top-up gateway');
       }
+      return this.verifyPaystackTopUp(topUpRequest);
     } catch (error) {
       console.error('Top-up verification error:', error);
       await this.prisma.walletTransaction.update({
@@ -633,6 +743,52 @@ export class PaymentService {
       });
       throw new BadRequestException(
         'Top-up verification failed. Please try again.',
+      );
+    }
+  }
+
+  private async verifyPaystackTopUp(topUpRequest: any) {
+    try {
+      const verificationResponse = await this.paystackService.verifyTransaction(
+        topUpRequest.reference,
+      );
+
+      if (
+        verificationResponse?.status === true &&
+        verificationResponse?.data?.status === 'success'
+      ) {
+        const walletTransaction = await this.walletService.creditWallet(
+          topUpRequest.agentId,
+          topUpRequest.amount,
+          topUpRequest.reference,
+          `Wallet top-up verified via Paystack`,
+        );
+
+        const updatedTopUp = await this.prisma.walletTransaction.update({
+          where: { id: topUpRequest.id },
+          data: {
+            status: WalletTransactionStatus.COMPLETED,
+            updatedAt: new Date(),
+          },
+        });
+
+        return {
+          status: 'verified',
+          message: 'Wallet top-up verified successfully via Paystack',
+          amount: topUpRequest.amount,
+          newBalance: walletTransaction.newBalance,
+          topUpRequest: updatedTopUp,
+        };
+      }
+
+      return {
+        status: 'pending',
+        message: 'Top-up not yet completed. Please try again later.',
+        paymentStatus: verificationResponse?.data?.status || 'pending',
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to verify top-up with Paystack: ${error.message}`,
       );
     }
   }

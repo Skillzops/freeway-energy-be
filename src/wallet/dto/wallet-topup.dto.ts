@@ -29,5 +29,5 @@ export class WalletTopUpDto {
   })
   @IsEnum(PaymentGateway)
   @IsOptional()
-  gateway?: PaymentGateway = PaymentGateway.OGARANYA;
+  gateway?: PaymentGateway = PaymentGateway.PAYSTACK;
 }

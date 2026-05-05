@@ -210,7 +210,7 @@ export class CreateSalesDto {
   })
   @IsEnum(PaymentGateway)
   @IsOptional()
-  paymentGateway?: PaymentGateway = PaymentGateway.OGARANYA;
+  paymentGateway?: PaymentGateway = PaymentGateway.PAYSTACK;
 
   @ApiPropertyOptional({
     description:
