@@ -65,11 +65,7 @@ export class SalesService {
 
     await this.validateDeviceAvailability(dto.saleItems);
 
-    const financialSettings = await this.prisma.financialSettings.findFirst();
-
-    if (!financialSettings) {
-      throw new BadRequestException('Financial settings not configured');
-    }
+    const financialSettings = await this.getOrCreateFinancialSettings();
 
     const formattedSaleId =
       await this.salesIdGenerator.generateFormattedSaleId();
@@ -1242,6 +1238,23 @@ export class SalesService {
 
   async getMargins() {
     return await this.prisma.financialSettings.findFirst();
+  }
+
+  private async getOrCreateFinancialSettings() {
+    const existing = await this.prisma.financialSettings.findFirst();
+    if (existing) return existing;
+
+    this.logger.warn(
+      'Financial settings not configured. Auto-creating zero-margin defaults.',
+    );
+
+    return await this.prisma.financialSettings.create({
+      data: {
+        outrightMargin: 0,
+        loanMargin: 0,
+        monthlyInterest: 0,
+      },
+    });
   }
 
   async createFinMargin(body: CreateFinancialMarginDto) {
