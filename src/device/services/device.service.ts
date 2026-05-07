@@ -1498,84 +1498,120 @@ export class DeviceService {
   }
 
   async fetchDevices(query: ListDevicesQueryDto, agent?: string) {
-    const { page = 1, limit = 100, sortField = 'createdAt', sortOrder } = query;
-    const filterConditions = await this.devicesFilter({
-      ...query,
-      ...(agent ? { agentId: agent } : {}),
-    });
+    try {
+      const { page = 1, limit = 100, sortField = 'createdAt', sortOrder } =
+        query;
+      const filterConditions = await this.devicesFilter({
+        ...query,
+        ...(agent ? { agentId: agent } : {}),
+      });
 
-    const pageNumber = parseInt(String(page), 10);
-    const limitNumber = parseInt(String(limit), 10);
-    const skip = (pageNumber - 1) * limitNumber;
-    const take = limitNumber;
+      const parsedPage = parseInt(String(page), 10);
+      const parsedLimit = parseInt(String(limit), 10);
+      const pageNumber =
+        Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+      const limitNumber =
+        Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 100;
+      const skip = (pageNumber - 1) * limitNumber;
+      const take = limitNumber;
 
-    const orderBy = {
-      [sortField || 'createdAt']: sortOrder || 'asc',
-    };
+      const allowedSortFields = new Set([
+        'createdAt',
+        'updatedAt',
+        'serialNumber',
+        'startingCode',
+        'key',
+        'hardwareModel',
+        'count',
+        'isTokenable',
+        'installationStatus',
+      ]);
+      const safeSortField = allowedSortFields.has(String(sortField))
+        ? String(sortField)
+        : 'createdAt';
+      const safeSortOrder = sortOrder === 'desc' ? 'desc' : 'asc';
 
-    const [devices, totalCount] = await Promise.all([
-      this.prisma.device.findMany({
-        skip,
-        take,
-        where: filterConditions,
-        include: {
-          _count: {
-            select: { tokens: true },
-          },
-          assignments: {
-            where: { isActive: true, NOT: { agentId: null } },
-            select: {
-              id: true,
-              agentId: true,
-              assignedAt: true,
+      const orderBy = {
+        [safeSortField]: safeSortOrder,
+      };
 
-              agent: {
-                select: {
-                  id: true,
-                  user: {
-                    select: {
-                      firstname: true,
-                      lastname: true,
-                      phone: true,
-                      email: true,
+      const [devices, totalCount] = await Promise.all([
+        this.prisma.device.findMany({
+          skip,
+          take,
+          where: filterConditions,
+          include: {
+            _count: {
+              select: { tokens: true },
+            },
+            assignments: {
+              where: { isActive: true, NOT: { agentId: null } },
+              select: {
+                id: true,
+                agentId: true,
+                assignedAt: true,
+
+                agent: {
+                  select: {
+                    id: true,
+                    user: {
+                      select: {
+                        firstname: true,
+                        lastname: true,
+                        phone: true,
+                        email: true,
+                      },
                     },
                   },
                 },
               },
+              take: 1, // Only get the active assignment
             },
-            take: 1, // Only get the active assignment
           },
-        },
-        orderBy,
-      }),
-      this.prisma.device.count({ where: filterConditions }),
-    ]);
+          orderBy,
+        }),
+        this.prisma.device.count({ where: filterConditions }),
+      ]);
 
-    const deviceIds = devices.map((d) => d.id);
-    const deviceCustomers = await this.getDeviceCustomers(deviceIds);
+      const deviceIds = devices.map((d) => d.id);
+      let deviceCustomers: Record<string, any> = {};
+      try {
+        deviceCustomers = await this.getDeviceCustomers(deviceIds);
+      } catch (error) {
+        this.logger.error(
+          `Failed to enrich device customers, continuing without customer mapping: ${error?.message}`,
+        );
+      }
 
-    const devicesWithDetails = devices.map((device) => ({
-      ...device,
-      customer: deviceCustomers[device.id] || null,
-      assignedAgent: device.assignments?.[0].agent?.user
-        ? {
-            id: device.assignments[0].agentId,
-            name: `${device.assignments[0].agent.user.firstname} ${device.assignments[0].agent.user.lastname}`,
-            phone: device.assignments[0].agent.user.phone,
-            email: device.assignments[0].agent.user.email,
-            assignedAt: device.assignments[0].assignedAt,
-          }
-        : null,
-      assignments: undefined, // Remove raw assignments array from response
-    }));
+      const devicesWithDetails = devices.map((device) => ({
+        ...device,
+        customer: deviceCustomers[device.id] || null,
+        assignedAgent: device.assignments?.[0]?.agent?.user
+          ? {
+              id: device.assignments[0]?.agentId,
+              name: `${device.assignments[0]?.agent?.user?.firstname} ${device.assignments[0]?.agent?.user?.lastname}`,
+              phone: device.assignments[0]?.agent?.user?.phone,
+              email: device.assignments[0]?.agent?.user?.email,
+              assignedAt: device.assignments[0]?.assignedAt,
+            }
+          : null,
+        assignments: undefined, // Remove raw assignments array from response
+      }));
 
-    return {
-      devices: devicesWithDetails,
-      total: totalCount,
-      page,
-      limit,
-      totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
-    };
+      return {
+        devices: devicesWithDetails,
+        total: totalCount,
+        page,
+        limit,
+        totalPages: limitNumber === 0 ? 0 : Math.ceil(totalCount / limitNumber),
+      };
+    } catch (error) {
+      this.logger.error(
+        `[fetchDevices] failed query=${JSON.stringify(query)} agent=${agent ?? 'n/a'} message=${error?.message}`,
+        error?.stack,
+      );
+      throw error;
+    }
   }
 
   async fetchDevice(fieldAndValue: Prisma.DeviceWhereInput) {
@@ -1634,7 +1670,15 @@ export class DeviceService {
     if (saleItems.length === 0) return {};
 
     // Get unique sale IDs
-    const saleIds = [...new Set(saleItems.map((si) => si.saleId))];
+    const saleIds = [
+      ...new Set(
+        saleItems
+          .map((si) => si.saleId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (saleIds.length === 0) return {};
 
     // Fetch sales with customer details
     const sales = await this.prisma.sales.findMany({
