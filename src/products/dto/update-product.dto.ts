@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UpdateProductDto {
   @ApiPropertyOptional() @IsOptional() @IsString() name?: string;
@@ -13,6 +14,11 @@ export class UpdateProductDto {
     example: 12,
   })
   @IsOptional()
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined
+      ? undefined
+      : Number(value),
+  )
   @IsNumber()
   @Min(1)
   defaultInstallmentDuration?: number;
@@ -22,6 +28,11 @@ export class UpdateProductDto {
     example: 5000,
   })
   @IsOptional()
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined
+      ? undefined
+      : Number(value),
+  )
   @IsNumber()
   @Min(100)
   defaultInstallmentStartPrice?: number;
@@ -31,6 +42,11 @@ export class UpdateProductDto {
     example: 6000,
   })
   @IsOptional()
+  @Transform(({ value }) =>
+    value === '' || value === null || value === undefined
+      ? undefined
+      : Number(value),
+  )
   @IsNumber()
   @Min(100)
   defaultMonthlyPayment?: number;
