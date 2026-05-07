@@ -1,4 +1,4 @@
-import { ActionEnum, PrismaClient, SubjectEnum } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 // import { faker } from '@faker-js/faker';
 
 const prisma = new PrismaClient();
@@ -291,11 +291,21 @@ async function main() {
   //     type: 'lead',
   //   })),
   // });
-  const hiddenSubjects: SubjectEnum[] = [SubjectEnum.all, SubjectEnum.User];
-  const subjects = Object.values(SubjectEnum).filter(
-    (subject) => !hiddenSubjects.includes(subject),
-  );
-  const actions = Object.values(ActionEnum);
+  const subjects = [
+    'Sales',
+    'Agents',
+    'Customers',
+    'Inventory',
+    'Accounts',
+    'Products',
+    'Contracts',
+    'Support',
+    'Communication',
+    'Assignments',
+    'Warehouse',
+    'AuditLog',
+  ] as const;
+  const actions = ['manage', 'read', 'write', 'delete'] as const;
 
   const existingPermissions = await prisma.permission.findMany({
     select: { action: true, subject: true },
