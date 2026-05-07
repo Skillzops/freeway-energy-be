@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { ActionEnum, PrismaClient, SubjectEnum } from '@prisma/client';
 // import { faker } from '@faker-js/faker';
 
 const prisma = new PrismaClient();
@@ -291,7 +291,36 @@ async function main() {
   //     type: 'lead',
   //   })),
   // });
-await prisma.$runCommandRaw({
+  const hiddenSubjects: SubjectEnum[] = [SubjectEnum.all, SubjectEnum.User];
+  const subjects = Object.values(SubjectEnum).filter(
+    (subject) => !hiddenSubjects.includes(subject),
+  );
+  const actions = Object.values(ActionEnum);
+
+  const existingPermissions = await prisma.permission.findMany({
+    select: { action: true, subject: true },
+  });
+  const existingPermissionKeys = new Set(
+    existingPermissions.map(
+      (permission) => `${permission.subject}:${permission.action}`,
+    ),
+  );
+
+  let createdPermissionCount = 0;
+  for (const subject of subjects) {
+    for (const action of actions) {
+      const key = `${subject}:${action}`;
+      if (existingPermissionKeys.has(key)) continue;
+
+      await prisma.permission.create({
+        data: { subject, action },
+      });
+      existingPermissionKeys.add(key);
+      createdPermissionCount += 1;
+    }
+  }
+
+  await prisma.$runCommandRaw({
   update: 'InstallmentAccountDetails',
   updates: [
     {
@@ -302,7 +331,10 @@ await prisma.$runCommandRaw({
       multi: true,
     },
   ],
-});
+  });
+  console.log(
+    `[seed] permissions ensured. created=${createdPermissionCount} total=${existingPermissionKeys.size}`,
+  );
   console.log('Seeding completed successfully!');
 }
 
