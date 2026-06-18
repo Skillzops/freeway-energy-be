@@ -40,6 +40,10 @@ import { TokenGenerationFailureService } from './token-generation-failure.servic
 import { isValidCoordinate, parseCoordinate } from 'src/utils/helpers.util';
 import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
 import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
+import {
+  durationFromDayOption,
+  mapDurationToDayOption,
+} from 'src/beebeejump/beebeejump-duration.util';
 
 @Injectable()
 export class DeviceService {
@@ -57,15 +61,41 @@ export class DeviceService {
 
   private logger = new Logger(DeviceService.name);
 
+  private async generateBeebeejumpToken(
+    serialNumber: string,
+    duration: number,
+  ) {
+    const day = mapDurationToDayOption(duration);
+    const res = await this.beebeejumpActivationService.getActivationCode({
+      sn: serialNumber,
+      day,
+    });
+
+    return {
+      activationCode: res.activationCode,
+      day,
+      returnCode: res.returnCode,
+      duration: durationFromDayOption(day),
+    };
+  }
+
   async uploadBatchDevices(filePath: string) {
     const rows = await this.parseCsv(filePath);
+    const deviceRows = rows
+      .map((row) => this.mapCsvRowToDeviceData(row))
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
-    const filteredRows = rows.filter(
-      (row) => row['Serial_Number'] && row['Key'],
-    );
+    if (deviceRows.length === 0) {
+      throw new BadRequestException(
+        'No valid rows found. Your CSV must include a serial number column (e.g. "serial number" or "Serial_Number").',
+      );
+    }
 
-    await this.mapDevicesToModel(filteredRows);
-    return { message: MESSAGES.CREATED };
+    const result = await this.mapDevicesToModel(deviceRows);
+    return {
+      message: MESSAGES.CREATED,
+      ...result,
+    };
   }
 
   async createDevice(createDeviceDto: CreateDeviceDto, userId: string) {
@@ -542,28 +572,38 @@ export class DeviceService {
       throw new BadRequestException('Device not found');
     }
 
-    const resetToken = await this.openPayGo.resetDeviceCount(device);
+    const resetResult = await this.beebeejumpActivationService.getActivationCode({
+      sn: device.serialNumber,
+      day: 'UnLockCode',
+    });
 
     const duration = 30;
-
-    const token = await this.openPayGo.generateToken(device, duration, 1);
+    const token = await this.generateBeebeejumpToken(
+      device.serialNumber,
+      duration,
+    );
 
     await this.prisma.device.update({
       where: { id: device.id },
-      data: { count: String(token.newCount) },
+      data: { count: String(token.returnCode) },
     });
 
-    // Store token in database
     await this.prisma.tokens.create({
       data: {
         deviceId: device.id,
-        token: String(token.finalToken),
+        token: String(token.activationCode),
         duration,
         creatorId: userId,
       },
     });
 
-    return { resetToken, token };
+    return {
+      resetToken: { finalToken: resetResult.activationCode },
+      token: {
+        finalToken: token.activationCode,
+        newCount: token.returnCode,
+      },
+    };
   }
 
   async decodeDeviceToken(deviceId: string, token: string) {
@@ -1034,22 +1074,20 @@ export class DeviceService {
 
         const duration = 30;
 
-        const token = await this.openPayGo.generateToken(
-          deviceData,
+        const token = await this.generateBeebeejumpToken(
+          device.serialNumber,
           duration,
-          Number(device.count),
         );
 
         await this.prisma.device.update({
           where: { id: device.id },
-          data: { count: String(token.newCount) },
+          data: { count: String(token.returnCode) },
         });
 
-        // Store token in database
         await this.prisma.tokens.create({
           data: {
             deviceId: device.id,
-            token: String(token.finalToken),
+            token: String(token.activationCode),
             duration,
             creatorId: userId,
           },
@@ -1059,7 +1097,7 @@ export class DeviceService {
           deviceId: device.id,
           deviceSerialNumber: device.serialNumber,
           deviceKey: device.key,
-          deviceToken: token.finalToken,
+          deviceToken: token.activationCode,
           duration,
         });
 
@@ -1245,37 +1283,32 @@ export class DeviceService {
             continue;
           }
 
-          // Generate token
-          const tokenResult = await this.openPayGo.generateToken(
-            device,
+          const tokenResult = await this.generateBeebeejumpToken(
+            device.serialNumber,
             tokenDuration,
-            Number(device.count),
           );
 
-          // Update device count
           await this.prisma.device.update({
             where: { id: device.id },
-            data: { count: String(tokenResult.newCount) },
+            data: { count: String(tokenResult.returnCode) },
           });
 
-          // Save token to database
           const savedToken = await this.prisma.tokens.create({
             data: {
               deviceId: device.id,
-              token: String(tokenResult.finalToken),
-              duration: tokenDuration,
+              token: String(tokenResult.activationCode),
+              duration: tokenResult.duration,
               creatorId: userId,
             },
           });
 
-          // Add to results
           generatedTokens.push({
             deviceSerialNumber: device.serialNumber,
             deviceKey: device.key,
-            deviceToken: String(tokenResult.finalToken),
+            deviceToken: String(tokenResult.activationCode),
             deviceId: device.id,
             tokenId: savedToken.id,
-            tokenDuration: tokenDuration,
+            tokenDuration: tokenResult.duration,
             row: rowNumber,
           });
 
@@ -1335,16 +1368,91 @@ export class DeviceService {
   }
 
   private extractFieldFromRow(row: any, possibleKeys: string[]): string | null {
+    const normalizedRow = Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [
+        key.trim().toLowerCase().replace(/\s+/g, '_'),
+        value,
+      ]),
+    );
+
     for (const key of possibleKeys) {
+      const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+      const value = row[key] ?? normalizedRow[normalizedKey];
       if (
-        row[key] !== undefined &&
-        row[key] !== null &&
-        String(row[key]).trim() !== ''
+        value !== undefined &&
+        value !== null &&
+        String(value).trim() !== ''
       ) {
-        return String(row[key]).trim();
+        return String(value).trim();
       }
     }
     return null;
+  }
+
+  private mapCsvRowToDeviceData(row: Record<string, string>) {
+    const serialNumber = this.extractFieldFromRow(row, [
+      'serial number',
+      'serial_number',
+      'Serial_Number',
+      'Serial Number',
+      'serialNumber',
+      'SerialNumber',
+      'SERIAL_NUMBER',
+      'device_serial',
+      'deviceSerial',
+    ]);
+
+    if (!serialNumber) {
+      return null;
+    }
+
+    const key =
+      this.extractFieldFromRow(row, [
+        'Key',
+        'key',
+        'Device_Key',
+        'device_key',
+        'deviceKey',
+      ]) ?? '00';
+
+    return {
+      serialNumber,
+      key,
+      deviceName: this.extractFieldFromRow(row, [
+        'Device_Name',
+        'device_name',
+        'Device Name',
+        'deviceName',
+      ]),
+      count: this.extractFieldFromRow(row, ['Count', 'count']),
+      timeDivider: this.extractFieldFromRow(row, [
+        'Time_Divider',
+        'time_divider',
+        'Time Divider',
+      ]),
+      firmwareVersion: this.extractFieldFromRow(row, [
+        'Firmware_Version',
+        'firmware_version',
+        'Firmware Version',
+      ]),
+      hardwareModel: this.extractFieldFromRow(row, [
+        'Hardware_Model',
+        'hardware_model',
+        'Hardware Model',
+      ]),
+      startingCode: this.extractFieldFromRow(row, [
+        'Starting_Code',
+        'starting_code',
+        'Starting Code',
+      ]),
+      restrictedDigitMode:
+        this.extractFieldFromRow(row, [
+          'Restricted_Digit_Mode',
+          'restricted_digit_mode',
+          'Restricted Digit Mode',
+        ]) === '1',
+      isTokenable: this.parseTokenableValue(row),
+    };
   }
 
   async generateSingleDeviceToken(
@@ -1364,25 +1472,10 @@ export class DeviceService {
       throw new BadRequestException('This device is not tokenable');
     }
 
-    let tokenDurationT;
-    if (tokenDuration == 1) {
-      tokenDurationT = 'ForeverCode';
-    } else {
-      tokenDurationT = '30Days';
-    }
-
     try {
-      const token = await this.beebeejumpActivationService.getActivationCode(
-        { sn: device.serialNumber, day: tokenDurationT },
-
-        // {
-        //   key: device.key,
-        //   timeDivider: device.timeDivider,
-        //   restrictedDigitMode: device.restrictedDigitMode,
-        //   startingCode: device.startingCode,
-        // } as any,
-        // tokenDuration,
-        // Number(device.count),
+      const token = await this.generateBeebeejumpToken(
+        device.serialNumber,
+        tokenDuration,
       );
 
       await this.prisma.device.update({
@@ -1394,7 +1487,7 @@ export class DeviceService {
         data: {
           deviceId: device.id,
           token: String(token.activationCode),
-          duration: tokenDuration,
+          duration: token.duration,
           creatorId: userId,
         },
       });
@@ -1403,11 +1496,10 @@ export class DeviceService {
         message: 'Token generated successfully',
         deviceId: device.id,
         deviceSerialNumber: device.serialNumber,
-        // token,
         tokenId: savedToken.id,
         deviceToken: token.activationCode,
         tokenDuration:
-          tokenDuration === -1 ? 'Forever' : `${tokenDuration} days`,
+          token.duration === 1 ? 'Forever' : `${token.duration} days`,
       };
     } catch (error) {
       throw new BadRequestException(
@@ -1851,12 +1943,6 @@ export class DeviceService {
         //     : installmentInfo.monthsCovered * 30;
       }
 
-      // const tokenResult = await this.openPayGo.generateToken(
-      //   device,
-      //   tokenDuration,
-      //   Number(device.count),
-      // );
-
       const res = await this.beebeejumpActivationService.getActivationCode({
         sn: device.serialNumber,
         day: tokenDuration,
@@ -1869,13 +1955,11 @@ export class DeviceService {
         },
       });
 
-      const no = tokenDuration?.split('D')?.[0];
-
       await this.prisma.tokens.create({
         data: {
           deviceId: device.id,
           token: String(res.activationCode),
-          duration: no ? Number(no) : 1,
+          duration: durationFromDayOption(tokenDuration),
           creatorId: sale.creatorId,
           tokenReleased: true,
         },
@@ -2210,38 +2294,72 @@ export class DeviceService {
     });
   }
 
-  private async mapDevicesToModel(rows: Record<string, string>[]) {
-    const data = rows.map((row) => ({
-      serialNumber: row['Serial_Number'],
-      deviceName: row['Device_Name'],
-      key: row['Key'],
-      count: row['Count'],
-      timeDivider: row['Time_Divider'],
-      firmwareVersion: row['Firmware_Version'],
-      hardwareModel: row['Hardware_Model'],
-      startingCode: row['Starting_Code'],
-      restrictedDigitMode: row['Restricted_Digit_Mode'] == '1',
-      // Handle isTokenable field - check multiple possible column names
-      isTokenable: this.parseTokenableValue(row),
-    }));
+  private async mapDevicesToModel(
+    rows: Array<{
+      serialNumber: string;
+      key: string;
+      deviceName?: string | null;
+      count?: string | null;
+      timeDivider?: string | null;
+      firmwareVersion?: string | null;
+      hardwareModel?: string | null;
+      startingCode?: string | null;
+      restrictedDigitMode?: boolean;
+      isTokenable?: boolean;
+    }>,
+  ) {
+    const seenInCsv = new Set<string>();
+    let skippedDuplicateInCsv = 0;
+    let skippedExisting = 0;
+    let created = 0;
 
-    for (const device of data) {
-      await this.prisma.device.upsert({
-        where: { serialNumber: device.serialNumber },
-        update: {
-          // Update all fields including isTokenable
-          key: device.key,
-          timeDivider: device.timeDivider,
-          firmwareVersion: device.firmwareVersion,
-          hardwareModel: device.hardwareModel,
-          startingCode: device.startingCode,
-          restrictedDigitMode: device.restrictedDigitMode,
-          isTokenable: device.isTokenable ?? true,
-          updatedAt: new Date(),
+    for (const device of rows) {
+      const serialNumber = device.serialNumber.trim();
+      const normalizedSerial = serialNumber.toLowerCase();
+
+      if (seenInCsv.has(normalizedSerial)) {
+        skippedDuplicateInCsv += 1;
+        continue;
+      }
+      seenInCsv.add(normalizedSerial);
+
+      const existing = await this.prisma.device.findFirst({
+        where: {
+          serialNumber: {
+            equals: serialNumber,
+            mode: 'insensitive',
+          },
         },
-        create: { ...device },
       });
+
+      if (existing) {
+        skippedExisting += 1;
+        continue;
+      }
+
+      await this.prisma.device.create({
+        data: {
+          serialNumber,
+          key: device.key,
+          count: device.count ?? undefined,
+          timeDivider: device.timeDivider ?? undefined,
+          firmwareVersion: device.firmwareVersion ?? undefined,
+          hardwareModel: device.hardwareModel ?? undefined,
+          startingCode: device.startingCode ?? undefined,
+          restrictedDigitMode: device.restrictedDigitMode ?? false,
+          isTokenable: device.isTokenable ?? false,
+        },
+      });
+      created += 1;
     }
+
+    return {
+      created,
+      skippedDuplicateInCsv,
+      skippedExisting,
+      skipped: skippedDuplicateInCsv + skippedExisting,
+      total: rows.length,
+    };
   }
 
   private parseTokenableValue(row: Record<string, string>): boolean {

@@ -28,6 +28,7 @@ import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from 'src/device/services/token-generation-failure.service';
 import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
 import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
+import { durationFromDayOption } from 'src/beebeejump/beebeejump-duration.util';
 
 interface PaymentValidationResult {
   isValid: boolean;
@@ -1219,12 +1220,12 @@ export class PaymentService {
               data: { count: String(res.returnCode) },
             });
   
-            const no = tokenDuration?.split('D')?.[0]
+            const no = durationFromDayOption(tokenDuration);
             await this.prisma.tokens.create({
               data: {
                 deviceId: device.id,
                 token: String(res.activationCode),
-                duration: no ? Number(no): 1,
+                duration: no,
                 creatorId: sale.creatorId,
                 tokenReleased: true,
               },

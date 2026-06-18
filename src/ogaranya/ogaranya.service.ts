@@ -28,7 +28,12 @@ import {
   PowerPurchaseDto,
 } from './dto/ogaranya-power-purchase.dto';
 import { PaymentService } from 'src/payment/payment.service';
-import { OpenPayGoService } from '../openpaygo/openpaygo.service';
+import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
+import {
+  durationFromDayOption,
+  mapDurationToDayOption,
+} from 'src/beebeejump/beebeejump-duration.util';
+import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
 import { AgentVerificationDto } from './dto/agent-verification.dto';
 import {
   InitializeWalletTopUpDto,
@@ -51,7 +56,7 @@ export class OgaranyaService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly openPayGo: OpenPayGoService,
+    private readonly beebeejumpActivationService: BeebeejumpService,
     private readonly deviceService: DeviceService,
     private readonly tokenFailureService: TokenGenerationFailureService,
     private readonly notificationService: NotificationService,
@@ -739,35 +744,38 @@ export class OgaranyaService {
     let tokenData: any = null;
     let tokenGenerated = false;
     let tokenDuration = 0;
-    const tokenTimeout = 15000; // 15 seconds for token generation
+    const tokenTimeout = 15000;
 
     try {
-      // Determine token duration
+      let dayOption: DayOption;
       if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
-        tokenDuration = -1;
+        dayOption = 'ForeverCode';
       } else {
-        tokenDuration =
+        const days =
           installmentInfo.monthsCovered === -1
             ? -1
             : installmentInfo.monthsCovered * 30;
+        dayOption = mapDurationToDayOption(days);
       }
+      tokenDuration = durationFromDayOption(dayOption);
 
-      // Generate token with timeout protection
-      const tokenPromise = this.openPayGo.generateToken(
-        device as Prisma.DeviceCreateInput,
-        tokenDuration,
-        Number(device.count),
-      );
+      const tokenPromise = this.beebeejumpActivationService.getActivationCode({
+        sn: device.serialNumber,
+        day: dayOption,
+      });
 
-      // Race between token generation and timeout
-      const timeoutPromise = new Promise((_, reject) =>
+      const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error('Token generation timed out')),
           tokenTimeout,
         ),
       );
 
-      tokenData = await Promise.race([tokenPromise, timeoutPromise]);
+      const tokenRes = await Promise.race([tokenPromise, timeoutPromise]);
+      tokenData = {
+        finalToken: tokenRes.activationCode,
+        newCount: tokenRes.returnCode,
+      };
 
       try {
         await this.prisma.$transaction(
@@ -786,7 +794,6 @@ export class OgaranyaService {
               data: { count: String(tokenData.newCount) },
             });
 
-            // Update payment with token info
             await tx.payment.update({
               where: { id: payment.id },
               data: {
@@ -850,7 +857,7 @@ export class OgaranyaService {
         tokenMessage: `Load this token on your device: ${tokenData.finalToken}`,
       }),
       durationDays:
-        tokenDuration === -1 ? 'Unlimited (Forever)' : tokenDuration,
+        tokenDuration === 1 ? 'Unlimited (Forever)' : tokenDuration,
       totalPaid: updatedSale.totalPaid,
       remainingBalance: updatedSale.totalPrice - updatedSale.totalPaid,
       saleId: sale.id,
@@ -858,7 +865,7 @@ export class OgaranyaService {
       saleStatus: updatedSale.status,
       remainingInstallments: updatedSale.remainingInstallments,
       message: tokenGenerated
-        ? `Payment successful! Token generated for ${tokenDuration === -1 ? 'unlimited' : tokenDuration + ' days'}`
+        ? `Payment successful! Token generated for ${tokenDuration === 1 ? 'unlimited' : tokenDuration + ' days'}`
         : 'Payment successful! Token will be generated once device is ready.',
       paymentData: {
         id: payment.id,
