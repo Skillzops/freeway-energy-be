@@ -42,6 +42,8 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { ClsMiddleware, ClsModule } from 'nestjs-cls';
 import { AuditContextMiddleware } from './common/middlewares/auth-context.middleware';
 import { FailedJobsModule } from './failed-jobs/failed-jobs.module';
+import { BeebeejumpModule } from './beebeejump/beebeejump.module';
+import { BeebeejumpController } from './beebeejump/beebeejump.controller';
 
 @Module({
   imports: [
@@ -111,8 +113,9 @@ import { FailedJobsModule } from './failed-jobs/failed-jobs.module';
     TokenRestorationModule,
     AuditLogModule,
     FailedJobsModule,
+    BeebeejumpModule
   ],
-  controllers: [AppController],
+  controllers: [AppController, BeebeejumpController],
   providers: [
     AppService,
     {

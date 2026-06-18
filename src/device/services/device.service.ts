@@ -38,6 +38,8 @@ import { AuthService } from 'src/auth/auth.service';
 import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from './token-generation-failure.service';
 import { isValidCoordinate, parseCoordinate } from 'src/utils/helpers.util';
+import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
+import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
 
 @Injectable()
 export class DeviceService {
@@ -47,6 +49,8 @@ export class DeviceService {
     private readonly authService: AuthService,
     private readonly notificationService: NotificationService,
     private readonly tokenFailureService: TokenGenerationFailureService,
+    private readonly beebeejumpActivationService: BeebeejumpService,
+
 
     @InjectQueue('device-processing') private readonly deviceQueue: Queue,
   ) {}
@@ -1356,31 +1360,40 @@ export class DeviceService {
       throw new NotFoundException(`Device with ID ${deviceId} not found`);
     }
 
-    // if (!device.isTokenable) {
-    //   throw new BadRequestException('This device is not tokenable');
-    // }
+    if (!device.isTokenable) {
+      throw new BadRequestException('This device is not tokenable');
+    }
+
+    let tokenDurationT;
+    if (tokenDuration == 1) {
+      tokenDurationT = 'ForeverCode';
+    } else {
+      tokenDurationT = '30Days';
+    }
 
     try {
-      const token = await this.openPayGo.generateToken(
-        {
-          key: device.key,
-          timeDivider: device.timeDivider,
-          restrictedDigitMode: device.restrictedDigitMode,
-          startingCode: device.startingCode,
-        } as any,
-        tokenDuration,
-        Number(device.count),
+      const token = await this.beebeejumpActivationService.getActivationCode(
+        { sn: device.serialNumber, day: tokenDurationT },
+
+        // {
+        //   key: device.key,
+        //   timeDivider: device.timeDivider,
+        //   restrictedDigitMode: device.restrictedDigitMode,
+        //   startingCode: device.startingCode,
+        // } as any,
+        // tokenDuration,
+        // Number(device.count),
       );
 
       await this.prisma.device.update({
         where: { id: deviceId },
-        data: { count: String(token.newCount) },
+        data: { count: String(token.returnCode) },
       });
 
       const savedToken = await this.prisma.tokens.create({
         data: {
           deviceId: device.id,
-          token: String(token.finalToken),
+          token: String(token.activationCode),
           duration: tokenDuration,
           creatorId: userId,
         },
@@ -1390,8 +1403,9 @@ export class DeviceService {
         message: 'Token generated successfully',
         deviceId: device.id,
         deviceSerialNumber: device.serialNumber,
+        // token,
         tokenId: savedToken.id,
-        deviceToken: token.finalToken,
+        deviceToken: token.activationCode,
         tokenDuration:
           tokenDuration === -1 ? 'Forever' : `${tokenDuration} days`,
       };
@@ -1401,6 +1415,7 @@ export class DeviceService {
       );
     }
   }
+
 
   async deleteDeviceToken(deviceId: string, tokenId: string) {
     const token = await this.prisma.tokens.findUnique({
@@ -1809,38 +1824,58 @@ export class DeviceService {
     paymentMode: PaymentMode,
   ): Promise<any> {
     try {
-      let tokenDuration: number;
-      let installmentInfo: any;
+      let tokenDuration: DayOption;
+
+      // if (paymentMode === PaymentMode.ONE_OFF) {
+      //   tokenDuration = -1;
+      // } else {
+      //   const installmentInfo = this.calculateInstallmentProgress(sale, 0);
+
+      //   tokenDuration =
+      //     installmentInfo.monthsCovered == -1
+      //       ? installmentInfo.monthsCovered
+      //       : installmentInfo.monthsCovered * 30;
+      // }
+      // let tokenDuration: number;
+      let installmentInfo: any
 
       if (paymentMode === PaymentMode.ONE_OFF) {
-        tokenDuration = -1;
+        tokenDuration = 'ForeverCode'; // Represents forever
       } else {
-        installmentInfo = this.calculateInstallmentProgress(sale, 0);
+        tokenDuration = '30Days';
+        // installmentInfo = this.calculateInstallmentProgress(sale, 0);
 
-        tokenDuration =
-          installmentInfo.monthsCovered == -1
-            ? installmentInfo.monthsCovered
-            : installmentInfo.monthsCovered * 30;
+        // tokenDuration =
+        //   installmentInfo.monthsCovered == -1
+        //     ? installmentInfo.monthsCovered
+        //     : installmentInfo.monthsCovered * 30;
       }
 
-      const tokenResult = await this.openPayGo.generateToken(
-        device,
-        tokenDuration,
-        Number(device.count),
-      );
+      // const tokenResult = await this.openPayGo.generateToken(
+      //   device,
+      //   tokenDuration,
+      //   Number(device.count),
+      // );
+
+      const res = await this.beebeejumpActivationService.getActivationCode({
+        sn: device.serialNumber,
+        day: tokenDuration,
+      });
 
       await this.prisma.device.update({
         where: { id: device.id },
         data: {
-          count: String(tokenResult.newCount),
+          count: String(res.returnCode),
         },
       });
+
+      const no = tokenDuration?.split('D')?.[0];
 
       await this.prisma.tokens.create({
         data: {
           deviceId: device.id,
-          token: String(tokenResult.finalToken),
-          duration: tokenDuration,
+          token: String(res.activationCode),
+          duration: no ? Number(no) : 1,
           creatorId: sale.creatorId,
           tokenReleased: true,
         },
@@ -1867,7 +1902,7 @@ export class DeviceService {
       return {
         deviceSerialNumber: device.serialNumber,
         deviceKey: device.key,
-        deviceToken: String(tokenResult.finalToken),
+        deviceToken: String(res?.activationCode),
       };
     } catch (error) {
       console.error(

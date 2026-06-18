@@ -19,6 +19,7 @@ import { DeviceModule } from 'src/device/device.module';
 import { NotificationModule } from 'src/notification/notification.module';
 import { PaystackModule } from 'src/paystack/paystack.module';
 import { PaystackService } from 'src/paystack/paystack.service';
+import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { PaystackService } from 'src/paystack/paystack.service';
     WalletService,
     ReferenceGeneratorService,
     PaystackService,
+    BeebeejumpService
   ],
   exports: [
     PaymentService,

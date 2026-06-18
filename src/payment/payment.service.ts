@@ -26,6 +26,8 @@ import { ReferenceGeneratorService } from './reference-generator.service';
 import { DeviceService } from 'src/device/services/device.service';
 import { NotificationService } from 'src/notification/notification.service';
 import { TokenGenerationFailureService } from 'src/device/services/token-generation-failure.service';
+import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
+import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
 
 interface PaymentValidationResult {
   isValid: boolean;
@@ -53,6 +55,8 @@ export class PaymentService {
     private readonly deviceService: DeviceService,
     private readonly notificationService: NotificationService,
     private readonly tokenFailureService: TokenGenerationFailureService,
+    private readonly beebeejumpActivationService: BeebeejumpService,
+
   ) {}
 
   private logger = new Logger(PaymentService.name);
@@ -1184,40 +1188,43 @@ export class PaymentService {
       );
 
       if (installedDevices.length) {
-        let tokenDuration: number;
+        let tokenDuration: DayOption;
         if (saleItem.paymentMode === PaymentMode.ONE_OFF) {
-          tokenDuration = -1; // Represents forever
+          tokenDuration = "ForeverCode"; // Represents forever
         } else {
-          tokenDuration =
-            installmentInfo.monthsCovered == -1
-              ? installmentInfo.monthsCovered
-              : installmentInfo.monthsCovered * 30;
+          tokenDuration = '30Days';
         }
 
         for (const device of installedDevices) {
-          try {
-            const token = await this.openPayGo.generateToken(
-              device,
-              tokenDuration,
-              Number(device.count),
-            );
+          // const token = await this.openPayGo.generateToken(
+          //   device,
+          //   tokenDuration,
+          //   Number(device.count),
+          // );
 
+          try {
+            const res = await this.beebeejumpActivationService.getActivationCode({
+              sn: device.serialNumber,
+              day: tokenDuration,
+            });
+  
             deviceTokens.push({
               deviceSerialNumber: device.serialNumber,
               deviceKey: device.key,
-              deviceToken: token.finalToken,
+              deviceToken: res.activationCode,
             });
 
             await this.prisma.device.update({
               where: { id: device.id },
-              data: { count: String(token.newCount) },
+              data: { count: String(res.returnCode) },
             });
-
+  
+            const no = tokenDuration?.split('D')?.[0]
             await this.prisma.tokens.create({
               data: {
                 deviceId: device.id,
-                token: String(token.finalToken),
-                duration: tokenDuration,
+                token: String(res.activationCode),
+                duration: no ? Number(no): 1,
                 creatorId: sale.creatorId,
                 tokenReleased: true,
               },
@@ -1245,9 +1252,9 @@ export class PaymentService {
         id: paymentData.id,
       },
       data: {
-        tokenGenerated,
-      },
-    });
+        tokenGenerated
+      }
+    })
 
     // Send device tokens via email and SMS
     if (deviceTokens.length) {

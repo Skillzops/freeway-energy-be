@@ -19,9 +19,12 @@ import { TokenGenerationFailureService } from './services/token-generation-failu
 import { TokenReconciliationController } from './controllers/token-reconciliation.controller';
 import { TokenReconciliationService } from './services/token-reconciliation.service';
 import { EmailModule } from 'src/mailer/email.module';
+import { HttpModule } from '@nestjs/axios';
+import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
 
 @Module({
   imports: [
+    HttpModule,
     BullModule.registerQueue({
       name: 'device-processing',
     }),
@@ -48,6 +51,7 @@ import { EmailModule } from 'src/mailer/email.module';
     PrismaService,
     TokenGenerationFailureService,
     TokenReconciliationService,
+    BeebeejumpService
   ],
   exports: [
     BullModule,
