@@ -177,6 +177,55 @@ export class CreateCustomerDto {
   type?: CustomerType;
 
   @ApiPropertyOptional({
+    description:
+      'Customer category (e.g. Public, Prepaid, Residential, Commercial, Business)',
+    example: 'Commercial',
+  })
+  @IsOptional()
+  @IsString()
+  customerCategory?: string;
+
+  @ApiPropertyOptional({
+    description: 'Customer business/shop type (e.g. Barber Shop, Tailor, Groceries)',
+    example: 'Barber Shop',
+  })
+  @IsOptional()
+  @IsString()
+  customerBusiness?: string;
+
+  @ApiPropertyOptional({
+    description: 'Estimated monthly fuel spend (free text, e.g. ₦150,000)',
+    example: '₦150,000',
+  })
+  @IsOptional()
+  @IsString()
+  monthlyFuelSpend?: string;
+
+  @ApiPropertyOptional({
+    description: 'Generator capacity (e.g. 5kVA, 10kVA)',
+    example: '5kVA',
+  })
+  @IsOptional()
+  @IsString()
+  generatorSize?: string;
+
+  @ApiPropertyOptional({
+    description: 'Typical daily generator runtime (e.g. 8 hours)',
+    example: '8 hours',
+  })
+  @IsOptional()
+  @IsString()
+  dailyRuntime?: string;
+
+  @ApiPropertyOptional({
+    description: 'Main electricity pain points (outages, cost, fuel, etc.)',
+    example: 'Frequent outages, high diesel cost',
+  })
+  @IsOptional()
+  @IsString()
+  electricityPainPoints?: string;
+
+  @ApiPropertyOptional({
     type: 'file',
     description: 'Customer passport photo file',
     format: 'binary',
@@ -196,4 +245,13 @@ export class CreateCustomerDto {
     format: 'binary',
   })
   contractFormImage?: Express.Multer.File;
+
+  @ApiPropertyOptional({
+    description: 'Customer BVN (11 digits) — required before generating device DVA',
+    example: '22222222222',
+  })
+  @IsOptional()
+  @IsNumberString()
+  @Length(11, 11)
+  bvn?: string;
 }

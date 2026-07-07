@@ -57,7 +57,13 @@ export class CustomersService {
       idType,
       idNumber,
       type,
-      // ...rest
+      customerCategory,
+      customerBusiness,
+      monthlyFuelSpend,
+      generatorSize,
+      dailyRuntime,
+      electricityPainPoints,
+      bvn,
     } = createCustomerDto;
 
     const creator = await this.prisma.user.findUnique({
@@ -118,10 +124,16 @@ export class CustomersService {
         ...(idType && { idType }),
         ...(idNumber && { idNumber }),
         ...(type && { type }),
+        ...(customerCategory && { customerCategory }),
+        ...(customerBusiness && { customerBusiness }),
+        ...(monthlyFuelSpend && { monthlyFuelSpend }),
+        ...(generatorSize && { generatorSize }),
+        ...(dailyRuntime && { dailyRuntime }),
+        ...(electricityPainPoints && { electricityPainPoints }),
+        ...(bvn && { bvn }),
         ...(passportPhotoUrl && { passportPhotoUrl }),
         ...(idImageUrl && { idImageUrl }),
         ...(contractFormImageUrl && { contractFormImageUrl }),
-        // ...rest,
       },
     });
 
@@ -568,7 +580,13 @@ export class CustomersService {
       idType,
       idNumber,
       type,
-      // ...rest
+      customerCategory,
+      customerBusiness,
+      monthlyFuelSpend,
+      generatorSize,
+      dailyRuntime,
+      electricityPainPoints,
+      bvn,
     } = updateCustomerDto;
 
     const existingCustomer = await this.prisma.customer.findUnique({
@@ -630,10 +648,16 @@ export class CustomersService {
       ...(idType !== undefined && { idType }),
       ...(idNumber !== undefined && { idNumber }),
       ...(type !== undefined && { type }),
+      ...(customerCategory !== undefined && { customerCategory }),
+      ...(customerBusiness !== undefined && { customerBusiness }),
+      ...(monthlyFuelSpend !== undefined && { monthlyFuelSpend }),
+      ...(generatorSize !== undefined && { generatorSize }),
+      ...(dailyRuntime !== undefined && { dailyRuntime }),
+      ...(electricityPainPoints !== undefined && { electricityPainPoints }),
+      ...(bvn !== undefined && { bvn }),
       ...(passportPhotoUrl !== undefined && { passportPhotoUrl }),
       ...(idImageUrl !== undefined && { idImageUrl }),
       ...(contractFormImageUrl !== undefined && { contractFormImageUrl }),
-      // ...rest,
     };
 
     const updatedCustomer = await this.prisma.customer.update({

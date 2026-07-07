@@ -45,6 +45,15 @@ model Customer {
   status UserStatus @default(active)
 
   type     CustomerType       @default(lead)
+  customerCategory String?
+  customerBusiness String?
+
+  /// Optional energy / operations profile (sales discovery)
+  monthlyFuelSpend      String?
+  generatorSize         String?
+  dailyRuntime          String?
+  electricityPainPoints String?
+
   products CustomerProducts[]
 
   installerTask  InstallerTask[]
@@ -53,6 +62,8 @@ model Customer {
   interactions CustomerInteraction[]
 
   sales Sales[]
+
+  bvn String?
 
   creatorId      String? @db.ObjectId
   creatorDetails User?   @relation(fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
