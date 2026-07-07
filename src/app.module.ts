@@ -61,6 +61,7 @@ import { InvoiceModule } from './invoice/invoice.module';
           // tls: {
           //   rejectUnauthorized: false,
           // },
+          prefix: `bull:${configService.get<string>('APP_NAME') || 'freeway-energy-backend'}`,
         },
       }),
     }),
