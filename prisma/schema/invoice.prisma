@@ -1,0 +1,147 @@
+model InvoiceSettings {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  taxEnabled Boolean @default(true)
+  taxName    String  @default("VAT")
+  taxRate    Float   @default(7.5)
+  taxNumber  String?
+
+  autoInvoicePaygo Boolean @default(false)
+  allowSubInvoices Boolean @default(true)
+
+  autoGenerateReceiptOnPayment Boolean @default(false)
+  autoEmailReceiptToCustomer   Boolean @default(false)
+
+  defaultDueDays Int @default(30)
+
+  invoicePrefix       String @default("INV")
+  nextSequence        Int    @default(1)
+  receiptPrefix       String @default("RCT")
+  nextReceiptSequence Int    @default(1)
+
+  currency       String @default("NGN")
+  currencySymbol String @default("₦")
+
+  bankName      String?
+  accountName   String?
+  accountNumber String?
+  bankCode      String?
+
+  paymentTerms String?
+  footerNote   String?
+
+  companyName    String?
+  companyAddress String?
+  companyLogoUrl String?
+
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("invoice_settings")
+}
+
+model Invoice {
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceNumber String          @unique
+  saleId        String          @db.ObjectId
+  sale          Sales           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  settingsId    String          @db.ObjectId
+  settings      InvoiceSettings @relation(fields: [settingsId], references: [id], onDelete: Restrict)
+
+  parentId    String?   @db.ObjectId
+  parent      Invoice?  @relation("InvoiceHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subInvoices Invoice[] @relation("InvoiceHierarchy")
+
+  type   InvoiceType   @default(MASTER)
+  status InvoiceStatus @default(DRAFT)
+
+  subtotal    Float
+  taxName     String
+  taxRate     Float
+  taxAmount   Float
+  totalAmount Float
+  amountPaid  Float @default(0)
+
+  dueDate  DateTime?
+  issuedAt DateTime  @default(now())
+  paidAt   DateTime?
+
+  pdfUrl String?
+  note   String?
+
+  lineItems InvoiceLineItem[]
+  payments  Payment[]
+  receipts  Receipt[]
+
+  createdById String? @db.ObjectId
+
+  voidedAt   DateTime?
+  voidedById String?   @db.ObjectId
+  voidReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([saleId])
+  @@index([parentId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id        String  @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceId String  @db.ObjectId
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Int    @default(1)
+  unitPrice   Float
+  total       Float
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+enum InvoiceType {
+  MASTER
+  SUB
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+model Receipt {
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  receiptNumber String  @unique
+
+  invoiceId String  @db.ObjectId
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  paymentId String  @unique @db.ObjectId
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  amount Float
+  pdfUrl String?
+  note   String?
+
+  createdById String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@index([createdAt])
+  @@map("receipts")
+}

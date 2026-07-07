@@ -20,9 +20,11 @@ import { NotificationModule } from 'src/notification/notification.module';
 import { PaystackModule } from 'src/paystack/paystack.module';
 import { PaystackService } from 'src/paystack/paystack.service';
 import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
+import { InvoiceModule } from '../invoice/invoice.module';
 
 @Module({
   imports: [
+    forwardRef(() => InvoiceModule),
     HttpModule.register({
       timeout: 10000,
       maxRedirects: 5,

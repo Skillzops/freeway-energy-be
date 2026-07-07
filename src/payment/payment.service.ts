@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -29,6 +31,7 @@ import { TokenGenerationFailureService } from 'src/device/services/token-generat
 import { DayOption } from 'src/beebeejump/dto/get-activation.dto';
 import { BeebeejumpService } from 'src/beebeejump/beebeejump.service';
 import { durationFromDayOption } from 'src/beebeejump/beebeejump-duration.util';
+import { InvoiceService } from 'src/invoice/invoice.service';
 
 interface PaymentValidationResult {
   isValid: boolean;
@@ -57,7 +60,8 @@ export class PaymentService {
     private readonly notificationService: NotificationService,
     private readonly tokenFailureService: TokenGenerationFailureService,
     private readonly beebeejumpActivationService: BeebeejumpService,
-
+    @Inject(forwardRef(() => InvoiceService))
+    private readonly invoiceService: InvoiceService,
   ) {}
 
   private logger = new Logger(PaymentService.name);
@@ -69,6 +73,7 @@ export class PaymentService {
     email: string,
     gateway: PaymentGateway = PaymentGateway.PAYSTACK,
     paymentMethod: PaymentMethod = PaymentMethod.ONLINE,
+    invoiceId?: string,
   ) {
     const sale = await this.prisma.sales.findFirst({
       where: { id: saleId },
@@ -113,6 +118,7 @@ export class PaymentService {
           paymentDate: new Date(),
           paymentStatus: PaymentStatus.PENDING,
           paymentMethod,
+          ...(invoiceId ? { invoiceId } : {}),
         },
       });
 
@@ -1164,6 +1170,45 @@ export class PaymentService {
       },
     });
 
+    if (paymentData.invoiceId) {
+      try {
+        const invoiceId: string = paymentData.invoiceId;
+        const inv = await this.prisma.invoice.findUnique({
+          where: { id: invoiceId },
+          select: { id: true, totalAmount: true, dueDate: true, status: true },
+        });
+
+        if (inv) {
+          const agg = await this.prisma.payment.aggregate({
+            where: {
+              OR: [{ invoiceId }, { invoice: { parentId: invoiceId } }],
+              paymentStatus: PaymentStatus.COMPLETED,
+            },
+            _sum: { amount: true },
+          });
+
+          const livePaid = agg._sum.amount ?? 0;
+          const balance = inv.totalAmount - livePaid;
+          let status = inv.status;
+
+          if (balance <= 0) status = 'PAID' as any;
+          else if (livePaid > 0) status = 'PARTIALLY_PAID' as any;
+          else if (inv.dueDate && new Date() > inv.dueDate) status = 'OVERDUE' as any;
+
+          await this.prisma.invoice.update({
+            where: { id: invoiceId },
+            data: {
+              amountPaid: livePaid,
+              status,
+              ...(balance <= 0 ? { paidAt: new Date() } : {}),
+            },
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`handlePostPayment: invoice update failed - ${err?.message}`);
+      }
+    }
+
     await this.updateDeviceStatusAfterPayment(sale);
 
     const saleItems = await this.prisma.saleItem.findMany({
@@ -1333,6 +1378,22 @@ export class PaymentService {
         where: { id: sale.id },
         data: { deliveredAccountDetails: true },
       });
+    }
+
+    const saleIdForInvoice = paymentData.saleId ?? sale.id;
+    if (
+      paymentData.paymentStatus === PaymentStatus.COMPLETED &&
+      saleIdForInvoice
+    ) {
+      try {
+        await this.invoiceService.syncSalePaymentsToMasterInvoice(
+          saleIdForInvoice,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `handlePostPayment: invoice payment sync failed - ${err?.message}`,
+        );
+      }
     }
   }
 

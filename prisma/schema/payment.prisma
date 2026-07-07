@@ -17,6 +17,7 @@ model Payment {
   flutterwaveTransactionId String?
   flutterwavePaymentId     String?
   flutterwavePaymentLink   String?
+  isFirstPayment           Boolean @default(false)
 
   recordedById String? @db.ObjectId
   recordedBy   User?   @relation("RecordedPayments", fields: [recordedById], references: [id])
@@ -24,10 +25,14 @@ model Payment {
   notes String?
 
   paymentResponses   PaymentResponses[]
+  receipt            Receipt?
   walletTransactions WalletTransaction[]
 
+  invoiceId String?  @db.ObjectId
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   saleId String? @db.ObjectId
   sale   Sales?  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  saleItemId String? @db.ObjectId
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -36,6 +41,7 @@ model Payment {
   @@index([paymentDate])
   @@index([paymentStatus])
   @@index([deletedAt])
+  @@index([invoiceId])
   @@index([saleId])
   @@index([createdAt])
   @@index([paymentStatus, createdAt])

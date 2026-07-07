@@ -58,5 +58,6 @@ enum SubjectEnum {
   Communication
   Assignments
   Warehouse
+  Invoices
   AuditLog
 }

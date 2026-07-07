@@ -44,6 +44,7 @@ import { AuditContextMiddleware } from './common/middlewares/auth-context.middle
 import { FailedJobsModule } from './failed-jobs/failed-jobs.module';
 import { BeebeejumpModule } from './beebeejump/beebeejump.module';
 import { BeebeejumpController } from './beebeejump/beebeejump.controller';
+import { InvoiceModule } from './invoice/invoice.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { BeebeejumpController } from './beebeejump/beebeejump.controller';
     OdysseyModule,
     TokenRestorationModule,
     AuditLogModule,
+    InvoiceModule,
     FailedJobsModule,
     BeebeejumpModule
   ],

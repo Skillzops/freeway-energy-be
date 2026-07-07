@@ -24,6 +24,7 @@ model Sales {
   agentId String? @db.ObjectId
   agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  invoices Invoice[]
   payment Payment[]
 
   paymentGateway PaymentGateway @default(PAYSTACK)

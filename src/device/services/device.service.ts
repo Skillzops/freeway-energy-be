@@ -1523,6 +1523,21 @@ export class DeviceService {
     });
   }
 
+  /** Devices not linked to an active (non-cancelled) sale. */
+  private availableForSaleWhere(): Prisma.DeviceWhereInput {
+    return {
+      NOT: {
+        saleItems: {
+          some: {
+            sale: {
+              status: { not: SalesStatus.CANCELLED },
+            },
+          },
+        },
+      },
+    };
+  }
+
   async devicesFilter(
     query: ListDevicesQueryDto,
   ): Promise<Prisma.DeviceWhereInput> {
@@ -1608,10 +1623,30 @@ export class DeviceService {
     try {
       const { page = 1, limit = 100, sortField = 'createdAt', sortOrder } =
         query;
-      const filterConditions = await this.devicesFilter({
+      const baseFilter = await this.devicesFilter({
         ...query,
-        ...(agent ? { agentId: agent } : {}),
+        ...(agent && !query.fetchFormat ? { fetchFormat: 'unused' } : {}),
       });
+
+      const baseAnd = Array.isArray(baseFilter.AND)
+        ? baseFilter.AND
+        : baseFilter.AND
+          ? [baseFilter.AND]
+          : [];
+
+      const filterConditions: Prisma.DeviceWhereInput = agent
+        ? {
+            AND: [
+              ...baseAnd,
+              {
+                assignments: {
+                  some: { agentId: agent, isActive: true },
+                },
+              },
+              this.availableForSaleWhere(),
+            ],
+          }
+        : baseFilter;
 
       const parsedPage = parseInt(String(page), 10);
       const parsedLimit = parseInt(String(limit), 10);
