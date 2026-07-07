@@ -119,6 +119,10 @@ export class SalesController {
       );
       await this.paymentQueue.waitUntilReady();
 
+      console.log(
+        `[createNextPayment] enqueueing process-next-payment paymentId=${paymentData.id} saleId=${paymentData.saleId} requestedSaleId=${recordCashPaymentDto.saleId}`,
+      );
+
       const job = await this.paymentQueue.add(
         'process-next-payment',
         { paymentData },
@@ -134,13 +138,20 @@ export class SalesController {
         },
       );
 
+      console.log(
+        `[createNextPayment] process-next-payment job queued jobId=${job.id} paymentId=${paymentData.id} saleId=${paymentData.saleId}`,
+      );
+
       return {
         jobId: job.id,
         status: 'processing',
         message: 'Next payment recorded successfully',
       };
     } catch (error) {
-      console.log({ error });
+      console.error(
+        `[createNextPayment] failed requestedSaleId=${recordCashPaymentDto?.saleId}:`,
+        error,
+      );
       throw new BadRequestException(error);
     }
   }

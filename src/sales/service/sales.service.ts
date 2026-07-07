@@ -288,60 +288,124 @@ export class SalesService {
     // );
 
     if (agentId) {
-      return await this.prisma.$transaction(async (prisma) => {
-        await this.walletService.debitWallet(
-          agentId,
-          totalAmountToPay,
-          `sale-${sale.id}`,
-          `Payment for sale ${sale.id}`,
-          sale.id,
-        );
+      console.log(
+        `[createSale] agent wallet-pay flow start saleId=${sale.id} agentId=${agentId} amount=${totalAmountToPay}`,
+      );
 
-        const paymentData = await prisma.payment.create({
-          data: {
-            sale: {
-              connect: {
-                id: sale.id,
+      // debitWallet manages its own atomicity (it opens its own transaction
+      // internally) — it must NOT be nested inside the $transaction below.
+      // Nesting an independent transaction/session inside another one on
+      // MongoDB is what let the `process-next-payment` BullMQ job (a Redis
+      // side-effect that can't be rolled back) fire before/without the
+      // downstream `handlePostPayment` sale-totals update reliably landing —
+      // the payment row persists (shows COMPLETED) but sale.totalPaid /
+      // remainingInstallments / status never get recalculated.
+      await this.walletService.debitWallet(
+        agentId,
+        totalAmountToPay,
+        `sale-${sale.id}`,
+        `Payment for sale ${sale.id}`,
+        sale.id,
+      );
+      console.log(
+        `[createSale] wallet debited agentId=${agentId} amount=${totalAmountToPay} saleId=${sale.id}`,
+      );
+
+      let paymentData: any;
+      try {
+        paymentData = await this.prisma.$transaction(async (prisma) => {
+          const payment = await prisma.payment.create({
+            data: {
+              sale: {
+                connect: {
+                  id: sale.id,
+                },
               },
+              amount: totalAmountToPay,
+              transactionRef,
+              paymentMethod: PaymentMethod.WALLET,
+              paymentStatus: PaymentStatus.COMPLETED,
             },
-            amount: totalAmountToPay,
-            transactionRef,
-            paymentMethod: PaymentMethod.WALLET,
-            paymentStatus: PaymentStatus.COMPLETED,
-          },
-        });
+          });
+          console.log(
+            `[createSale] payment created paymentId=${payment.id} saleId=${payment.saleId} amount=${payment.amount}`,
+          );
 
-        await this.prisma.installerTask.create({
-          data: {
-            status: TaskStatus.PENDING,
-            sale: { connect: { id: sale.id } },
-            customer: { connect: { id: sale.customerId } },
-            requestingAgent: { connect: { id: agentId } },
-          },
-        });
-
-        const job = await this.paymentQueue.add(
-          'process-next-payment',
-          { paymentData },
-          {
-            attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 5000,
+          // Uses the SAME transactional client as the payment create above
+          // (was previously `this.prisma`, a different session — that's
+          // the mixed-client bug referenced above).
+          await prisma.installerTask.create({
+            data: {
+              status: TaskStatus.PENDING,
+              sale: { connect: { id: sale.id } },
+              customer: { connect: { id: sale.customerId } },
+              requestingAgent: { connect: { id: agentId } },
             },
-            removeOnComplete: true,
-            removeOnFail: false,
-            delay: 1000,
-          },
+          });
+          console.log(
+            `[createSale] installer task created saleId=${sale.id} agentId=${agentId}`,
+          );
+
+          return payment;
+        });
+      } catch (err: any) {
+        console.error(
+          `[createSale] payment/installerTask transaction failed saleId=${sale.id} agentId=${agentId}: ${err?.message}`,
         );
-        return {
-          jobId: job.id,
-          success: true,
-          message: 'Sale created successfully',
-          sale,
-          paymentData,
-        };
-      });
+
+        // Compensate: the wallet was already debited above but no payment
+        // record made it into the DB. Refund so the agent isn't charged for
+        // a sale with no corresponding payment.
+        try {
+          await this.walletService.creditWallet(
+            agentId,
+            totalAmountToPay,
+            `sale-${sale.id}-refund-${Date.now()}`,
+            `Refund: payment recording failed for sale ${sale.id}`,
+          );
+          console.error(
+            `[createSale] wallet refunded after failed payment creation agentId=${agentId} amount=${totalAmountToPay} saleId=${sale.id}`,
+          );
+        } catch (refundErr: any) {
+          console.error(
+            `[createSale] CRITICAL: wallet refund also failed agentId=${agentId} amount=${totalAmountToPay} saleId=${sale.id}: ${refundErr?.message}`,
+          );
+        }
+
+        throw err;
+      }
+
+      // Only enqueue once the transaction above has actually committed —
+      // this is a Redis side-effect that can't be undone if the DB write
+      // fails, so it must never fire from inside the transaction callback.
+      console.log(
+        `[createSale] enqueueing process-next-payment paymentId=${paymentData.id} saleId=${paymentData.saleId}`,
+      );
+      const job = await this.paymentQueue.add(
+        'process-next-payment',
+        { paymentData },
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: true,
+          removeOnFail: false,
+          delay: 1000,
+        },
+      );
+      console.log(
+        `[createSale] process-next-payment job queued jobId=${job.id} paymentId=${paymentData.id} saleId=${paymentData.saleId}`,
+      );
+
+      return {
+        jobId: job.id,
+        success: true,
+        message: 'Sale created successfully',
+        sale,
+        paymentData,
+      };
     }
 
     return await this.paymentService.generatePaymentPayload(
@@ -1119,7 +1183,7 @@ export class SalesService {
       );
     }
 
-    return await this.prisma.payment.create({
+    const payment = await this.prisma.payment.create({
       data: {
         saleId: dto.saleId,
         amount: dto.amount,
@@ -1133,6 +1197,12 @@ export class SalesService {
         paymentDate: new Date(),
       },
     });
+
+    console.log(
+      `[createNextPayment] payment created paymentId=${payment.id} saleId=${payment.saleId} amount=${payment.amount} requestedSaleId=${dto.saleId}`,
+    );
+
+    return payment;
 
     // const transactionRef = `cash-${sale.id}-${Date.now()}`;
 

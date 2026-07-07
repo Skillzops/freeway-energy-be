@@ -1106,6 +1106,10 @@ export class PaymentService {
   // }
 
   async handlePostPayment(paymentData: any) {
+    console.log(
+      `[handlePostPayment] start paymentId=${paymentData?.id} saleId=${paymentData?.saleId}`,
+    );
+
     let sale = await this.prisma.sales.findUnique({
       where: { id: paymentData.saleId },
       include: {
@@ -1124,8 +1128,14 @@ export class PaymentService {
     });
 
     if (!sale) {
+      console.error(
+        `[handlePostPayment] Sale not found saleId=${paymentData?.saleId} paymentId=${paymentData?.id}`,
+      );
       throw new NotFoundException('Sale not found');
     }
+    console.log(
+      `[handlePostPayment] sale found saleId=${sale.id} status=${sale.status} totalPaid=${sale.totalPaid}`,
+    );
 
     const newTotalPaid = sale.payment.reduce(
       (sum, payment) =>

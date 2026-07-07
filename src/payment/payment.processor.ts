@@ -76,14 +76,21 @@ export class PaymentProcessor extends WorkerHost {
 
   private async processNextPayment(job: Job<PaymentJobData>) {
     const { paymentData } = job.data;
-    console.log(`[PROCESSOR] Processing cash payment:`, paymentData);
+    console.log(
+      `[PROCESSOR] Processing cash payment jobId=${job.id} attempt=${job.attemptsMade + 1} paymentId=${paymentData?.id} saleId=${paymentData?.saleId}:`,
+      paymentData,
+    );
 
     try {
       await this.paymentService.handlePostPayment(paymentData);
-      console.log(`[PROCESSOR] Cash payment processed successfully`);
+      console.log(
+        `[PROCESSOR] Cash payment processed successfully jobId=${job.id} paymentId=${paymentData?.id} saleId=${paymentData?.saleId}`,
+      );
       return { success: true, paymentId: paymentData.id };
     } catch (error) {
-      console.error(`[PROCESSOR] Cash payment error: ${error.message}`);
+      console.error(
+        `[PROCESSOR] Cash payment error jobId=${job.id} attempt=${job.attemptsMade + 1} paymentId=${paymentData?.id} saleId=${paymentData?.saleId}: ${error.message}`,
+      );
       throw error;
     }
   }
