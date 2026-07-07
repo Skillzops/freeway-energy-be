@@ -5,7 +5,6 @@ import { ConfigService } from '@nestjs/config';
 import { EmailModule } from '../mailer/email.module';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { EmailService } from '../mailer/email.service';
 import { BullModule } from '@nestjs/bullmq';
 import { PaymentProcessor } from './payment.processor';
@@ -14,7 +13,6 @@ import { HttpModule } from '@nestjs/axios';
 import { WalletService } from 'src/wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
 import { OgaranyaModule } from 'src/ogaranya/ogaranya.module';
-import { FlutterwaveModule } from 'src/flutterwave/flutterwave.module';
 import { DeviceModule } from 'src/device/device.module';
 import { NotificationModule } from 'src/notification/notification.module';
 import { PaystackModule } from 'src/paystack/paystack.module';
@@ -34,10 +32,9 @@ import { InvoiceModule } from '../invoice/invoice.module';
     BullModule.registerQueue({
       name: 'payment-queue',
     }),
-    FlutterwaveModule,
+    forwardRef(() => PaystackModule),
     DeviceModule,
     NotificationModule,
-    forwardRef(() => PaystackModule),
   ],
   controllers: [PaymentController],
   providers: [
@@ -45,21 +42,19 @@ import { InvoiceModule } from '../invoice/invoice.module';
     ConfigService,
     OpenPayGoService,
     PrismaService,
-    FlutterwaveService,
     EmailService,
     PaymentProcessor,
     TermiiService,
     WalletService,
     ReferenceGeneratorService,
     PaystackService,
-    BeebeejumpService
+    BeebeejumpService,
   ],
   exports: [
     PaymentService,
     ConfigService,
     OpenPayGoService,
     PrismaService,
-    FlutterwaveService,
     EmailService,
     PaymentProcessor,
     TermiiService,

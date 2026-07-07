@@ -23,16 +23,14 @@ import { Queue } from 'bullmq';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guard';
 import { GetSessionUser } from 'src/auth/decorators/getUser';
 import { AgentAccessGuard } from 'src/auth/guards/agent-access.guard';
-import { FlutterwaveService } from '../flutterwave/flutterwave.service';
-import { OgaranyaService } from '../ogaranya/ogaranya.service';
 import { DeviceService } from 'src/device/services/device.service';
+import { OgaranyaService } from '../ogaranya/ogaranya.service';
 
 @ApiTags('Payment')
 @Controller('payment')
 export class PaymentController {
   constructor(
     private readonly paymentService: PaymentService,
-    private readonly flutterwaveService: FlutterwaveService,
     private readonly ogaranyaService: OgaranyaService,
     private readonly deviceService: DeviceService,
     private readonly config: ConfigService,
@@ -107,57 +105,6 @@ export class PaymentController {
       return {
         success: false,
         error: error.message,
-      };
-    }
-  }
-
-  @Post('webhook/flutterwave')
-  @ApiOperation({ summary: 'Flutterwave payment webhook' })
-  @ApiHeader({
-    name: 'verif-hash',
-    description: 'Flutterwave webhook signature',
-    required: true,
-  })
-  @HttpCode(HttpStatus.OK)
-  async handleFlutterwaveWebhook(
-    @Body() payload: any,
-    @Headers('verif-hash') signature: string,
-  ) {
-    try {
-      // Verify webhook signature
-      const verifiedPayload = await this.flutterwaveService.handleWebhook(
-        payload,
-        signature,
-      );
-
-      // Process the webhook
-      await this.paymentQueue.waitUntilReady();
-
-      const job = await this.paymentQueue.add(
-        'process-flutterwave-webhook',
-        { payload: verifiedPayload },
-        {
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-          removeOnComplete: true,
-          removeOnFail: false,
-          delay: 1000,
-        },
-      );
-
-      return {
-        message: 'Webhook received successfully',
-        jobId: job.id,
-        status: 'processing',
-      };
-    } catch (error) {
-      console.error('Flutterwave webhook error:', error);
-      return {
-        status: 'failed',
-        message: error.message || 'Webhook processing failed',
       };
     }
   }

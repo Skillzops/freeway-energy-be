@@ -5,7 +5,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ContractService } from '../contract/contract.service';
 import { EmailService } from '../mailer/email.service';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
-import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { TermiiService } from '../termii/termii.service';
 import { ConfigService } from '@nestjs/config';
@@ -40,7 +39,6 @@ import { SalesDonationService } from './service/sales-donation.service';
     OpenPayGoService,
     ContractService,
     EmailService,
-    FlutterwaveService,
     TermiiService,
     ConfigService,
     SalesIdGeneratorService,
@@ -53,7 +51,6 @@ import { SalesDonationService } from './service/sales-donation.service';
     OpenPayGoService,
     ContractService,
     EmailService,
-    FlutterwaveService,
     TermiiService,
     ConfigService,
     SalesIdGeneratorService,

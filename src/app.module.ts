@@ -19,7 +19,6 @@ import { PaymentModule } from './payment/payment.module';
 import { DeviceModule } from './device/device.module';
 import { ContractModule } from './contract/contract.module';
 import { OpenpaygoModule } from './openpaygo/openpaygo.module';
-import { FlutterwaveModule } from './flutterwave/flutterwave.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -104,7 +103,6 @@ import { InvoiceModule } from './invoice/invoice.module';
     DeviceModule,
     ContractModule,
     OpenpaygoModule,
-    FlutterwaveModule,
     CronjobsModule,
     TermiiModule,
     JobstatusModule,

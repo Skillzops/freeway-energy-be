@@ -80,10 +80,9 @@ jobs:
           sed -i -e "s|CLOUDINARY_API_KEY=.*|CLOUDINARY_API_KEY='${{ secrets.CLOUDINARY_API_KEY }}'|" .env
           sed -i -e "s|CLOUDINARY_API_SECRET=.*|CLOUDINARY_API_SECRET='${{ secrets.CLOUDINARY_API_SECRET }}'|" .env
           sed -i -e "s|CLOUDINARY_CLOUD_NAME=.*|CLOUDINARY_CLOUD_NAME='${{ secrets.CLOUDINARY_CLOUD_NAME }}'|" .env
-          sed -i -e "s|FLW_SECRET_KEY=.*|FLW_SECRET_KEY='${{ secrets.FLW_SECRET_KEY_TEST }}'|" .env
-          sed -i -e "s|FLW_PUBLIC_KEY=.*|FLW_PUBLIC_KEY='${{ secrets.FLW_PUBLIC_KEY_TEST }}'|" .env
-          sed -i -e "s|FLW_WEBHOOK_SECRET=.*|FLW_WEBHOOK_SECRET='${{ secrets.FLW_WEBHOOK_SECRET_TEST }}'|" .env
-          sed -i -e "s|FLW_ENCRYPTION_KEY=.*|FLW_ENCRYPTION_KEY='${{ secrets.FLW_ENCRYPTION_KEY_TEST }}'|" .env
+          sed -i -e "s|PAYSTACK_SECRET_KEY=.*|PAYSTACK_SECRET_KEY='${{ secrets.PAYSTACK_SECRET_KEY_TEST }}'|" .env
+          sed -i -e "s|PAYSTACK_CALLBACK_URL=.*|PAYSTACK_CALLBACK_URL='${{ secrets.PAYSTACK_CALLBACK_URL_TEST }}'|" .env
+          sed -i -e "s|PAYSTACK_DVA_PREFERRED_BANK=.*|PAYSTACK_DVA_PREFERRED_BANK='${{ secrets.PAYSTACK_DVA_PREFERRED_BANK_TEST }}'|" .env
           sed -i -e "s|PAYMENT_REDIRECT_URL=.*|PAYMENT_REDIRECT_URL='${{ secrets.PAYMENT_REDIRECT_URL_TEST }}'|" .env
           sed -i -e "s|FRONTEND_SUCCESSFUL_SALES_URL=.*|FRONTEND_SUCCESSFUL_SALES_URL='${{ secrets.FRONTEND_SUCCESSFUL_SALES_URL_TEST }}'|" .env
           sed -i -e "s|COMPANY_LOGO_URL=.*|COMPANY_LOGO_URL='${{ secrets.COMPANY_LOGO_URL_TEST }}'|" .env

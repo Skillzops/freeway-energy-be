@@ -21,7 +21,6 @@ import { ConfigService } from '@nestjs/config';
 import { OpenPayGoService } from '../openpaygo/openpaygo.service';
 import { TermiiService } from '../termii/termii.service';
 import { OgaranyaService } from '../ogaranya/ogaranya.service';
-import { FlutterwaveService } from '../flutterwave/flutterwave.service';
 import { PaystackService } from '../paystack/paystack.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ReferenceGeneratorService } from './reference-generator.service';
@@ -51,7 +50,6 @@ export class PaymentService {
     private readonly config: ConfigService,
     private readonly openPayGo: OpenPayGoService,
     private readonly ogaranyaService: OgaranyaService,
-    private readonly flutterwaveService: FlutterwaveService,
     private readonly paystackService: PaystackService,
     private readonly walletService: WalletService,
     private readonly termiiService: TermiiService,
@@ -280,42 +278,6 @@ export class PaymentService {
     }
   }
 
-  private async createFlutterwavePayment(
-    sale: any,
-    amount: number,
-    email: string,
-    reference: string,
-  ) {
-    const paymentData = {
-      tx_ref: reference,
-      amount,
-      currency: 'NGN',
-      customer: {
-        email: email || `${sale.customer.phone}@example.com`,
-        name: `${sale.customer.firstname} ${sale.customer.lastname}`,
-        phonenumber: sale.customer.phone,
-      },
-      payment_options: 'banktransfer,card,ussd',
-      customizations: {
-        title: 'Product Purchase',
-        description: `Payment for sale ${sale.id}`,
-        logo: this.config.get<string>('COMPANY_LOGO_URL'),
-      },
-      meta: {
-        saleId: sale.id,
-      },
-    };
-
-    try {
-      // return await this.flutterwaveService.generatePaymentLink(paymentData);
-      return paymentData;
-    } catch (error) {
-      throw new BadRequestException(
-        `Flutterwave payment initiation failed: ${error.message}`,
-      );
-    }
-  }
-
   private async createOgaranyaWalletTopUp(
     agent: any,
     amount: number,
@@ -380,79 +342,6 @@ export class PaymentService {
     } catch (error) {
       throw new BadRequestException(
         `Top-up initiation failed: ${error.message}`,
-      );
-    }
-  }
-
-  private async createFlutterwaveWalletTopUp(
-    agent: any,
-    amount: number,
-    reference: string,
-  ) {
-    const paymentData = {
-      tx_ref: reference,
-      amount,
-      currency: 'NGN',
-      customer: {
-        email: agent.user.email || `${agent.user.phone}@example.com`,
-        name: `${agent.user.firstname} ${agent.user.lastname}`,
-        phonenumber: agent.user.phone,
-      },
-      payment_options: 'banktransfer,card,ussd',
-      customizations: {
-        title: 'Wallet Top-up',
-        description: `Wallet top-up for agent ${agent.agentId}`,
-        logo: this.config.get<string>('COMPANY_LOGO_URL'),
-      },
-      meta: {
-        agentId: agent.id,
-        type: 'wallet_topup',
-      },
-    };
-
-    try {
-      // const paymentLink =
-      //   await this.flutterwaveService.generatePaymentLink(paymentData);
-
-      let wallet = await this.prisma.wallet.findUnique({
-        where: { agentId: agent.id },
-      });
-
-      if (!wallet) {
-        wallet = await this.prisma.wallet.create({
-          data: {
-            agentId: agent.id,
-            balance: 0,
-          },
-        });
-      }
-
-      const topUpRequest = await this.prisma.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          agentId: agent.id,
-          type: WalletTransactionType.CREDIT,
-          paymentGateway: PaymentGateway.FLUTTERWAVE,
-          amount,
-          previousBalance: wallet.balance,
-          newBalance: wallet.balance + amount,
-          reference,
-          description: 'Wallet Topup via Flutterwave',
-          status: WalletTransactionStatus.PENDING,
-        },
-      });
-
-      return {
-        gateway: PaymentGateway.FLUTTERWAVE,
-        topUpId: topUpRequest.id,
-        // paymentLink: paymentLink.data.link,
-        paymentData,
-        amount,
-        reference,
-      };
-    } catch (error) {
-      throw new BadRequestException(
-        `Flutterwave top-up initiation failed: ${error.message}`,
       );
     }
   }
@@ -587,137 +476,6 @@ export class PaymentService {
       throw new BadRequestException('Failed to verify payment with Ogaranya');
     }
   }
-
-  private async verifyFlutterwavePaymentByReference(payment: any) {
-    try {
-      console.log(
-        '[PAYMENT] Verifying Flutterwave payment by reference:',
-        payment.transactionRef,
-      );
-
-      const verificationResponse =
-        await this.flutterwaveService.verifyTransactionByReference(
-          payment.transactionRef,
-        );
-
-      if (
-        verificationResponse.status === 'success' &&
-        verificationResponse.data.status === 'successful'
-      ) {
-        const updatedPayment = await this.prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            paymentStatus: PaymentStatus.COMPLETED,
-            updatedAt: new Date(),
-          },
-        });
-
-        await this.prisma.paymentResponses.create({
-          data: {
-            paymentId: payment.id,
-            data: verificationResponse,
-          },
-        });
-
-        await this.handlePostPayment(updatedPayment);
-
-        return {
-          status: 'verified',
-          message:
-            'Payment verified successfully via Flutterwave (by reference)',
-          payment: updatedPayment,
-        };
-      } else {
-        return {
-          status: 'pending',
-          message: 'Payment not yet completed. Please try again later.',
-          paymentStatus: verificationResponse.data?.status,
-        };
-      }
-    } catch (error) {
-      console.error(
-        '[PAYMENT] Flutterwave reference verification failed:',
-        error,
-      );
-      throw new BadRequestException(
-        `Failed to verify payment with Flutterwave: ${error.message}`,
-      );
-    }
-  }
-
-  private async verifyFlutterwavePayment(payment: any, transactionId: number) {
-    try {
-      // Get transaction ID from payment responses or use reference
-      // const transactionId = await this.getFlutterwaveTransactionId(payment);
-      const verificationResponse =
-        await this.flutterwaveService.verifyTransaction(transactionId);
-
-      if (
-        verificationResponse.status === 'success' &&
-        verificationResponse.data.status === 'successful'
-      ) {
-        const updatedPayment = await this.prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            paymentStatus: PaymentStatus.COMPLETED,
-            updatedAt: new Date(),
-          },
-        });
-
-        await this.prisma.paymentResponses.create({
-          data: {
-            paymentId: payment.id,
-            data: verificationResponse,
-          },
-        });
-
-        await this.handlePostPayment(updatedPayment);
-
-        return {
-          status: 'verified',
-          message: 'Payment verified successfully via Flutterwave',
-          payment: updatedPayment,
-        };
-      } else {
-        return {
-          status: 'pending',
-          message: 'Payment not yet completed. Please try again later.',
-          paymentStatus: verificationResponse.data?.status,
-        };
-      }
-    } catch (error) {
-      throw new BadRequestException(
-        `Failed to verify payment with Flutterwave: ${error.message}`,
-      );
-    }
-  }
-
-  // private async getFlutterwaveTransactionId(
-  //   payment: any,
-  //   transaction_id,
-  // ): Promise<number> {
-  //   // Try to get transaction ID from payment responses
-  //   const paymentResponse = await this.prisma.paymentResponses.findFirst({
-  //     where: { paymentId: payment.id },
-  //     orderBy: { createdAt: 'desc' },
-  //   });
-
-  //   if (
-  //     paymentResponse?.data &&
-  //     typeof paymentResponse.data === 'object' &&
-  //     !Array.isArray(paymentResponse.data) &&
-  //     'transaction_id' in paymentResponse.data
-  //   ) {
-  //     const transactionId = (paymentResponse.data as any).transaction_id;
-  //     return transactionId;
-  //   }
-
-  //   // If not found, we might need to search by reference
-  //   // This would require calling Flutterwave's transaction lookup endpoint
-  //   throw new BadRequestException(
-  //     'Transaction ID not found for Flutterwave payment verification',
-  //   );
-  // }
 
   async verifyWalletTopUpManually(reference: string) {
     const topUpRequest = await this.prisma.walletTransaction.findFirst({
@@ -928,53 +686,6 @@ export class PaymentService {
       }
     } else {
       throw new BadRequestException('Failed to verify top-up with Ogaranya');
-    }
-  }
-
-  private async verifyFlutterwaveTopUp(topUpRequest: any) {
-    try {
-      const verificationResponse =
-        await this.flutterwaveService.verifyTransactionByReference(
-          topUpRequest.reference,
-        );
-
-      if (
-        verificationResponse.status === 'success' &&
-        verificationResponse.data.status === 'successful'
-      ) {
-        const walletTransaction = await this.walletService.creditWallet(
-          topUpRequest.agentId,
-          topUpRequest.amount,
-          topUpRequest.reference,
-          `Wallet top-up verified via Flutterwave`,
-        );
-
-        const updatedTopUp = await this.prisma.walletTransaction.update({
-          where: { id: topUpRequest.id },
-          data: {
-            status: WalletTransactionStatus.COMPLETED,
-            updatedAt: new Date(),
-          },
-        });
-
-        return {
-          status: 'verified',
-          message: 'Wallet top-up verified successfully via Flutterwave',
-          amount: topUpRequest.amount,
-          newBalance: walletTransaction.newBalance,
-          topUpRequest: updatedTopUp,
-        };
-      } else {
-        return {
-          status: 'pending',
-          message: 'Payment not yet completed. Please try again later.',
-          paymentStatus: verificationResponse.data?.status,
-        };
-      }
-    } catch (error) {
-      throw new BadRequestException(
-        `Failed to verify top-up with Flutterwave, ${error.message}`,
-      );
     }
   }
 
