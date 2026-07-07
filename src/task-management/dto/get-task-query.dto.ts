@@ -11,6 +11,20 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { TaskStatus } from '@prisma/client';
 
+/** Query strings like `isAssigned=false` must not use implicit boolean conversion (Boolean("false") === true). */
+const parseOptionalBooleanQueryParam = ({
+  value,
+}: {
+  value: unknown;
+}): boolean | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === true || value === 1 || value === '1' || value === 'true')
+    return true;
+  if (value === false || value === 0 || value === '0' || value === 'false')
+    return false;
+  return undefined;
+};
+
 export class GetTaskQueryDto {
   @ApiPropertyOptional({
     description: 'Page number for pagination',
@@ -165,13 +179,8 @@ export class GetAgentTaskQueryDto extends GetTaskQueryDto {
     type: Boolean,
   })
   @IsOptional()
+  @Type(() => String)
+  @Transform(parseOptionalBooleanQueryParam)
   @IsBoolean()
-  @Transform(({ value }) => {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return value === 1;
-    if (typeof value === 'string')
-      return value.toLowerCase() === 'true' || value === '1';
-    return false;
-  })
   isAssigned?: boolean;
 }

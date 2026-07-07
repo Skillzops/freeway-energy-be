@@ -51,19 +51,26 @@ import { InvoiceModule } from './invoice/invoice.module';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        connection: {
-          // host: configService.get<string>('REDIS_HOST'),
-          // port: configService.get<number>('REDIS_PORT'),
-          // password: configService.get<string>('REDIS_PASSWORD'),
-          // username: configService.get<string>('REDIS_USERNAME'),
-          url: configService.get<string>('REDIS_URL'),
-          // tls: {
-          //   rejectUnauthorized: false,
-          // },
-          prefix: `bull:${configService.get<string>('APP_NAME') || 'freeway-energy-backend'}`,
-        },
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const appSlug =
+          configService.get<string>('APP_QUEUE_PREFIX') ||
+          configService
+            .get<string>('APP_NAME')
+            ?.toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '') ||
+          'freeway-energy-backend';
+
+        return {
+          connection: {
+            url: configService.get<string>('REDIS_URL'),
+          },
+          // Must be top-level (not inside `connection`) or BullMQ ignores it.
+          // Without a unique prefix, every app on the same Redis competes for
+          // the same jobs and cross-reads the wrong MongoDB.
+          prefix: `bull:${appSlug}`,
+        };
+      },
     }),
     ThrottlerModule.forRoot([
       {

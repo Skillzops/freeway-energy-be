@@ -112,9 +112,14 @@ export class AuthService {
     });
 
     const platformName = 'Freewave Energy';
-    const clientUrl = this.config.get<string>('CLIENT_URL');
+    const clientUrl = this.config
+      .get<string>('CLIENT_URL')
+      ?.replace(/\/+$/, '');
 
-    const createPasswordUrl = `${clientUrl}create-password/${newUser.id}/${token.token}/`;
+    const createPasswordUrl = `${clientUrl}/create-password/${newUser.id}/${token.token}/`;
+    console.log(
+      `[AuthService] createPasswordUrl built for newUser=${newUser.id}: ${createPasswordUrl}`,
+    );
 
     await this.Email.sendMail({
       userId: newUser.id,
@@ -271,9 +276,13 @@ export class AuthService {
     }
 
     const platformName = 'Freewave Energy';
-    const clientUrl = this.config.get<string>('CLIENT_URL');
-    // const resetLink = `${clentUrl}/resetPassword`;
-    const resetLink = `${clientUrl}reset-password/${existingUser.id}/${existingToken.token}/`;
+    const clientUrl = this.config
+      .get<string>('CLIENT_URL')
+      ?.replace(/\/+$/, '');
+    const resetLink = `${clientUrl}/reset-password/${existingUser.id}/${existingToken.token}/`;
+    console.log(
+      `[AuthService] forgotPassword resetLink built for userId=${existingUser.id} email=${email}: ${resetLink}`,
+    );
 
     await this.Email.sendMail({
       to: email,
@@ -287,6 +296,9 @@ export class AuthService {
         supportEmail: this.config.get<string>('MAIL_FROM'),
       },
     });
+    console.log(
+      `[AuthService] forgotPassword email dispatched to=${email} userId=${existingUser.id}`,
+    );
 
     return {
       message: MESSAGES.PWD_RESET_MAIL_SENT,

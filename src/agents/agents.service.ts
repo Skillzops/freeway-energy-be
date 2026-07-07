@@ -2073,10 +2073,14 @@ export class AgentsService {
             }
           : {},
         isAssigned !== undefined
-          ? {
-              installerAgentId:
-                isAssigned === false ? { isSet: false } : { not: null },
-            }
+          ? isAssigned === false
+            ? {
+                OR: [
+                  { installerAgentId: null },
+                  { installerAgentId: { isSet: false } },
+                ],
+              }
+            : { installerAgentId: { not: null } }
           : {},
         agent.category === AgentCategory.INSTALLER
           ? {
