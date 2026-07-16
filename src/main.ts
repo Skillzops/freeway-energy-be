@@ -30,8 +30,20 @@ async function bootstrap() {
     exclude: [{ path: 'api/payments/odyssey', method: RequestMethod.ALL }],
   });
 
-  // CORS configuration
-  const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS') || '*';
+  // CORS configuration — ALLOWED_ORIGINS is comma-separated, e.g.
+  // https://freewaveenergy.ng,https://www.freewaveenergy.ng
+  const allowedOriginsRaw =
+    configService.get<string>('ALLOWED_ORIGINS') ||
+    configService.get<string>('ALLOWED_ORIGIN') ||
+    '*';
+  const allowedOrigins =
+    allowedOriginsRaw === '*'
+      ? true
+      : allowedOriginsRaw
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean);
+
   app.enableCors({
     origin: allowedOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
