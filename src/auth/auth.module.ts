@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { EmailModule } from '../mailer/email.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtStrategy } from './strategy/jwt.strategy';
+import { TermiiModule } from '../termii/termii.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { JwtStrategy } from './strategy/jwt.strategy';
       },
     }),
     EmailModule,
+    TermiiModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, PrismaService, ConfigService, JwtStrategy],

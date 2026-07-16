@@ -17,5 +17,6 @@ import { EmailModule } from 'src/mailer/email.module';
   ],
   controllers: [TermiiController],
   providers: [TermiiService, NotificationService],
+  exports: [TermiiService],
 })
 export class TermiiModule {}

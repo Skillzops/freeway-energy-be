@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -18,11 +19,12 @@ import { v4 as uuidv4 } from 'uuid';
 import * as argon from 'argon2';
 import { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
-import { hashPassword } from '../utils/helpers.util';
+import { hashPassword, cleanPhoneNumber } from '../utils/helpers.util';
 import { CreateUserDto } from './dto/create-user.dto';
 import { EmailService } from '../mailer/email.service';
 import { ForgotPasswordDTO } from './dto/forgot-password.dto';
 import { MESSAGES } from '../constants';
+import { BRAND_NAME } from '../constants/brand.constants';
 import { PasswordResetDTO } from './dto/password-reset.dto';
 import { LoginUserDTO } from './dto/login-user.dto';
 import { CreateSuperUserDto } from './dto/create-super-user.dto';
@@ -34,14 +36,18 @@ import { generateRandomPassword } from '../utils/generate-pwd';
 import { plainToInstance } from 'class-transformer';
 import { UserEntity } from '../users/entity/user.entity';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { TermiiService } from '../termii/termii.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly Email: EmailService,
     private readonly config: ConfigService,
     private jwtService: JwtService,
+    private readonly termiiService: TermiiService,
   ) {}
 
   async addUser(userData: CreateUserDto) {
@@ -83,7 +89,7 @@ export class AuthService {
         firstname,
         lastname,
         location,
-        phone,
+        phone: cleanPhoneNumber(phone),
         email,
         password: hashedPwd,
         roleId,
@@ -111,7 +117,7 @@ export class AuthService {
       },
     });
 
-    const platformName = 'Freewave Energy';
+    const platformName = BRAND_NAME;
     const clientUrl = this.config
       .get<string>('CLIENT_URL')
       ?.replace(/\/+$/, '');
@@ -135,6 +141,26 @@ export class AuthService {
         supportEmail: this.config.get<string>('MAIL_FROM') || 'support@freewave.com',
       },
     });
+
+    if (newUser.phone) {
+      this.termiiService
+        .sendSms({
+          to: newUser.phone,
+          message: this.termiiService.formatNewUserOnboardingMessage(
+            firstname,
+            email,
+            createPasswordUrl,
+          ),
+          type: 'plain',
+          channel: 'generic',
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to send onboarding SMS to user ${newUser.id}:`,
+            error?.message || error,
+          );
+        });
+    }
 
     return newUser;
   }
@@ -275,7 +301,7 @@ export class AuthService {
       });
     }
 
-    const platformName = 'Freewave Energy';
+    const platformName = BRAND_NAME;
     const clientUrl = this.config
       .get<string>('CLIENT_URL')
       ?.replace(/\/+$/, '');

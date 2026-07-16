@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from 'src/mailer/email.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TermiiService } from 'src/termii/termii.service';
+import { BRAND_NAME } from 'src/constants/brand.constants';
 
 interface ITokenRecipient{
   email: string,
@@ -32,8 +33,8 @@ export class NotificationService {
         subject: `Here are your device tokens`,
         template: './device-tokens',
         context: {
-          // tokens: JSON.stringify(deviceTokens, undefined, 4),
           tokens: deviceTokens,
+          platformName: BRAND_NAME,
         },
       });
     }
@@ -61,8 +62,8 @@ export class NotificationService {
       `You did it! All your installments for device ${deviceSerial} are now fully paid ✨.\n\n` +
       `No balances, no worries. \n\n` +
       `Thank you for choosing us and for staying committed throughout the journey. We truly appreciate you! ❤️\n\n` +
-      `Need anything? We’re always here for you \n\n\n` +
-      `A4&T`
+      `Need anything? We're always here for you.\n\n\n` +
+      `${BRAND_NAME}`
 
     await this.termiiService.sendSms({
       to: phone,

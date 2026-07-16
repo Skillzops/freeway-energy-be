@@ -6,6 +6,7 @@ import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../mailer/email.service';
+import { TermiiService } from '../termii/termii.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { DeepMockProxy, mockDeep } from 'jest-mock-extended';
@@ -21,6 +22,7 @@ jest.mock('argon2', () => ({
 
 jest.mock('../utils/helpers.util', () => ({
   hashPassword: jest.fn().mockResolvedValue(expect.any(String)),
+  cleanPhoneNumber: jest.fn((phone: string) => phone),
 }));
 
 describe('AuthService', () => {
@@ -31,6 +33,13 @@ describe('AuthService', () => {
 
   const mockEmailService = {
     sendMail: jest.fn(),
+  };
+
+  const mockTermiiService = {
+    sendSms: jest.fn().mockResolvedValue({ success: true }),
+    formatNewUserOnboardingMessage: jest
+      .fn()
+      .mockReturnValue('Welcome onboarding SMS'),
   };
 
   const mockJwtService = {
@@ -60,7 +69,7 @@ describe('AuthService', () => {
   const mockConfigService = {
     get: jest.fn((key: string) => {
       if (key === 'mail.from') {
-        return 'no-reply@a4tenergy.com';
+        return 'no-reply@freewave.com';
       }
       return null;
     }),
@@ -74,6 +83,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: EmailService, useValue: mockEmailService },
+        { provide: TermiiService, useValue: mockTermiiService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: JwtService, useValue: mockJwtService },
       ],
@@ -99,16 +109,18 @@ describe('AuthService', () => {
 
       (prisma.user.create as jest.Mock).mockResolvedValue({
         id: 'user-id',
+        phone: dto.phone,
         ...dto,
       });
       (prisma.tempToken.create as jest.Mock).mockResolvedValue(tokenData);
 
       const result = await service.addUser(dto);
 
-      expect(result).toEqual({ id: 'user-id', ...dto });
+      expect(result).toEqual({ id: 'user-id', phone: dto.phone, ...dto });
       expect(prisma.user.create).toHaveBeenCalled();
 
       expect(mockEmailService.sendMail).toHaveBeenCalled();
+      expect(mockTermiiService.sendSms).toHaveBeenCalled();
     });
 
     it('should throw BadRequestException if email already exists', async () => {

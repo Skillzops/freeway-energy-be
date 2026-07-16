@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, retry } from 'rxjs';
 import { formatPhoneNumber } from 'src/utils/helpers.util';
+import { BRAND_NAME, BRAND_ORG_CODE } from 'src/constants/brand.constants';
 
 export interface DeviceTokenSmsData {
   deviceSerialNumber: string;
@@ -32,7 +33,7 @@ export class TermiiService {
     private readonly httpService: HttpService,
   ) {
     this.apiKey = this.config.get<string>('TERMII_API_KEY');
-    this.senderId = this.config.get<string>('TERMII_SENDER_ID', 'A4T');
+    this.senderId = this.config.get<string>('TERMII_SENDER_ID', BRAND_ORG_CODE);
 
     if (!this.apiKey) {
       this.logger.warn(
@@ -133,7 +134,7 @@ export class TermiiService {
     password: string,
     category: string,
   ) {
-    return `Welcome to Freewave Agent Platform!
+    return `Welcome to ${BRAND_NAME} Agent Platform!
   
   Dear ${firstname},
   
@@ -147,7 +148,26 @@ export class TermiiService {
   For support, contact us.
   
   Thank you!`;
-  } 
+  }
+
+  formatNewUserOnboardingMessage(
+    firstname: string,
+    email: string,
+    createPasswordUrl: string,
+  ) {
+    return `Welcome to ${BRAND_NAME}!
+
+Dear ${firstname},
+
+Your account has been created.
+
+Email: ${email}
+
+Set your password here:
+${createPasswordUrl}
+
+Thank you!`;
+  }
 
   async getAccountBalance(): Promise<any> {
     if (!this.apiKey) {

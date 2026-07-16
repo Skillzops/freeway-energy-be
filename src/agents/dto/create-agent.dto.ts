@@ -13,7 +13,7 @@ import { AgentCategory } from '@prisma/client';
 
 export class CreateAgentDto extends OmitType(CreateUserDto, ['role', 'email']) {
   @ApiPropertyOptional({
-    example: 'john@a4tenergy.com',
+    example: 'john@freewaveenergy.agent',
     description:
       'Email of the agent. If not provided, will be generated automatically',
   })
