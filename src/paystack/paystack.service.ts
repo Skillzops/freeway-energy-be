@@ -18,6 +18,10 @@ export class PaystackService {
     this.secretKey = this.config.get<string>('PAYSTACK_SECRET_KEY') || '';
   }
 
+  isConfigured(): boolean {
+    return Boolean(this.secretKey?.trim());
+  }
+
   private getHeaders() {
     return {
       'Content-Type': 'application/json',

@@ -52,13 +52,11 @@ import { InvoiceModule } from './invoice/invoice.module';
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
         const appSlug =
-          configService.get<string>('APP_QUEUE_PREFIX') ||
           configService
             .get<string>('APP_NAME')
             ?.toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, '') ||
-          'freeway-energy-backend';
+            .replace(/^-|-$/g, '') || 'freeway-energy-backend';
 
         return {
           connection: {
@@ -121,7 +119,7 @@ import { InvoiceModule } from './invoice/invoice.module';
     AuditLogModule,
     InvoiceModule,
     FailedJobsModule,
-    BeebeejumpModule
+    BeebeejumpModule,
   ],
   controllers: [AppController, BeebeejumpController],
   providers: [
