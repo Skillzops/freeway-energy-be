@@ -182,7 +182,7 @@ export class AuthController {
     return this.authService.createUserPassword(body, params);
   }
 
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('change-password')
   @ApiBearerAuth('access_token')
   @ApiOkResponse({})
