@@ -249,7 +249,7 @@ export class AuthService {
     res.setHeader('access_token', access_token);
     res.setHeader('Access-Control-Expose-Headers', 'access_token');
 
-    return plainToInstance(UserEntity, user);
+    return { ...plainToInstance(UserEntity, user), accessToken: access_token };
   }
 
   async forgotPassword(forgotPasswordDetails: ForgotPasswordDTO) {
