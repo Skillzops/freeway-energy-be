@@ -291,6 +291,15 @@ export class AgentsService {
         });
     }
 
+    this.sendAgentCredentialsEmail({
+      firstname: newUser.firstname,
+      email,
+      password,
+      category,
+    }).catch((error) => {
+      this.logger.error('Agent credentials email failed', error);
+    });
+
     /**
      * RETURN CREDENTIALS IN RESPONSE
      */
@@ -363,6 +372,16 @@ export class AgentsService {
         });
     }
 
+    this.sendAgentCredentialsEmail({
+      firstname: agent.user.firstname,
+      email: agent.user.email,
+      password: newPassword,
+      category: agent.category,
+      isReset: true,
+    }).catch((err) => {
+      this.logger.error('Failed to send reset email', err);
+    });
+
     return {
       agentId: agent.agentId,
       email: agent.user.email,
@@ -386,44 +405,80 @@ export class AgentsService {
       throw new NotFoundException(MESSAGES.AGENT_NOT_FOUND);
     }
 
-    // Check if email is being updated and if it's already taken
-    if (updateAgentDto.email && updateAgentDto.email !== agent.user.email) {
+    const nextEmail = updateAgentDto.email?.trim();
+    const currentEmail = agent.user.email?.trim();
+    const nextPhone = updateAgentDto.phone
+      ? cleanPhoneNumber(updateAgentDto.phone)
+      : undefined;
+    const currentPhone = agent.user.phone
+      ? cleanPhoneNumber(agent.user.phone)
+      : undefined;
+
+    // The current agent is excluded. Unchanged email/phone must always save.
+    if (nextEmail && nextEmail.toLowerCase() !== currentEmail?.toLowerCase()) {
       const existingEmail = await this.prisma.user.findFirst({
         where: {
-          email: updateAgentDto.email,
-          id: { not: agent.userId }, // Exclude current user
+          email: { equals: nextEmail, mode: 'insensitive' },
+          id: { not: agent.userId },
+          deletedAt: null,
         },
       });
 
       if (existingEmail) {
         throw new ConflictException('Email is already in use by another user');
       }
+
+      const customerWithEmail = await this.prisma.customer.findFirst({
+        where: { email: { equals: nextEmail, mode: 'insensitive' }, deletedAt: null },
+      });
+      if (customerWithEmail) {
+        throw new ConflictException('Email is already in use by a customer');
+      }
+    }
+
+    if (nextPhone && nextPhone !== currentPhone) {
+      const existingPhone = await this.prisma.user.findFirst({
+        where: { phone: nextPhone, id: { not: agent.userId }, deletedAt: null },
+      });
+      if (existingPhone) {
+        throw new ConflictException('Phone number is already in use by another user');
+      }
+
+      const customerWithPhone = await this.prisma.customer.findFirst({
+        where: {
+          deletedAt: null,
+          OR: [{ phone: nextPhone }, { alternatePhone: nextPhone }],
+        },
+      });
+      if (customerWithPhone) {
+        throw new ConflictException('Phone number is already in use by a customer');
+      }
     }
 
     // Prepare update data for user
     const userUpdateData: any = {};
 
-    if (updateAgentDto.firstname) {
+    if (updateAgentDto.firstname !== undefined) {
       userUpdateData.firstname = updateAgentDto.firstname;
     }
 
-    if (updateAgentDto.lastname) {
+    if (updateAgentDto.lastname !== undefined) {
       userUpdateData.lastname = updateAgentDto.lastname;
     }
 
-    if (updateAgentDto.email) {
-      userUpdateData.email = updateAgentDto.email;
+    if (nextEmail !== undefined) {
+      userUpdateData.email = nextEmail;
     }
 
-    if (updateAgentDto.phone) {
-      userUpdateData.phone = cleanPhoneNumber(updateAgentDto.phone);
+    if (nextPhone !== undefined) {
+      userUpdateData.phone = nextPhone;
     }
 
-    if (updateAgentDto.location) {
+    if (updateAgentDto.location !== undefined) {
       userUpdateData.location = updateAgentDto.location;
     }
 
-    if (updateAgentDto.addressType) {
+    if (updateAgentDto.addressType !== undefined) {
       userUpdateData.addressType = updateAgentDto.addressType;
     }
 
@@ -1632,13 +1687,12 @@ export class AgentsService {
         id: task.id,
         taskId: task.id,
         commissionAmount: commissionPerTask,
-        // completedDate: task.completedDate,
-        completedDate: task.sale.createdAt,
+        completedDate: task.completedDate ?? task.sale?.createdAt ?? null,
         scheduledDate: task.scheduledDate,
         customer: {
-          name: `${task.customer.firstname} ${task.customer.lastname}`,
-          phone: task.customer.phone,
-          address: task.customer.installationAddress,
+          name: `${task.customer?.firstname ?? ''} ${task.customer?.lastname ?? ''}`.trim(),
+          phone: task.customer?.phone ?? null,
+          address: task.customer?.installationAddress ?? null,
         },
         requestingAgent: task.requestingAgent
           ? `${task.requestingAgent.user.firstname} ${task.requestingAgent.user.lastname}`
@@ -2047,6 +2101,23 @@ export class AgentsService {
       isAssigned,
     } = getTasksQuery;
 
+    // Query strings arrive as "true"/"false" when ValidationPipe transform is off.
+    // Strict === false would miss that and incorrectly filter to assigned-only tasks.
+    const assignedFilter =
+      isAssigned === undefined || isAssigned === null || (isAssigned as unknown) === ''
+        ? undefined
+        : isAssigned === true ||
+            (isAssigned as unknown) === 'true' ||
+            (isAssigned as unknown) === '1' ||
+            (isAssigned as unknown) === 1
+          ? true
+          : isAssigned === false ||
+              (isAssigned as unknown) === 'false' ||
+              (isAssigned as unknown) === '0' ||
+              (isAssigned as unknown) === 0
+            ? false
+            : undefined;
+
     const whereConditions: Prisma.InstallerTaskWhereInput = {
       AND: [
         search
@@ -2072,8 +2143,9 @@ export class AgentsService {
               customerId: customerId,
             }
           : {},
-        isAssigned !== undefined
-          ? isAssigned === false
+        // Unassigned tasks may store installerAgentId as null OR omit the field (Mongo).
+        assignedFilter !== undefined
+          ? assignedFilter === false
             ? {
                 OR: [
                   { installerAgentId: null },
@@ -2845,6 +2917,44 @@ export class AgentsService {
   }
 
   /**
+   * Email agent login credentials (create or password reset).
+   * Do not pass userId — email failure must not delete the agent user.
+   */
+  private async sendAgentCredentialsEmail(params: {
+    firstname: string;
+    email: string;
+    password: string;
+    category: string;
+    isReset?: boolean;
+  }) {
+    const { firstname, email, password, category, isReset } = params;
+    const platformName = 'Supreme Feat Energy';
+    const clientUrl = (this.config.get<string>('CLIENT_URL') || '').replace(
+      /\/?$/,
+      '/',
+    );
+
+    await this.Email.sendMail({
+      to: email,
+      from: this.config.get<string>('MAIL_FROM'),
+      subject: isReset
+        ? `Your ${platformName} agent password has been reset`
+        : `Welcome to ${platformName} - Your Agent Account`,
+      template: './agent-credentials',
+      context: {
+        firstname,
+        userEmail: email,
+        password,
+        category: String(category).toLowerCase(),
+        platformName,
+        loginUrl: clientUrl || undefined,
+        supportEmail:
+          this.config.get<string>('MAIL_FROM') || 'support@supremefeat.com',
+      },
+    });
+  }
+
+  /**
    * Generate unique email
    */
   private async generateUniqueEmail(
@@ -3004,6 +3114,18 @@ export class AgentsService {
           agentId: this.agentCounter,
           category: position,
         },
+      });
+
+      this.sendAgentCredentialsEmail({
+        firstname: row.name,
+        email,
+        password: plainPassword,
+        category: position,
+      }).catch((error) => {
+        this.logger.error(
+          `Agent credentials email failed for ${email}`,
+          error,
+        );
       });
 
       return {

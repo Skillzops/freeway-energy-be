@@ -15,6 +15,7 @@ import {
   ParseFilePipeBuilder,
   UploadedFile,
   Patch,
+  Logger,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -83,6 +84,8 @@ import { ResetAgentPasswordDto } from './dto/reset-agent-pwd.dto';
 @ApiTags('Agents')
 @Controller('agents')
 export class AgentsController {
+  private readonly logger = new Logger(AgentsController.name);
+
   constructor(
     private readonly agentsService: AgentsService,
     private readonly productsService: ProductsService,
@@ -1096,7 +1099,50 @@ export class AgentsController {
     @Param('agentId') agentId: string,
     @Query() query: GetCommisionFilterDto,
   ) {
-    return this.agentsService.getAgentCommissionsByAdmin(agentId, query);
+    try {
+      return await this.agentsService.getAgentCommissionsByAdmin(agentId, query);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to load commissions for agent ${agentId}: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @Get(':id/installation-history')
+  async getAgentInstallationHistory(@Param('id') id: string) {
+    const agent = await this.agentsService.findOne(id);
+    if (agent.category !== AgentCategory.INSTALLER) {
+      throw new BadRequestException('Agent is not an installer');
+    }
+    const installations = await this.installerService.getInstallationHistory(id);
+    return { installations, total: installations.length };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)
+  @RolesAndPermissions({
+    permissions: [
+      `${ActionEnum.manage}:${SubjectEnum.Agents}`,
+      `${ActionEnum.read}:${SubjectEnum.Agents}`,
+    ],
+  })
+  @Get(':id/task-history')
+  async getAgentTaskHistory(@Param('id') id: string) {
+    const agent = await this.agentsService.findOne(id);
+    if (agent.category !== AgentCategory.INSTALLER) {
+      throw new BadRequestException('Agent is not an installer');
+    }
+    const tasks = await this.installerService.getTaskHistory(id);
+    return { tasks, total: tasks.length };
   }
 
   @UseGuards(JwtAuthGuard, RolesAndPermissionsGuard)

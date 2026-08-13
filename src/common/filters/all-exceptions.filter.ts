@@ -107,6 +107,10 @@ ${errorData.stack || 'No stack trace available'}
       };
 
       this.writeErrorToFile(errorData);
+      this.logger.error(
+        `${request.method} ${request.url} failed with ${status}: ${exceptionMessage || message}`,
+        stack || undefined,
+      );
     }
 
     // For 500 errors, return a friendly message to the user
