@@ -73,13 +73,13 @@ export class CreateCustomerDto {
   @IsEnum(AddressType)
   addressType: AddressType;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Installation address of the customer',
     example: '123 Main Street, Apartment 4B',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  installationAddress: string;
+  installationAddress?: string;
 
   @ApiProperty({
     description: 'Local Government Area',
