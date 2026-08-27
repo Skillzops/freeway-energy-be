@@ -103,6 +103,21 @@ export class AuthController {
     return this.authService.login(userDetails, res);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('switch-profile')
+  @ApiBearerAuth('access_token')
+  @ApiOkResponse({})
+  @ApiForbiddenResponse({})
+  @ApiInternalServerErrorResponse({})
+  @HttpCode(HttpStatus.OK)
+  async switchProfile(
+    @GetSessionUser('id') userId: string,
+    @GetSessionUser('agentId') currentAgentId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.authService.switchAgentProfile(userId, currentAgentId, res);
+  }
+
   @Post('forgot-password')
   @ApiOkResponse({})
   @ApiBadRequestResponse({})

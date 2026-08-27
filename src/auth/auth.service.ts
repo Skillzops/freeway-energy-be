@@ -279,6 +279,64 @@ export class AuthService {
     };
   }
 
+  /**
+   * Switches the caller's active agent profile within the same session, for
+   * accounts that hold more than one Agent instance (e.g. both a SALES and
+   * an INSTALLER profile). Same-origin app, so unlike the cross-app
+   * handoff-code pattern some sibling codebases use, this just re-issues a
+   * JWT scoped to the other profile directly - no password re-entry, no
+   * short-lived code exchange needed.
+   */
+  async switchAgentProfile(
+    userId: string,
+    currentAgentId: string | undefined,
+    res: Response,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: { include: { permissions: true } },
+        agentDetails: true,
+      },
+    });
+
+    if (!user) throw new BadRequestException(MESSAGES.INVALID_CREDENTIALS);
+
+    const targetAgent = (user.agentDetails || []).find(
+      (agent) => agent.id !== currentAgentId,
+    );
+
+    if (!targetAgent) {
+      throw new ForbiddenException(
+        'This account does not have another profile to switch to',
+      );
+    }
+
+    const { agentDetails, ...userWithoutAgentDetails } = user;
+
+    const payload = {
+      sub: user.id,
+      agentId: targetAgent.id,
+      agentCategory: targetAgent.category,
+    };
+
+    const access_token = this.jwtService.sign(payload);
+
+    res.setHeader('access_token', access_token);
+    res.setHeader('Access-Control-Expose-Headers', 'access_token');
+
+    return {
+      ...plainToInstance(UserEntity, {
+        ...userWithoutAgentDetails,
+        agentDetails: targetAgent,
+      }),
+      otherAgentInstances: (agentDetails || [])
+        .filter((agent) => agent.id !== targetAgent.id)
+        .map((agent) => ({ id: agent.id, category: agent.category })),
+      accessToken: access_token,
+    };
+  }
+
   async forgotPassword(forgotPasswordDetails: ForgotPasswordDTO) {
     const { email } = forgotPasswordDetails;
 
