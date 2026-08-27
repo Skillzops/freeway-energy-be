@@ -20,7 +20,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: { sub: string }) {
+  async validate(payload: {
+    sub: string;
+    agentId?: string;
+    agentCategory?: string;
+  }) {
     const user = await this.prisma.user.findUnique({
       where: {
         id: payload.sub,
@@ -45,6 +49,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
     this.clsService.set('userId', user.id);
 
-    return user;
+    // Carry the session's resolved agent context (set at login - see
+    // AuthService.login) forward onto request.user, so guards/services that
+    // need to know *which* of a user's possibly-multiple Agent profiles is
+    // active for this session don't have to guess.
+    return {
+      ...user,
+      agentId: payload.agentId,
+      agentCategory: payload.agentCategory,
+    };
   }
 }
