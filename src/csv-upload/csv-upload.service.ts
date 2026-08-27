@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { pickAgentDetails } from '../common/utils/agent-details.util';
 import { DataMappingService } from './data-mapping.service';
 import { DefaultsGeneratorService } from './defaults-generator.service';
 import { FileParserService } from './file-parser.service';
@@ -929,29 +930,22 @@ export class CsvUploadService {
         }
       }
 
-      // Check if user has agent details for this category
-      if (!user.agentDetails || user.agentDetails.category !== category) {
-        // Create new agent record even if user exists
+      // Check if user has agent details for this category. A user can now
+      // hold more than one Agent row (one per category), so look for one
+      // matching this specific category rather than assuming the first/only
+      // agentDetails entry applies.
+      const existingAgentForCategory = pickAgentDetails(user.agentDetails, {
+        agentCategory: category,
+      });
+
+      if (!existingAgentForCategory) {
+        // Create new agent record even if user exists (or exists for a
+        // different category)
         const nextAgentId = Math.floor(10000000 + Math.random() * 90000000);
 
-        // let agent = await this.prisma.agent.findFirst({
-        //   where: {
-        //     userId: user.id,
-        //     category: category,
-        //   },
-        // });
-
-        // if (!agent)
-        //   agent = await this.prisma.agent.create({
-        //     data: {
-        //       agentId: nextAgentId,
-        //       userId: user.id,
-        //       category: category,
-        //     },
-        //   });
         const agent = await this.prisma.agent.upsert({
           where: {
-            userId: user.id, // MUST be unique
+            userId_category: { userId: user.id, category }, // MUST be unique
           },
           update: {},
           create: {
@@ -976,7 +970,7 @@ export class CsvUploadService {
         return { agent: { ...agent, user }, isNewAgent };
       }
 
-      return { agent: user.agentDetails, isNewAgent };
+      return { agent: existingAgentForCategory, isNewAgent };
     } catch (error) {
       this.logger.error('Error creating/finding agent', error);
       throw error;

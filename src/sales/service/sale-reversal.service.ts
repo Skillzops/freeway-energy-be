@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { pickAgentDetails } from '../../common/utils/agent-details.util';
 import { SalesStatus, PaymentStatus, TaskStatus } from '@prisma/client';
 import { WalletService } from '../../wallet/wallet.service';
 import { DeviceAssignmentService } from 'src/device/services/device-assignment.service';
@@ -188,13 +189,19 @@ export class SaleReversalService {
       select: { agentDetails: { select: { id: true } } },
     });
 
-    if (!creator?.agentDetails) {
-      // Sale was created by non-agent (customer/admin)
+    const saleAgent = pickAgentDetails(creator?.agentDetails, {
+      agentId: sale.agentId,
+    });
+
+    if (!saleAgent) {
+      // Sale was created by non-agent (customer/admin), or the creator now
+      // holds multiple agent profiles and we couldn't disambiguate which one
+      // this sale belongs to.
       details.push('Sale created by non-agent user, no wallet to credit');
       return 0;
     }
 
-    const agentId = creator.agentDetails.id;
+    const agentId = saleAgent.id;
     const amountToCredit = sale.totalPaid || 0;
 
     if (amountToCredit > 0) {

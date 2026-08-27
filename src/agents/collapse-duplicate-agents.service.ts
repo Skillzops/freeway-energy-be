@@ -504,7 +504,7 @@ export class AgentCollapseService {
       // AuditLogs are typically read-only for historical purposes
       // We'll only update if they reference the agent's user ID
       const user = await this.prisma.user.findFirst({
-        where: { agentDetails: { id: correctAgentId } },
+        where: { agentDetails: { some: { id: correctAgentId } } },
         select: { id: true },
       });
 
@@ -514,7 +514,7 @@ export class AgentCollapseService {
 
       const duplicateUsers = await this.prisma.user.findMany({
         where: {
-          agentDetails: { id: { in: duplicateAgentIds } },
+          agentDetails: { some: { id: { in: duplicateAgentIds } } },
         },
         select: { id: true },
       });
@@ -556,7 +556,7 @@ private async transferDeviceAssignmentHistory(
   try {
     // Get correct agent user
     const correctUser = await this.prisma.user.findFirst({
-      where: { agentDetails: { id: correctAgentId } },
+      where: { agentDetails: { some: { id: correctAgentId } } },
       select: { id: true },
     });
 
@@ -565,7 +565,7 @@ private async transferDeviceAssignmentHistory(
     // Get duplicate users
     const duplicateUsers = await this.prisma.user.findMany({
       where: {
-        agentDetails: { id: { in: duplicateAgentIds } },
+        agentDetails: { some: { id: { in: duplicateAgentIds } } },
       },
       select: { id: true },
     });
@@ -672,7 +672,7 @@ private async transferDeviceAssignments(
     try {
       // Get the user associated with correct agent
       const correctUser = await this.prisma.user.findFirst({
-        where: { agentDetails: { id: correctAgentId } },
+        where: { agentDetails: { some: { id: correctAgentId } } },
         select: { id: true },
       });
 
@@ -683,7 +683,7 @@ private async transferDeviceAssignments(
       // Get users associated with duplicate agents
       const duplicateUsers = await this.prisma.user.findMany({
         where: {
-          agentDetails: { id: { in: duplicateAgentIds } },
+          agentDetails: { some: { id: { in: duplicateAgentIds } } },
         },
         select: { id: true },
       });
@@ -724,7 +724,7 @@ private async transferDeviceAssignments(
     try {
       // Get the user associated with correct agent
       const correctUser = await this.prisma.user.findFirst({
-        where: { agentDetails: { id: correctAgentId } },
+        where: { agentDetails: { some: { id: correctAgentId } } },
         select: { id: true },
       });
 
@@ -735,7 +735,7 @@ private async transferDeviceAssignments(
       // Get users associated with duplicate agents
       const duplicateUsers = await this.prisma.user.findMany({
         where: {
-          agentDetails: { id: { in: duplicateAgentIds } },
+          agentDetails: { some: { id: { in: duplicateAgentIds } } },
         },
         select: { id: true },
       });

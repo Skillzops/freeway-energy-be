@@ -193,11 +193,96 @@ export class AgentsService {
 
     const agentId = this.generateAgentNumber();
 
-    const existingEmail = await this.prisma.user.findFirst({
+    this.logger.log(
+      `create(): admin=${userId} requesting category=${category} for ` +
+        `email=${email || '(auto-generated)'}`,
+    );
+
+    const existingEmailUser = await this.prisma.user.findFirst({
       where: { email },
+      include: { agentDetails: true },
     });
 
-    if (existingEmail) {
+    // The email already belongs to someone who is already an agent (e.g. a
+    // Sales Agent being given an Installer profile too, or vice versa).
+    // Reuse their existing account instead of rejecting the request - no new
+    // User/password is created, we just attach another Agent instance under
+    // the requested category, matching a4nt-project-backend's behaviour.
+    if (existingEmailUser && existingEmailUser.agentDetails.length > 0) {
+      const alreadyHasCategory = existingEmailUser.agentDetails.some(
+        (agent) => agent.category === category,
+      );
+
+      if (alreadyHasCategory) {
+        throw new ConflictException(
+          `This account already has a ${category} profile`,
+        );
+      }
+
+      const existingAgentId = await this.prisma.agent.findFirst({
+        where: { agentId },
+      });
+
+      if (existingAgentId) {
+        throw new ConflictException('Agent with the agent ID already exists');
+      }
+
+      let newAgent: Agent;
+      try {
+        newAgent = await this.prisma.agent.create({
+          data: {
+            agentId,
+            userId: existingEmailUser.id,
+            category,
+          },
+        });
+      } catch (error) {
+        if (error.code === 'P2002') {
+          throw new ConflictException(
+            `This account already has a ${category} profile`,
+          );
+        }
+        throw error;
+      }
+
+      this.logger.log(
+        `create(): attached new ${category} profile (agent id ` +
+          `${newAgent.id}, agentId ${newAgent.agentId}) to existing ` +
+          `account userId=${existingEmailUser.id}`,
+      );
+
+      if (existingEmailUser.phone) {
+        this.termiiService
+          .sendSms({
+            to: existingEmailUser.phone,
+            message:
+              `Hi ${existingEmailUser.firstname || ''}, a new ${category} profile has been added ` +
+              `to your account. Use your existing email and password to sign in, or use ` +
+              `"Switch to ${category === AgentCategory.INSTALLER ? 'Installer' : 'Sales'}" from ` +
+              `within the app you're already signed into.`,
+            type: 'plain',
+            channel: 'generic',
+          })
+          .catch((error) => {
+            this.logger.error('SMS sending failed', error);
+          });
+      }
+
+      return {
+        agentId: newAgent.agentId,
+        email: existingEmailUser.email,
+        category,
+        firstname: existingEmailUser.firstname,
+        lastname: existingEmailUser.lastname,
+        attachedToExistingAccount: true,
+        message:
+          `This email already had an account, so no new login was created. ` +
+          `A ${category} profile was added to their existing account instead - ` +
+          `they sign in with their existing email and password.`,
+      };
+    }
+
+    if (existingEmailUser) {
       throw new ConflictException('A user with this email already exists');
     }
 

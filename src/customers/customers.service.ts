@@ -19,6 +19,7 @@ import {
   ResubmitCustomerDto,
 } from './dto/customer-approval.dto';
 import { ObjectId } from 'mongodb';
+import { pickAgentDetails } from '../common/utils/agent-details.util';
 
 @Injectable()
 export class CustomersService {
@@ -71,7 +72,8 @@ export class CustomersService {
       include: { agentDetails: true },
     });
 
-    const isAgentUser = creator?.agentDetails;
+    const creatorAgent = pickAgentDetails(creator?.agentDetails);
+    const isAgentUser = Boolean(creatorAgent);
 
     if (email) {
       const existingCustomer = await this.prisma.customer.findFirst({
@@ -137,10 +139,10 @@ export class CustomersService {
       },
     });
 
-    if (isAgentUser) {
+    if (isAgentUser && creatorAgent) {
       await this.prisma.agentCustomer.create({
         data: {
-          agentId: creator.agentDetails.id,
+          agentId: creatorAgent.id,
           customerId: customer.id,
           assignedBy: requestUserId,
         },

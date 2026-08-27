@@ -929,7 +929,7 @@ export class WarehouseService {
           isSet: false,
         },
         warehouseManager: null,
-        agentDetails: null,
+        agentDetails: { none: {} },
       },
     });
 

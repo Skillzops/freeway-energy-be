@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { pickAgentDetails } from 'src/common/utils/agent-details.util';
 import { DeviceAssignmentHistoryAction } from '@prisma/client';
 
 @Injectable()
@@ -58,12 +59,16 @@ export class DeviceAssignmentMigrationService {
 
       for (const sale of sales) {
         // Get agent from sale creator's user
-        if (!sale.creatorDetails?.agentDetails) {
+        const saleAgent = pickAgentDetails(sale.creatorDetails?.agentDetails, {
+          agentId: sale.agentId,
+        });
+
+        if (!saleAgent) {
           errors.push(`Sale ${sale.id}: Creator has no agent details`);
           continue;
         }
 
-        const agentId = sale.creatorDetails.agentDetails.id;
+        const agentId = saleAgent.id;
 
         // Get all devices from sale items
         const devices = sale.saleItems.flatMap((item) => item.devices || []);
@@ -205,7 +210,10 @@ export class DeviceAssignmentMigrationService {
     const preview = [];
 
     for (const sale of sales) {
-      if (!sale.creatorDetails?.agentDetails) continue;
+      const saleAgent = pickAgentDetails(sale.creatorDetails?.agentDetails, {
+        agentId: sale.agentId,
+      });
+      if (!saleAgent) continue;
 
       const devices = sale.saleItems.flatMap((item) => item.devices || []);
       totalDevices += devices.length;
@@ -216,7 +224,7 @@ export class DeviceAssignmentMigrationService {
         const existing = await this.prisma.deviceAssignment.findFirst({
           where: {
             deviceId: device.id,
-            agentId: sale.creatorDetails.agentDetails.id,
+            agentId: saleAgent.id,
             isActive: true,
           },
         });
@@ -238,7 +246,7 @@ export class DeviceAssignmentMigrationService {
             id: sale.id,
             formattedSaleId: sale.formattedSaleId || sale.id,
           },
-          agentId: sale.creatorDetails.agentDetails.id,
+          agentId: saleAgent.id,
           devices: devicesWithStatus,
         });
       }

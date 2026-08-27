@@ -7,7 +7,7 @@ model Agent {
   category AgentCategory @default(SALES)
 
   user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String? @unique @db.ObjectId
+  userId String? @db.ObjectId
 
   installerTask InstallerTask[] @relation("InstallerTasks")
   assignedTasks InstallerTask[] @relation("AssignedTasks")
@@ -35,7 +35,9 @@ model Agent {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@unique([userId, category])
   @@index([category])
+  @@index([userId])
   @@map("agents")
 }
 

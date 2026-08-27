@@ -7,12 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { pickAgentDetails } from '../../common/utils/agent-details.util';
 import {
   CreateSalesDto,
   SaleItemDto,
   UpdateSaleDto,
 } from '../dto/create-sales.dto';
 import {
+  AgentCategory,
   BatchAlocation,
   PaymentGateway,
   PaymentMethod,
@@ -1160,8 +1162,13 @@ export class SalesService {
     const transactionRef =
       await this.referenceGenerator.generatePaymentReference();
 
-    if (user.agentDetails) {
-      const agentId = user.agentDetails.id;
+    const payingAgent = pickAgentDetails(user.agentDetails, {
+      agentId: sale.agentId,
+      agentCategory: AgentCategory.SALES,
+    });
+
+    if (payingAgent) {
+      const agentId = payingAgent.id;
       const walletBalance = await this.walletService.getWalletBalance(agentId);
 
       if (walletBalance < dto.amount) {
@@ -1187,7 +1194,7 @@ export class SalesService {
       data: {
         saleId: dto.saleId,
         amount: dto.amount,
-        paymentMethod: user.agentDetails
+        paymentMethod: payingAgent
           ? PaymentMethod.WALLET
           : PaymentMethod.CASH,
         transactionRef,
@@ -1519,7 +1526,9 @@ export class SalesService {
     // Check if customer was created by the current agent
     const customerCreatorIsCurrentAgent =
       customer.creatorId &&
-      customer.creatorDetails?.agentDetails?.id === creatingAgentId;
+      customer.creatorDetails?.agentDetails?.some(
+        (a) => a.id === creatingAgentId,
+      ) ?? false;
 
     if (!customerCreatorIsCurrentAgent) {
       // Customer created by someone else (other agent, admin) - should be assigned to current agent
@@ -2197,7 +2206,9 @@ export class SalesService {
       where: { id: saleId },
       include: {
         creatorDetails: {
-          select: { agentDetails: { select: { id: true } } },
+          select: {
+            agentDetails: { select: { id: true, category: true } },
+          },
         },
       },
     });
@@ -2207,13 +2218,17 @@ export class SalesService {
     }
 
     // STEP 2: Validate agent exists (OUTSIDE transaction)
-    if (!sale.creatorDetails?.agentDetails) {
+    const saleAgent = pickAgentDetails(sale.creatorDetails?.agentDetails, {
+      agentId: sale.agentId,
+    });
+
+    if (!saleAgent) {
       throw new BadRequestException(
         `Sale creator is not an agent. Cannot debit wallet.`,
       );
     }
 
-    const agentId = sale.creatorDetails.agentDetails.id;
+    const agentId = saleAgent.id;
 
     // STEP 3: Validate and fetch wallet (OUTSIDE transaction)
     const wallet = await this.prisma.wallet.findFirst({
@@ -2376,7 +2391,9 @@ export class SalesService {
       where: { id: saleId },
       include: {
         creatorDetails: {
-          select: { agentDetails: { select: { id: true } } },
+          select: {
+            agentDetails: { select: { id: true, category: true } },
+          },
         },
       },
     });
@@ -2386,13 +2403,17 @@ export class SalesService {
     }
 
     // STEP 2: Validate agent exists (OUTSIDE transaction)
-    if (!sale.creatorDetails?.agentDetails) {
+    const saleAgent = pickAgentDetails(sale.creatorDetails?.agentDetails, {
+      agentId: sale.agentId,
+    });
+
+    if (!saleAgent) {
       throw new BadRequestException(
         `Sale creator is not an agent. Cannot debit wallet.`,
       );
     }
 
-    const agentId = sale.creatorDetails.agentDetails.id;
+    const agentId = saleAgent.id;
 
     // STEP 3: Validate and fetch wallet (OUTSIDE transaction)
     const wallet = await this.prisma.wallet.findFirst({

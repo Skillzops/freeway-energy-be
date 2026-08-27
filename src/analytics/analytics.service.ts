@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AgentCategory,
   PaymentStatus,
   Prisma,
   TaskStatus,
   InventoryStatus,
 } from '@prisma/client';
 import { AdminDashboardFilterDto } from './dto/dashboard-filter.dto';
+import { pickAgentDetails } from '../common/utils/agent-details.util';
 
 @Injectable()
 export class AnalyticsService {
@@ -321,7 +323,7 @@ export class AnalyticsService {
         lastname: true,
         email: true,
         agentDetails: {
-          select: { agentId: true, category: true },
+          select: { id: true, agentId: true, category: true },
         },
       },
     });
@@ -330,13 +332,16 @@ export class AnalyticsService {
 
     return topAgents.map((agent) => {
       const user = userMap.get(agent.creatorId);
+      const salesAgent = pickAgentDetails(user?.agentDetails, {
+        agentCategory: AgentCategory.SALES,
+      });
       return {
-        agentId: user?.agentDetails?.agentId || 'N/A',
+        agentId: salesAgent?.agentId || 'N/A',
         name: user
           ? `${user.firstname || ''} ${user.lastname || ''}`.trim()
           : 'Unknown',
         email: user?.email || 'N/A',
-        category: user?.agentDetails?.category || 'N/A',
+        category: salesAgent?.category || 'N/A',
         salesCount: agent._count.id,
         totalRevenue: agent._sum.totalPrice || 0,
       };

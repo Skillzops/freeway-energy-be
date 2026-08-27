@@ -9,11 +9,13 @@ import {
 } from '@nestjs/common';
 import { BRAND_NAME, BRAND_ORG_CODE } from '../constants/brand.constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { pickAgentDetails } from '../common/utils/agent-details.util';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { EmailService } from '../mailer/email.service';
 import { ConfigService } from '@nestjs/config';
 import {
   ActionEnum,
+  AgentCategory,
   AuditActions,
   InvoiceStatus,
   InvoiceType,
@@ -1109,7 +1111,7 @@ export class InvoiceService {
       return;
     }
 
-    if (user.agentDetails) {
+    if (user.agentDetails && user.agentDetails.length > 0) {
       const sale = await this.prisma.sales.findUnique({
         where: { id: salesId },
         select: { creatorId: true },
@@ -1380,11 +1382,15 @@ export class InvoiceService {
       where: { id: requestUserId },
       select: { agentDetails: true },
     });
+    const payingAgent = pickAgentDetails(user?.agentDetails, {
+      agentId: sale.agentId,
+      agentCategory: AgentCategory.SALES,
+    });
     const paymentMethod =
       dto.paymentMethod ||
-      (user?.agentDetails ? PaymentMethod.WALLET : PaymentMethod.CASH);
+      (payingAgent ? PaymentMethod.WALLET : PaymentMethod.CASH);
 
-    if (paymentMethod === PaymentMethod.WALLET && !user?.agentDetails) {
+    if (paymentMethod === PaymentMethod.WALLET && !payingAgent) {
       throw new BadRequestException('Wallet payment is only supported for agent users.');
     }
 
@@ -1404,8 +1410,8 @@ export class InvoiceService {
     const payment = await this.prisma.$transaction(
       async (tx) => {
         // 5a. Wallet debit
-        if (user?.agentDetails && paymentMethod === PaymentMethod.WALLET) {
-          const agentId = user.agentDetails.id;
+        if (payingAgent && paymentMethod === PaymentMethod.WALLET) {
+          const agentId = payingAgent.id;
           const wallet = await tx.wallet.findUnique({ where: { agentId } });
           if (!wallet) throw new NotFoundException('Wallet not found');
           if (wallet.balance < dto.amount)

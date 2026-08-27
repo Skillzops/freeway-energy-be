@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as argon from 'argon2';
 import { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
+import { pickAgentDetails } from '../common/utils/agent-details.util';
 import { hashPassword, cleanPhoneNumber } from '../utils/helpers.util';
 import { CreateUserDto } from './dto/create-user.dto';
 import { EmailService } from '../mailer/email.service';
@@ -242,14 +243,40 @@ export class AuthService {
     if (!verifyPassword)
       throw new BadRequestException(MESSAGES.INVALID_CREDENTIALS);
 
-    const payload = { sub: user.id };
+    // A user can now hold more than one Agent profile (one per category,
+    // e.g. a Sales profile and an Installer profile). This app's login flow
+    // has no "which mode do you want" prompt yet, so we resolve a single
+    // "active" agent the same way every other single-agent caller always
+    // has: prefer SALES if present, otherwise fall back to whichever single
+    // profile exists. Dual-profile users will default to their SALES
+    // dashboard until a mode switcher is built.
+    const activeAgent = pickAgentDetails(user.agentDetails, {
+      agentCategory: AgentCategory.SALES,
+    }) ?? user.agentDetails?.[0];
+
+    const { agentDetails, ...userWithoutAgentDetails } = user;
+
+    const payload = {
+      sub: user.id,
+      agentId: activeAgent?.id,
+      agentCategory: activeAgent?.category,
+    };
 
     const access_token = this.jwtService.sign(payload);
 
     res.setHeader('access_token', access_token);
     res.setHeader('Access-Control-Expose-Headers', 'access_token');
 
-    return { ...plainToInstance(UserEntity, user), accessToken: access_token };
+    return {
+      ...plainToInstance(UserEntity, {
+        ...userWithoutAgentDetails,
+        agentDetails: activeAgent ?? null,
+      }),
+      otherAgentInstances: (agentDetails || [])
+        .filter((agent) => agent.id !== activeAgent?.id)
+        .map((agent) => ({ id: agent.id, category: agent.category })),
+      accessToken: access_token,
+    };
   }
 
   async forgotPassword(forgotPasswordDetails: ForgotPasswordDTO) {
@@ -542,14 +569,18 @@ export class AuthService {
     }
 
     if (allowAgents) {
-      if (user.agentDetails) {
-        if (agentCategory && user.agentDetails.category !== agentCategory) {
+      const requestingAgent = pickAgentDetails(user.agentDetails, {
+        agentCategory,
+      });
+
+      if (requestingAgent) {
+        if (agentCategory && requestingAgent.category !== agentCategory) {
           throw new ForbiddenException();
         }
         if (!deviceId) return true;
         await this.validateInstallerDeviceAssignment(
           deviceId,
-          user.agentDetails.id,
+          requestingAgent.id,
         );
       } else {
         throw new ForbiddenException();

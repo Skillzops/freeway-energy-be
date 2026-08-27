@@ -30,7 +30,7 @@ model User {
   roleId       String @db.ObjectId
   createdRoles Role[] @relation("RoleCreator")
 
-  agentDetails Agent?
+  agentDetails Agent[]
 
   warehouseManager          WarehouseManager?
   createdWarehouses         Warehouse[]

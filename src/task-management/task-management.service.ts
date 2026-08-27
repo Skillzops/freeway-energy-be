@@ -1,7 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TaskStatus } from '@prisma/client';
+import { AgentCategory, Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { GetTaskQueryDto } from './dto/get-task-query.dto';
+import { pickAgentDetails } from 'src/common/utils/agent-details.util';
 
 @Injectable()
 export class TaskManagementService {
@@ -19,10 +20,14 @@ export class TaskManagementService {
       },
     });
 
-    if (user.agentDetails) {
+    const requestingAgent = pickAgentDetails(user.agentDetails, {
+      agentCategory: AgentCategory.SALES,
+    });
+
+    if (requestingAgent) {
       const installers = await this.prisma.agentInstallerAssignment.findFirst({
         where: {
-          agentId: user.agentDetails.id,
+          agentId: requestingAgent.id,
           installerId: installerAgentId,
         },
       });

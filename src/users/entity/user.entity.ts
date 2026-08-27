@@ -17,7 +17,9 @@ export class UserEntity implements Partial<User> {
   longitude: string;
   latitude: string;
   emailVerified: boolean;
-  agentDetails: Agent;
+  // Login/permission checks resolve this to a single active agent; other
+  // admin/list endpoints may still return the raw one-to-many Prisma result.
+  agentDetails: Agent | Agent[] | null;
   @Type(() => RolesEntity)
   role: RolesEntity;
 
