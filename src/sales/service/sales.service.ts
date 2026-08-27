@@ -1524,11 +1524,12 @@ export class SalesService {
     }
 
     // Check if customer was created by the current agent
-    const customerCreatorIsCurrentAgent =
+    const customerCreatorIsCurrentAgent = Boolean(
       customer.creatorId &&
-      customer.creatorDetails?.agentDetails?.some(
-        (a) => a.id === creatingAgentId,
-      ) ?? false;
+        customer.creatorDetails?.agentDetails?.some(
+          (a) => a.id === creatingAgentId,
+        ),
+    );
 
     if (!customerCreatorIsCurrentAgent) {
       // Customer created by someone else (other agent, admin) - should be assigned to current agent
