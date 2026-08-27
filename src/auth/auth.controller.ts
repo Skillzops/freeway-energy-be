@@ -114,8 +114,14 @@ export class AuthController {
     @GetSessionUser('id') userId: string,
     @GetSessionUser('agentId') currentAgentId: string,
     @Res({ passthrough: true }) res: Response,
+    @Body('targetAgentId') targetAgentId?: string,
   ) {
-    return this.authService.switchAgentProfile(userId, currentAgentId, res);
+    return this.authService.switchAgentProfile(
+      userId,
+      currentAgentId,
+      res,
+      targetAgentId,
+    );
   }
 
   @Post('forgot-password')

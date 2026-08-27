@@ -291,6 +291,7 @@ export class AuthService {
     userId: string,
     currentAgentId: string | undefined,
     res: Response,
+    targetAgentId?: string,
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -302,9 +303,15 @@ export class AuthService {
 
     if (!user) throw new BadRequestException(MESSAGES.INVALID_CREDENTIALS);
 
-    const targetAgent = (user.agentDetails || []).find(
-      (agent) => agent.id !== currentAgentId,
-    );
+    // If the caller specified which profile to switch to, honour that
+    // exact one (must belong to this account). Otherwise fall back to
+    // "whichever other profile exists" - correct as long as an account
+    // only ever holds two profiles, which is all the UI supports today.
+    const targetAgent = targetAgentId
+      ? (user.agentDetails || []).find((agent) => agent.id === targetAgentId)
+      : (user.agentDetails || []).find(
+          (agent) => agent.id !== currentAgentId,
+        );
 
     if (!targetAgent) {
       throw new ForbiddenException(
