@@ -348,6 +348,21 @@ export class PaymentService {
 
   async verifyPaymentManually(transactionRef: string, transactionId?: number) {
     void transactionId;
+    const ref = transactionRef?.trim();
+
+    // Wallet top-ups (reference TOP-*) live in WalletTransaction, not
+    // Payment - check there first, same as the sibling mar-mor codebase.
+    // Without this branch, a top-up reference falls straight through to the
+    // Payment lookup below, finds nothing, and throws NotFoundException -
+    // silently failing to reconcile the redirect-after-payment callback.
+    const walletTopUp = await this.prisma.walletTransaction.findFirst({
+      where: { reference: { equals: ref, mode: 'insensitive' } },
+    });
+
+    if (walletTopUp) {
+      return this.verifyWalletTopUpManually(ref);
+    }
+
     const payment = await this.prisma.payment.findFirst({
       where: {
         transactionRef: { equals: transactionRef, mode: 'insensitive' },
@@ -363,7 +378,7 @@ export class PaymentService {
 
     if (!payment) {
       throw new NotFoundException(
-        `Payment with reference ${transactionRef} not found`,
+        `No payment or wallet top-up found for reference ${transactionRef}`,
       );
     }
 

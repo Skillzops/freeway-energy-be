@@ -66,20 +66,30 @@ export class PaystackService {
     callback_url?: string;
     metadata?: Record<string, any>;
   }) {
-    const response = await axios.post(
-      `${this.baseUrl}/transaction/initialize`,
-      payload,
-      { headers: this.getHeaders() },
-    );
-    return response.data;
+    this.assertConfigured();
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/transaction/initialize`,
+        payload,
+        { headers: this.getHeaders() },
+      );
+      return response.data;
+    } catch (error) {
+      this.handlePaystackAxiosError(error, 'transaction initialize');
+    }
   }
 
   async verifyTransaction(reference: string) {
-    const response = await axios.get(
-      `${this.baseUrl}/transaction/verify/${reference}`,
-      { headers: this.getHeaders() },
-    );
-    return response.data;
+    this.assertConfigured();
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/transaction/verify/${reference}`,
+        { headers: this.getHeaders() },
+      );
+      return response.data;
+    } catch (error) {
+      this.handlePaystackAxiosError(error, 'transaction verify');
+    }
   }
 
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
