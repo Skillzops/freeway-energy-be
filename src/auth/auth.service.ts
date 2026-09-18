@@ -190,6 +190,56 @@ export class AuthService {
 
     const hashedPwd = await hashPassword(password);
 
+    // Ensure the 'admin' role actually carries full (manage:all) access
+    // before attaching a superuser to it. 'role' is unique-indexed, so
+    // every superuser ever created through this endpoint shares this one
+    // role row - previously connectOrCreate's create branch made the role
+    // bare (no permissions at all) whenever it didn't already exist,
+    // silently leaving every superuser created this way unable to do
+    // anything privileged (e.g. the frontend's Users tab never showing up,
+    // since it's gated on a manage:all or User-subject permission, not on
+    // the role's name). Topping the role up here self-heals every past
+    // superuser already sitting on it too, not just the one being created
+    // now - no separate data migration needed once this ships.
+    let adminRole = await this.prisma.role.findUnique({
+      where: { role: 'admin' },
+      include: { permissions: true },
+    });
+
+    const hasManageAll = adminRole?.permissions.some(
+      (permission) =>
+        permission.action === ActionEnum.manage &&
+        permission.subject === SubjectEnum.all,
+    );
+
+    if (!adminRole) {
+      adminRole = await this.prisma.role.create({
+        data: {
+          role: 'admin',
+          permissions: {
+            create: [{ action: ActionEnum.manage, subject: SubjectEnum.all }],
+          },
+        },
+        include: { permissions: true },
+      });
+    } else if (!hasManageAll) {
+      const manageAllPermission =
+        (await this.prisma.permission.findFirst({
+          where: { action: ActionEnum.manage, subject: SubjectEnum.all },
+        })) ??
+        (await this.prisma.permission.create({
+          data: { action: ActionEnum.manage, subject: SubjectEnum.all },
+        }));
+
+      adminRole = await this.prisma.role.update({
+        where: { id: adminRole.id },
+        data: {
+          permissions: { connect: { id: manageAllPermission.id } },
+        },
+        include: { permissions: true },
+      });
+    }
+
     const newUser = await this.prisma.user.create({
       data: {
         firstname,
@@ -197,14 +247,7 @@ export class AuthService {
         email,
         password: hashedPwd,
         role: {
-          connectOrCreate: {
-            where: {
-              role: 'admin',
-            },
-            create: {
-              role: 'admin',
-            },
-          },
+          connect: { id: adminRole.id },
         },
       },
       include: {
