@@ -1551,6 +1551,7 @@ export class DeviceService {
       createdAt,
       updatedAt,
       fetchFormat,
+      availableForSale,
       // agentId,
       isExact,
       installationStatus,
@@ -1582,6 +1583,7 @@ export class DeviceService {
           : {},
         key ? { key: { contains: key, mode: 'insensitive' } } : {},
         installationStatus ? { installationStatus } : {},
+        availableForSale ? this.availableForSaleWhere() : {},
         // agentId
         //   ? {
         //       saleItems: {

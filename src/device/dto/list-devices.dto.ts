@@ -111,6 +111,15 @@ export class ListDevicesQueryDto {
   fetchFormat?: 'used' | 'unused';
 
   @ApiPropertyOptional({
+    description: 'Only return devices not linked to an active sale',
+    type: Boolean,
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === '1')
+  availableForSale?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Search devices by name, email, or devicename',
     type: String,
     example: '',

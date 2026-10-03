@@ -23,6 +23,7 @@ import {
   Prisma,
   SalesStatus,
   TaskStatus,
+  InstallationStatus,
 } from '@prisma/client';
 import { ValidateSaleProductItemDto } from '../dto/validate-sale-product.dto';
 import { ContractService } from '../../contract/contract.service';
@@ -2178,7 +2179,23 @@ export class SalesService {
     }
 
     const devices = await this.prisma.device.findMany({
-      where: { serialNumber: { in: deviceSerials }, isUsed: false },
+      where: {
+        serialNumber: { in: deviceSerials },
+        OR: [
+          { saleItems: { some: { id: saleItemId } } },
+          {
+            AND: [
+              { isUsed: false },
+              { installationStatus: InstallationStatus.not_installed },
+              {
+                saleItems: {
+                  none: { sale: { status: { not: SalesStatus.CANCELLED } } },
+                },
+              },
+            ],
+          },
+        ],
+      },
       select: { id: true, serialNumber: true },
     });
 
