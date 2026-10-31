@@ -48,7 +48,12 @@ export class InvoicePdfService implements OnModuleInit {
     const publicId = `invoices/${safeId}-${Date.now()}`;
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { resource_type: 'image', public_id: publicId, format: 'pdf' },
+        {
+          resource_type: 'image',
+          folder: 'freewave',
+          public_id: publicId,
+          format: 'pdf',
+        },
         (err, result) => {
           // Clean up temp file after upload attempt regardless of outcome
           try { fs.unlinkSync(tmpFile); } catch {}

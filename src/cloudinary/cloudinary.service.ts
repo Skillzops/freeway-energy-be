@@ -15,6 +15,7 @@ export class CloudinaryService {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           resource_type: 'auto',
+          folder: 'freewave',
           use_filename: true,
           public_id: `${file.fieldname}-${Date.now()}`,
         },
