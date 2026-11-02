@@ -12,20 +12,19 @@ import {
   ApiOperation,
   ApiQuery,
   ApiResponse,
-  ApiHeader,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { OdysseyPaymentResponseDto } from './dto/odyssey.dto';
 import { OdysseyService } from './odyssey.service';
 
 @ApiTags('Odyssey Integration')
-@Controller('api/payments')
+@Controller('payments')
 export class OdysseyController {
   private readonly logger = new Logger(OdysseyController.name);
 
   constructor(private readonly odysseyPaymentService: OdysseyService) {}
 
-  @Get('odyssey')
+  @Get()
   @ApiOperation({
     summary: 'Odyssey Standard Payment API',
     description: `
@@ -34,21 +33,10 @@ export class OdysseyController {
       to enable verification by financial institutions.
       
       Authentication: Bearer token required in Authorization header.
-      Date Range: Maximum 24 hours of data per request.
       Format: All timestamps in UTC using ISO 8601 format.
     `,
   })
-  @ApiBearerAuth()
-  @ApiHeader({
-    name: 'Authorization',
-    description: 'Bearer token for authentication',
-    required: true,
-    schema: {
-      type: 'string',
-      example:
-        'Bearer e25080c723345c3bbd0095f21a4f9efa808051a99c33a085415258535',
-    },
-  })
+  @ApiBearerAuth('odyssey_api_key')
   @ApiQuery({
     name: 'FROM',
     description: 'Start of date range (ISO 8601 format in UTC)',
@@ -62,19 +50,6 @@ export class OdysseyController {
     required: true,
     type: 'string',
     example: '2024-01-02T00:00:00.000Z',
-  })
-  @ApiQuery({
-    name: 'FINANCING_ID',
-    description: 'Optional financing program ID filter',
-    required: false,
-    type: 'string',
-    example: 'REA_NEP_OBF',
-  })
-  @ApiQuery({
-    name: 'SITE_ID',
-    description: 'Optional site ID filter',
-    required: false,
-    type: 'string',
   })
   @ApiQuery({
     name: 'COUNTRY',
@@ -113,14 +88,14 @@ export class OdysseyController {
     },
   })
   async getPayments(
-    @Headers('authorization') authorization: string,
+    @Headers() headers: Record<string, string | undefined>,
     @Query('FROM') fromDate: string,
     @Query('TO') toDate: string,
-    @Query('FINANCING_ID') financingId?: string,
-    @Query('SITE_ID') siteId?: string,
     @Query('COUNTRY') country?: string,
   ): Promise<OdysseyPaymentResponseDto> {
     try {
+      const authorization = headers.authorization;
+
       // Validate authorization header
       if (!authorization || !authorization.startsWith('Bearer ')) {
         throw new UnauthorizedException('Invalid authorization header format');
@@ -138,14 +113,6 @@ export class OdysseyController {
       const from = this.parseAndValidateDate(fromDate, 'FROM');
       const to = this.parseAndValidateDate(toDate, 'TO');
 
-      // Validate date range (max 24 hours)
-      // const diffHours = (to.getTime() - from.getTime()) / (1000 * 60 * 60);
-      // if (diffHours > 24) {
-      //   throw new BadRequestException(
-      //     'Date range cannot exceed 24 hours. Please use a smaller time window.',
-      //   );
-      // }
-
       if (from >= to) {
         throw new BadRequestException('FROM date must be before TO date');
       }
@@ -153,8 +120,6 @@ export class OdysseyController {
       // Log the request
       console.log(
         `Odyssey payment request: ${from.toISOString()} to ${to.toISOString()}` +
-          (financingId ? ` [Financing: ${financingId}]` : '') +
-          (siteId ? ` [Site: ${siteId}]` : '') +
           (country ? ` [Country: ${country}]` : ''),
       );
 
@@ -162,8 +127,6 @@ export class OdysseyController {
       const result = await this.odysseyPaymentService.getPayments({
         from,
         to,
-        financingId,
-        siteId,
         country,
       });
 

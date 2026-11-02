@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OdysseyPaymentDto, OdysseyPaymentQueryDto } from './dto/odyssey.dto';
 import { PaymentStatus } from '@prisma/client';
-import { isValidCoordinate } from 'src/utils/helpers.util';
+import { isValidCoordinate } from '../utils/helpers.util';
 
 @Injectable()
 export class OdysseyService {
@@ -69,6 +69,7 @@ export class OdysseyService {
                   id: true,
                   firstname: true,
                   lastname: true,
+                  phone: true,
                   longitude: true,
                   latitude: true,
                 },
@@ -83,9 +84,15 @@ export class OdysseyService {
 
       // Transform payments to Odyssey format
       const odysseyPayments: OdysseyPaymentDto[] = [];
+      let skippedForMissingCoordinates = 0;
 
       for (const payment of payments) {
         const odysseyPayment = await this.transformToOdysseyFormat(payment);
+
+        if (!odysseyPayment) {
+          skippedForMissingCoordinates += 1;
+          continue;
+        }
 
         // Apply optional filters
         if (this.shouldIncludePayment(odysseyPayment, query)) {
@@ -97,7 +104,9 @@ export class OdysseyService {
 
       return {
         payments: odysseyPayments,
-        errors: '',
+        errors: skippedForMissingCoordinates
+          ? `${skippedForMissingCoordinates} payment record(s) were skipped because neither valid device nor customer GPS coordinates are available.`
+          : '',
       };
     } catch (error) {
       console.error('Error fetching payments for Odyssey', error);
@@ -122,11 +131,16 @@ export class OdysseyService {
       });
 
       if (apiToken) {
-        // Update last used timestamp
-        await this.prisma.apiAuthToken.update({
-          where: { id: apiToken.id },
-          data: { lastUsedAt: new Date() },
-        });
+        // Usage telemetry must never turn a valid partner request into an
+        // authentication failure. The token was already verified above.
+        try {
+          await this.prisma.apiAuthToken.update({
+            where: { id: apiToken.id },
+            data: { lastUsedAt: new Date() },
+          });
+        } catch (error) {
+          console.error('Failed to update Odyssey API token usage', error);
+        }
 
         return true;
       }
@@ -140,7 +154,7 @@ export class OdysseyService {
 
   private async transformToOdysseyFormat(
     payment: any,
-  ): Promise<OdysseyPaymentDto> {
+  ): Promise<OdysseyPaymentDto | null> {
     const sale = payment.sale;
     const customer = sale.customer;
     const saleItem = sale.saleItems[0]; // Assuming primary sale item
@@ -155,11 +169,24 @@ export class OdysseyService {
     //   : 'system-agent';
 
     const getValidCoords = (lat?: string | null, lng?: string | null) => {
-      if (lat && lng && isValidCoordinate(lat) && isValidCoordinate(lng)) {
-        return { latitude: lat, longitude: lng };
+      if (!lat || !lng || !isValidCoordinate(lat) || !isValidCoordinate(lng)) {
+        return null;
       }
 
-      return null;
+      const latitude = Number(lat);
+      const longitude = Number(lng);
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        return null;
+      }
+
+      return { latitude: String(latitude), longitude: String(longitude) };
     };
 
     const deviceCoords = getValidCoords(
@@ -172,11 +199,15 @@ export class OdysseyService {
       customer?.longitude,
     );
 
-    const coords = deviceCoords ||
-      customerCoords || {
-        latitude: '',
-        longitude: '',
-      };
+    // Odyssey requires usable GPS for every exported record. Prefer device
+    // installation coordinates and fall back to the customer's saved location.
+    const coords = deviceCoords ?? customerCoords;
+    if (!coords) {
+      this.logger.warn(
+        `Skipping Odyssey payment export payment=${payment.id}: no valid device or customer GPS coordinates`,
+      );
+      return null;
+    }
 
     return {
       timestamp: payment.paymentDate.toISOString(),
@@ -189,7 +220,7 @@ export class OdysseyService {
       serialNumber: device?.serialNumber || 'N/A',
       customerId: customer.id,
       customerName: `${customer.firstname} ${customer.lastname}`,
-      // customerPhone: null, // customer.phone,
+      customerPhone: customer.phone || undefined,
       customerCategory: this.mapCustomerCategory(customer),
       // financingId: null,
       meterId: device?.serialNumber || 'N/A',
@@ -244,16 +275,7 @@ export class OdysseyService {
     payment: OdysseyPaymentDto,
     query: OdysseyPaymentQueryDto,
   ): boolean {
-    // Apply optional filters
-    if (query.financingId && payment.financingId !== query.financingId) {
-      return false;
-    }
-
     if (query.country && !this.isInCountry(payment, query.country)) {
-      return false;
-    }
-
-    if (query.siteId && !this.isInSite(payment, query.siteId)) {
       return false;
     }
 
@@ -264,16 +286,10 @@ export class OdysseyService {
     // Simple country check - you can enhance this based on your location data
     if (country.toLowerCase() === 'ng' || country.toLowerCase() === 'nigeria') {
       return (
-        payment.customerPhone.startsWith('+234') || payment.currency === 'Naira'
+        (payment.customerPhone?.startsWith('+234') ?? false) ||
+        payment.currency === 'NGN'
       );
     }
-    return true;
-  }
-
-  private isInSite(payment: OdysseyPaymentDto, siteId: string): boolean {
-    console.log({ payment, siteId });
-    // Implement site-based filtering if you have site data
-    // For now, return true to include all payments
     return true;
   }
 

@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { OdysseyModule } from './odyssey/odyssey.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import {
-  RequestMethod,
   ValidationPipe,
   Logger,
 } from '@nestjs/common';
@@ -26,9 +26,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Global API prefix
-  app.setGlobalPrefix('api/v1', {
-    exclude: [{ path: 'api/payments/odyssey', method: RequestMethod.ALL }],
-  });
+  app.setGlobalPrefix('api/v1');
 
   // CORS configuration — ALLOWED_ORIGINS is comma-separated, e.g.
   // https://freewaveenergy.ng,https://www.freewaveenergy.ng
@@ -86,6 +84,10 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
 
+  // Odyssey is a third-party integration. Keep its API-key authentication
+  // contract out of the internal staff API documentation.
+  delete document.paths['/api/v1/payments'];
+
   // Sort paths in ascending order
   document.paths = Object.keys(document.paths)
     .sort()
@@ -95,6 +97,33 @@ async function bootstrap() {
     }, {});
 
   SwaggerModule.setup('api-docs', app, document);
+
+  const odysseyConfig = new DocumentBuilder()
+    .setTitle('Freewave Odyssey Payments API')
+    .setDescription(
+      'Partner API for retrieving completed Freewave payments in the Odyssey format. Requests must use a dedicated Odyssey API key. In Swagger, click Authorize and paste the raw key only; Swagger adds the Bearer prefix.',
+    )
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'API key',
+        name: 'Authorization',
+        description: 'Use the supplied key as: Bearer <ODYSSEY_API_KEY>.',
+        in: 'header',
+      },
+      'odyssey_api_key',
+    )
+    .addSecurityRequirements('odyssey_api_key')
+    .build();
+
+  const odysseyDocument = SwaggerModule.createDocument(app, odysseyConfig, {
+    include: [OdysseyModule],
+  });
+  SwaggerModule.setup('odyssey-docs', app, odysseyDocument, {
+    useGlobalPrefix: false,
+  });
 
   // Handle uncaught exceptions
   process.on('unhandledRejection', (reason: Error, promise: Promise<any>) => {

@@ -178,21 +178,6 @@ export class OdysseyPaymentQueryDto {
   to: Date;
 
   @ApiPropertyOptional({
-    description: 'Optional financing program ID filter',
-    example: 'REA_NEP_OBF',
-  })
-  @IsOptional()
-  @IsString()
-  financingId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Optional site ID filter',
-  })
-  @IsOptional()
-  @IsString()
-  siteId?: string;
-
-  @ApiPropertyOptional({
     description: 'Optional country filter',
     example: 'NG',
   })
