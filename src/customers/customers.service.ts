@@ -7,7 +7,7 @@ import {
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { MESSAGES } from '../constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { ApprovalStatus, Prisma, UserStatus } from '@prisma/client';
+import { AgentCategory, ApprovalStatus, Prisma, UserStatus } from '@prisma/client';
 import { ListCustomersQueryDto } from './dto/list-customers.dto';
 import { getLastNDaysDate, parseCoordinate } from '../utils/helpers.util';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -72,8 +72,13 @@ export class CustomersService {
       include: { agentDetails: true },
     });
 
-    const creatorAgent = pickAgentDetails(creator?.agentDetails);
-    const isAgentUser = Boolean(creatorAgent);
+    if (!creator) throw new NotFoundException(MESSAGES.USER_NOT_FOUND);
+    const profiles = creator.agentDetails.filter((agent) => !agent.deletedAt);
+    const isAgentUser = profiles.length > 0;
+    const creatorAgent = pickAgentDetails(profiles, { agentCategory: AgentCategory.SALES });
+    if (isAgentUser && !creatorAgent) {
+      throw new ForbiddenException('Cannot resolve the agent profile for customer registration');
+    }
 
     if (email) {
       const existingCustomer = await this.prisma.customer.findFirst({
@@ -116,6 +121,8 @@ export class CustomersService {
         creatorId: requestUserId,
         status: isAgentUser ? UserStatus.inactive : UserStatus.active,
         isApproved: isAgentUser ? false : true,
+        requiresReview: isAgentUser,
+        approvalStatus: isAgentUser ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED,
         ...(alternatePhone && { alternatePhone }),
         ...(gender && { gender }),
         ...(installationAddress && { installationAddress }),
