@@ -1,10 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { OdysseyModule } from './odyssey/odyssey.module';
+import { ODYSSEY_PAYMENTS_PATH } from './odyssey/odyssey.controller';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import {
   ValidationPipe,
   Logger,
+  RequestMethod,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -26,7 +28,9 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Global API prefix
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: ODYSSEY_PAYMENTS_PATH, method: RequestMethod.GET }],
+  });
 
   // CORS configuration — ALLOWED_ORIGINS is comma-separated, e.g.
   // https://freewaveenergy.ng,https://www.freewaveenergy.ng
@@ -86,7 +90,7 @@ async function bootstrap() {
 
   // Odyssey is a third-party integration. Keep its API-key authentication
   // contract out of the internal staff API documentation.
-  delete document.paths['/api/v1/payments'];
+  delete document.paths[`/${ODYSSEY_PAYMENTS_PATH}`];
 
   // Sort paths in ascending order
   document.paths = Object.keys(document.paths)

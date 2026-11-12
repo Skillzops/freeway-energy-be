@@ -17,8 +17,10 @@ import {
 import { OdysseyPaymentResponseDto } from './dto/odyssey.dto';
 import { OdysseyService } from './odyssey.service';
 
+export const ODYSSEY_PAYMENTS_PATH = 'api/payments/odyssey';
+
 @ApiTags('Odyssey Integration')
-@Controller('payments')
+@Controller(ODYSSEY_PAYMENTS_PATH)
 export class OdysseyController {
   private readonly logger = new Logger(OdysseyController.name);
 

@@ -1,8 +1,8 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, RequestMethod } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as request from 'supertest';
-import { OdysseyController } from './odyssey.controller';
+import { ODYSSEY_PAYMENTS_PATH, OdysseyController } from './odyssey.controller';
 import { OdysseyService } from './odyssey.service';
 
 describe('Odyssey payment route', () => {
@@ -19,15 +19,17 @@ describe('Odyssey payment route', () => {
     }).compile();
 
     app = module.createNestApplication();
-    app.setGlobalPrefix('api/v1');
+    app.setGlobalPrefix('api/v1', {
+      exclude: [{ path: ODYSSEY_PAYMENTS_PATH, method: RequestMethod.GET }],
+    });
     await app.init();
   });
 
   afterAll(async () => { await app.close(); });
 
-  it('serves partner payments at /api/v1/payments', async () => {
+  it('serves partner payments at /api/payments/odyssey', async () => {
     await request(app.getHttpServer())
-      .get('/api/v1/payments')
+      .get('/api/payments/odyssey')
       .set('Authorization', 'Bearer test-partner-key')
       .query({ FROM: '2026-11-01T00:00:00Z', TO: '2026-11-02T00:00:00Z' })
       .expect(200)
@@ -36,10 +38,10 @@ describe('Odyssey payment route', () => {
   });
 
   it('still requires bearer authentication', async () => {
-    await request(app.getHttpServer()).get('/api/v1/payments').expect(401);
+    await request(app.getHttpServer()).get('/api/payments/odyssey').expect(401);
   });
 
-  it.each(['/api/payments/odyssey', '/api/v1/api/payments/odyssey', '/api/v1/payments/odyssey'])(
+  it.each(['/api/v1/payments', '/api/v1/api/payments/odyssey', '/api/v1/payments/odyssey'])(
     'does not expose an alias at %s', async (path) => {
       await request(app.getHttpServer()).get(path).expect(404);
     },
@@ -48,7 +50,7 @@ describe('Odyssey payment route', () => {
   it('documents only the canonical payments path', () => {
     const config = new DocumentBuilder().addBearerAuth(undefined, 'odyssey_api_key').build();
     const document = SwaggerModule.createDocument(app, config);
-    expect(Object.keys(document.paths)).toEqual(['/api/v1/payments']);
-    expect(document.paths['/api/v1/payments'].get.security).toContainEqual({ odyssey_api_key: [] });
+    expect(Object.keys(document.paths)).toEqual(['/api/payments/odyssey']);
+    expect(document.paths['/api/payments/odyssey'].get.security).toContainEqual({ odyssey_api_key: [] });
   });
 });
