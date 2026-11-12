@@ -84,15 +84,9 @@ export class OdysseyService {
 
       // Transform payments to Odyssey format
       const odysseyPayments: OdysseyPaymentDto[] = [];
-      let skippedForMissingCoordinates = 0;
 
       for (const payment of payments) {
         const odysseyPayment = await this.transformToOdysseyFormat(payment);
-
-        if (!odysseyPayment) {
-          skippedForMissingCoordinates += 1;
-          continue;
-        }
 
         // Apply optional filters
         if (this.shouldIncludePayment(odysseyPayment, query)) {
@@ -104,9 +98,7 @@ export class OdysseyService {
 
       return {
         payments: odysseyPayments,
-        errors: skippedForMissingCoordinates
-          ? `${skippedForMissingCoordinates} payment record(s) were skipped because neither valid device nor customer GPS coordinates are available.`
-          : '',
+        errors: '',
       };
     } catch (error) {
       console.error('Error fetching payments for Odyssey', error);
@@ -154,7 +146,7 @@ export class OdysseyService {
 
   private async transformToOdysseyFormat(
     payment: any,
-  ): Promise<OdysseyPaymentDto | null> {
+  ): Promise<OdysseyPaymentDto> {
     const sale = payment.sale;
     const customer = sale.customer;
     const saleItem = sale.saleItems[0]; // Assuming primary sale item
@@ -199,15 +191,11 @@ export class OdysseyService {
       customer?.longitude,
     );
 
-    // Odyssey requires usable GPS for every exported record. Prefer device
-    // installation coordinates and fall back to the customer's saved location.
-    const coords = deviceCoords ?? customerCoords;
-    if (!coords) {
-      this.logger.warn(
-        `Skipping Odyssey payment export payment=${payment.id}: no valid device or customer GPS coordinates`,
-      );
-      return null;
-    }
+    // Prefer device installation coordinates, then the customer's saved location.
+    const coords = deviceCoords ?? customerCoords ?? {
+      latitude: '',
+      longitude: '',
+    };
 
     return {
       timestamp: payment.paymentDate.toISOString(),
