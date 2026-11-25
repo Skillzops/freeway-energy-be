@@ -75,7 +75,7 @@ export class ExportDataQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Filter by specific customer ID (Applicable to only export_type=sales|debt_report|customers|renewal_report|devices)',
+      'Filter by specific customer ID (Applicable to only export_type=sales|payments|debt_report|customers|renewal_report|devices)',
     example: '507f1f77bcf86cd799439011',
   })
   @IsOptional()

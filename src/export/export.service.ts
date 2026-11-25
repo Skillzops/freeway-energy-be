@@ -2134,6 +2134,17 @@ export class ExportService {
     let agentInfo: AgentInfo | null = null;
 
     const matchConditions: any = { deletedAt: null };
+    // Payments belong to a customer through their sale, not their recorded payer.
+    // Share this scope across the count and row queries (including CSV exports).
+    if (filters.customerId) {
+      const customerSales = await this.prisma.sales.findMany({
+        where: { customerId: filters.customerId },
+        select: { id: true },
+      });
+      matchConditions.saleId = {
+        $in: customerSales.map((sale) => ({ $oid: sale.id })),
+      };
+    }
     if (filters.paymentMethod)
       matchConditions.paymentMethod = filters.paymentMethod;
     if (filters.startDate || filters.endDate) {
