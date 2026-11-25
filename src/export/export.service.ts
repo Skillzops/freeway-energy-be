@@ -88,6 +88,36 @@ export class ExportService {
   /**
    * Get agent info and validate existence
    */
+  // Resolve agent filters before pagination so rows, totals and CSV use one scope.
+  // Preserve the existing report definition: sale agent or legacy creator; installers via tasks.
+  private async reportAgentSaleWhere(filters: ExportDataQueryDto): Promise<any> {
+    if (!filters.agentId && !filters.agentCategory) return {};
+    const selected = filters.agentId ? await this.getAgentInfo(filters.agentId) : null;
+    if (selected && filters.agentCategory && selected.category !== filters.agentCategory) {
+      return { id: { in: [] } };
+    }
+    const category = selected?.category || filters.agentCategory;
+    if (category === AgentCategory.INSTALLER) {
+      return { installerTasks: { some: selected ? { installerAgentId: selected.agentId } : {
+        installerAgent: { category: AgentCategory.INSTALLER },
+      } } };
+    }
+    const agents = selected ? [{ id: selected.agentId, userId: selected.userId }] :
+      await this.prisma.agent.findMany({ where: { category }, select: { id: true, userId: true } });
+    return { OR: [
+      { agentId: { in: agents.map((agent) => agent.id) } },
+      { creatorId: { in: agents.map((agent) => agent.userId) } },
+    ] };
+  }
+
+  private async scopeReportSales(match: any, filters: ExportDataQueryDto): Promise<void> {
+    if (!filters.agentId && !filters.agentCategory) return;
+    const sales = await this.prisma.sales.findMany({
+      where: await this.reportAgentSaleWhere(filters), select: { id: true },
+    });
+    match._id = { $in: sales.map((sale) => ({ $oid: sale.id })) };
+  }
+
   private async getAgentInfo(agentId: string): Promise<AgentInfo> {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
@@ -295,6 +325,7 @@ export class ExportService {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
     };
+    await this.scopeReportSales(matchConditions, filters);
 
     const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
     if (dateFilter) matchConditions.createdAt = dateFilter;
@@ -309,9 +340,6 @@ export class ExportService {
           { creatorId: { $oid: agentInfo.userId } },
         ];
       }
-    }
-    if (filters.agentCategory) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     if (filters.isOverdue !== undefined) {
@@ -804,6 +832,7 @@ export class ExportService {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
     };
+    await this.scopeReportSales(matchConditions, filters);
 
     const dateFilter = this.buildDateFilter(filters.startDate, filters.endDate);
     if (dateFilter) matchConditions.createdAt = dateFilter;
@@ -818,9 +847,6 @@ export class ExportService {
           { creatorId: { $oid: agentInfo.userId } },
         ];
       }
-    }
-    if (filters.agentCategory) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     const countPipeline = this.buildRenewalReportCountPipeline(
@@ -1317,6 +1343,7 @@ export class ExportService {
       },
       deletedAt: null,
     };
+    await this.scopeReportSales(matchConditions, filters);
 
     let agentInfo: AgentInfo | null = null;
 
@@ -1332,9 +1359,6 @@ export class ExportService {
       // For INSTALLER, filter in pipeline
     }
 
-    if (filters.agentCategory) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
-    }
 
     const [newSalesResults, renewalsResults] = await Promise.all([
       this.buildSummaryNewSalesPipeline(matchConditions, agentInfo),
@@ -1631,6 +1655,7 @@ export class ExportService {
     let agentInfo: AgentInfo | null = null;
 
     const matchConditions: any = { deletedAt: null };
+    await this.scopeReportSales(matchConditions, filters);
     if (filters.startDate || filters.endDate) {
       matchConditions.createdAt = {};
       if (filters.startDate)
@@ -1658,9 +1683,6 @@ export class ExportService {
       // For INSTALLER, we'll use pipeline aggregation
     }
 
-    if (filters.agentCategory) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
-    }
 
     // Count
     const countPipeline = this.buildSalesCountPipeline(
@@ -1893,6 +1915,14 @@ export class ExportService {
         };
     }
 
+    const agentSaleWhere = await this.reportAgentSaleWhere(filters);
+    if (filters.agentId || filters.agentCategory) {
+      const scopedSales = await this.prisma.sales.findMany({
+        where: agentSaleWhere, select: { customerId: true },
+      });
+      matchConditions._id = { $in: scopedSales.map((sale) => ({ $oid: sale.customerId })) };
+      if (filters.customerId) matchConditions.$and = [{ _id: { $oid: filters.customerId } }];
+    }
     const countPipeline: any[] = [
       { $match: matchConditions },
       {
@@ -1916,8 +1946,8 @@ export class ExportService {
           },
         },
       },
-      ...(filters.hasOutstandingDebt
-        ? [{ $match: { outstandingDebt: { $gt: 0 } } }]
+      ...(filters.hasOutstandingDebt !== undefined
+        ? [{ $match: { outstandingDebt: filters.hasOutstandingDebt ? { $gt: 0 } : { $lte: 0 } } }]
         : []),
       { $count: 'total' },
     ];
@@ -1931,8 +1961,8 @@ export class ExportService {
 
     const customersResults = await this.prisma.customer.aggregateRaw({
       pipeline: [
-        { $match: matchConditions },
-        { $sort: { createdAt: -1 } },
+        ...countPipeline.slice(0, -1),
+        { $sort: { createdAt: -1, _id: -1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit },
       ],
@@ -1954,60 +1984,10 @@ export class ExportService {
 
     const customerIds = customers.map((c) => this.extractObjectId(c._id));
 
-    // Build agent filter if provided
-    let agentFilter: any = undefined;
-    if (filters.agentId) {
-      const agentInfo = await this.getAgentInfo(filters.agentId);
-      if (agentInfo.category === AgentCategory.SALES) {
-        agentFilter = {
-          $or: [
-            { agentId: agentInfo.agentId },
-            { creatorId: agentInfo.userId },
-          ],
-        };
-      } else if (agentInfo.category === AgentCategory.INSTALLER) {
-        // For installers, we need to filter by installer tasks
-        const installerTasks = await this.prisma.installerTask.findMany({
-          where: { installerAgentId: agentInfo.agentId },
-          select: { saleId: true },
-          distinct: ['saleId'],
-        });
-        const saleIds = installerTasks.map((t) => t.saleId).filter(Boolean);
-        if (saleIds.length === 0) {
-          return {
-            data: '',
-            jsonData: [],
-            totalRecords: 0,
-            allRecordsCount,
-            currentPage: page,
-            totalPages,
-            exportType: ExportType.CUSTOMERS,
-          };
-        }
-        agentFilter = { id: { in: saleIds } };
-      }
-    }
-
-    if (filters.agentCategory) {
-      if (filters.agentCategory === AgentCategory.INSTALLER) {
-        const installerTasks = await this.prisma.installerTask.findMany({
-          where: { installerAgent: { category: AgentCategory.INSTALLER } },
-          select: { saleId: true },
-          distinct: ['saleId'],
-        });
-        const installerSaleIds = installerTasks
-          .map((t) => t.saleId)
-          .filter(Boolean);
-        agentFilter = { id: { in: installerSaleIds } };
-      } else if (filters.agentCategory === AgentCategory.SALES) {
-        agentFilter = { agentId: { not: null } };
-      }
-    }
-
     const sales = await this.prisma.sales.findMany({
       where: {
         customerId: { in: customerIds },
-        ...agentFilter,
+
       },
       select: { id: true, customerId: true, totalPrice: true, totalPaid: true },
     });
@@ -2076,8 +2056,6 @@ export class ExportService {
         };
         const customerDevices = devicesByCustomer.get(customerId) || [];
 
-        if (filters.hasOutstandingDebt && stats.outstandingDebt <= 0)
-          return null;
 
         return {
           customerId,
@@ -2136,13 +2114,20 @@ export class ExportService {
     const matchConditions: any = { deletedAt: null };
     // Payments belong to a customer through their sale, not their recorded payer.
     // Share this scope across the count and row queries (including CSV exports).
-    if (filters.customerId) {
+    if (filters.customerId || filters.agentId || filters.agentCategory) {
       const customerSales = await this.prisma.sales.findMany({
-        where: { customerId: filters.customerId },
+        where: { ...(await this.reportAgentSaleWhere(filters)),
+          ...(filters.customerId ? { customerId: filters.customerId } : {}),
+        },
         select: { id: true },
       });
-      matchConditions.saleId = {
-        $in: customerSales.map((sale) => ({ $oid: sale.id })),
+      matchConditions.saleId = { $in: customerSales.map((sale) => ({ $oid: sale.id })) };
+    }
+    if (filters.paymentStatus) matchConditions.paymentStatus = filters.paymentStatus;
+    if (filters.minAmount !== undefined || filters.maxAmount !== undefined) {
+      matchConditions.amount = {
+        ...(filters.minAmount !== undefined ? { $gte: filters.minAmount } : {}),
+        ...(filters.maxAmount !== undefined ? { $lte: filters.maxAmount } : {}),
       };
     }
     if (filters.paymentMethod)
@@ -2157,15 +2142,6 @@ export class ExportService {
         matchConditions.paymentDate.$lte = {
           $date: new Date(filters.endDate).toISOString(),
         };
-    }
-
-    // Get agent info if filtering
-    if (filters.agentId) {
-      agentInfo = await this.getAgentInfo(filters.agentId);
-    }
-
-    if (filters.agentCategory && !agentInfo) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
     }
 
     const countPipeline = this.buildPaymentsCountPipeline(
@@ -2267,7 +2243,7 @@ export class ExportService {
     const jsonData = payments.map((payment) => {
       const sale = saleMap.get(this.extractObjectId(payment.saleId));
       const customer = customerMap.get(sale?.customerId);
-      const saleDevices = devicesBySale.get(sale.id) || [];
+      const saleDevices = devicesBySale.get(sale?.id) || [];
 
       return {
         paymentId: this.extractObjectId(payment._id) || '',
@@ -2520,6 +2496,20 @@ export class ExportService {
     if (filters.installationStatus)
       matchConditions.installationStatus = filters.installationStatus;
 
+    let scopedSaleIds: string[] | null = null;
+    if (filters.agentId || filters.agentCategory || filters.customerId) {
+      const scopedSales = await this.prisma.sales.findMany({
+        where: { ...(await this.reportAgentSaleWhere(filters)),
+          ...(filters.customerId ? { customerId: filters.customerId } : {}),
+        }, select: { id: true },
+      });
+      scopedSaleIds = scopedSales.map((sale) => sale.id);
+      const scopedItems = await this.prisma.saleItem.findMany({
+        where: { saleId: { in: scopedSaleIds } }, select: { deviceIDs: true },
+      });
+      matchConditions._id = { $in: [...new Set(scopedItems.flatMap((item) => item.deviceIDs))]
+        .map((id) => ({ $oid: id })) };
+    }
     const countResult = await this.prisma.device.aggregateRaw({
       pipeline: [{ $match: matchConditions }, { $count: 'total' }],
       options: { allowDiskUse: true },
@@ -2542,7 +2532,7 @@ export class ExportService {
       return {
         data: '',
         jsonData: [],
-        totalRecordsCount: 0,
+        totalRecords: 0,
         allRecordsCount,
         currentPage: page,
         totalPages,
@@ -2574,39 +2564,9 @@ export class ExportService {
     ];
     const agentIds = [...new Set(sales.map((s) => s.agentId).filter(Boolean))];
 
-    let agentInfo: AgentInfo | null = null;
-    if (filters.agentId) {
-      agentInfo = await this.getAgentInfo(filters.agentId);
-    }
-
-    if (filters.agentCategory && !agentInfo) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
-    }
-
-    // Filter by agent if provided
-    let filteredSales = sales;
-    if (filters.agentId || filters.agentCategory) {
-      if (agentInfo.category === AgentCategory.SALES) {
-        filteredSales = sales.filter(
-          (s) =>
-            s.agentId === agentInfo.agentId || s.creatorId === agentInfo.userId,
-        );
-      } else if (agentInfo.category === AgentCategory.INSTALLER) {
-        const installerTasks = await this.prisma.installerTask.findMany({
-          where: agentInfo.agentId
-            ? { installerAgentId: agentInfo.agentId } // Specific installer
-            : { installerAgent: { category: AgentCategory.INSTALLER } },
-          select: { saleId: true },
-        });
-        const installerSaleIds = new Set(
-          installerTasks.map((t) => t.saleId).filter(Boolean),
-        );
-        filteredSales = sales.filter((s) => installerSaleIds.has(s.id));
-      }
-      customerIds = [
-        ...new Set(filteredSales.map((s) => s.customerId).filter(Boolean)),
-      ];
-    }
+    const agentInfo: AgentInfo | null = null;
+    const filteredSales = scopedSaleIds === null ? sales : sales.filter((sale) => scopedSaleIds.includes(sale.id));
+    customerIds = [...new Set(filteredSales.map((sale) => sale.customerId).filter(Boolean))];
 
     if (filters.customerId) {
       customerIds = customerIds.filter((id) => id === filters.customerId);
@@ -2740,14 +2700,12 @@ export class ExportService {
       agentInfo = await this.getAgentInfo(filters.agentId);
     }
 
-    if (filters.agentCategory && !agentInfo) {
-      agentInfo = { category: filters.agentCategory } as AgentInfo;
-    }
 
     const matchConditions: any = {
       deletedAt: null,
       $expr: { $gt: [{ $subtract: ['$totalPrice', '$totalPaid'] }, 0] },
     };
+    await this.scopeReportSales(matchConditions, filters);
 
     if (startDate || endDate) {
       matchConditions.createdAt = {};
@@ -2859,6 +2817,9 @@ export class ExportService {
   }
 
   private validateFilters(filters: ExportDataQueryDto): void {
+    if (filters.minAmount !== undefined && filters.maxAmount !== undefined && filters.minAmount > filters.maxAmount) {
+      throw new BadRequestException('Minimum amount must not exceed maximum amount');
+    }
     if (!filters.exportType) {
       throw new BadRequestException('Export type is required');
     }

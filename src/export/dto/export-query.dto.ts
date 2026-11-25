@@ -119,6 +119,25 @@ export class ExportDataQueryDto {
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
 
+  @ApiPropertyOptional({ enum: ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED'] })
+  @IsOptional()
+  @IsEnum(['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED'])
+  paymentStatus?: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minAmount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  maxAmount?: number;
+
   @ApiPropertyOptional({
     description:
       'Start date for filtering (ISO 8601: 2025-01-01) (Applicable to only export_type=sales|payment|customers|devices|monthly_summary|weekly_summary|renewal_report|debt_report|total_outstanding_receivables)',
